@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agirails-sdk"
+version = "0.1.2"
+description = "AGIRAILS Python SDK (MVP) for ACTP on-chain operations"
+authors = [{ name = "AGIRAILS" }]
+requires-python = ">=3.9"
+dependencies = [
+  "web3>=6.0.0",
+  "pydantic>=2.6.0",
+  "python-dotenv>=1.0.0",
+  "eth-account>=0.10.0",
+  "eth-abi>=4.0.0",
+  "eth-typing>=3.0.0",
+]
+readme = "README.md"
+long_description = { file = "README.md", content-type = "text/markdown" }
+license = { text = "Apache-2.0" }
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "License :: OSI Approved :: Apache Software License",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://agirails.io"
+
+[tool.setuptools]
+packages = ["agirails_sdk"]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.package-data]
+"agirails_sdk" = ["abis/*.json"]
+
+[tool.black]
+line-length = 120
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-select = ["I"]
+
+[project.optional-dependencies]
+async = ["aiohttp>=3.9.0"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+warn_unused_ignores = true

@@ -1,0 +1,102 @@
+[
+  {
+    "type": "event",
+    "name": "TransactionCreated",
+    "inputs": [
+      { "indexed": true, "name": "transactionId", "type": "bytes32" },
+      { "indexed": true, "name": "requester", "type": "address" },
+      { "indexed": true, "name": "provider", "type": "address" },
+      { "indexed": false, "name": "amount", "type": "uint256" },
+      { "indexed": false, "name": "serviceHash", "type": "bytes32" },
+      { "indexed": false, "name": "deadline", "type": "uint256" },
+      { "indexed": false, "name": "timestamp", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "StateTransitioned",
+    "inputs": [
+      { "indexed": true, "name": "transactionId", "type": "bytes32" },
+      { "indexed": true, "name": "oldState", "type": "uint8" },
+      { "indexed": true, "name": "newState", "type": "uint8" },
+      { "indexed": false, "name": "triggeredBy", "type": "address" },
+      { "indexed": false, "name": "timestamp", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "EscrowLinked",
+    "inputs": [
+      { "indexed": true, "name": "transactionId", "type": "bytes32" },
+      { "indexed": false, "name": "escrowContract", "type": "address" },
+      { "indexed": false, "name": "escrowId", "type": "bytes32" },
+      { "indexed": false, "name": "amount", "type": "uint256" },
+      { "indexed": false, "name": "timestamp", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "createTransaction",
+    "inputs": [
+      { "name": "provider", "type": "address" },
+      { "name": "requester", "type": "address" },
+      { "name": "amount", "type": "uint256" },
+      { "name": "deadline", "type": "uint256" },
+      { "name": "disputeWindow", "type": "uint256" },
+      { "name": "serviceHash", "type": "bytes32" }
+    ],
+    "outputs": [{ "name": "transactionId", "type": "bytes32" }],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "linkEscrow",
+    "inputs": [
+      { "name": "transactionId", "type": "bytes32" },
+      { "name": "escrowContract", "type": "address" },
+      { "name": "escrowId", "type": "bytes32" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transitionState",
+    "inputs": [
+      { "name": "transactionId", "type": "bytes32" },
+      { "name": "newState", "type": "uint8" },
+      { "name": "proof", "type": "bytes" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getTransaction",
+    "inputs": [{ "name": "transactionId", "type": "bytes32" }],
+    "outputs": [
+      {
+        "components": [
+          { "name": "transactionId", "type": "bytes32" },
+          { "name": "requester", "type": "address" },
+          { "name": "provider", "type": "address" },
+          { "name": "state", "type": "uint8" },
+          { "name": "amount", "type": "uint256" },
+          { "name": "createdAt", "type": "uint256" },
+          { "name": "updatedAt", "type": "uint256" },
+          { "name": "deadline", "type": "uint256" },
+          { "name": "serviceHash", "type": "bytes32" },
+          { "name": "escrowContract", "type": "address" },
+          { "name": "escrowId", "type": "bytes32" },
+          { "name": "attestationUID", "type": "bytes32" },
+          { "name": "disputeWindow", "type": "uint256" },
+          { "name": "metadata", "type": "bytes32" },
+          { "name": "platformFeeBpsLocked", "type": "uint16" }
+        ],
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view"
+  }
+]

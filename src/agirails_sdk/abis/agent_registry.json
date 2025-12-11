@@ -1,0 +1,109 @@
+[
+  {
+    "type": "event",
+    "name": "AgentRegistered",
+    "inputs": [
+      { "indexed": true, "name": "agentAddress", "type": "address" },
+      { "indexed": false, "name": "did", "type": "string" },
+      { "indexed": false, "name": "endpoint", "type": "string" },
+      { "indexed": false, "name": "timestamp", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "registerAgent",
+    "inputs": [
+      { "name": "endpoint", "type": "string" },
+      {
+        "name": "serviceDescriptors",
+        "type": "tuple[]",
+        "components": [
+          { "name": "serviceTypeHash", "type": "bytes32" },
+          { "name": "serviceType", "type": "string" },
+          { "name": "schemaURI", "type": "string" },
+          { "name": "minPrice", "type": "uint256" },
+          { "name": "maxPrice", "type": "uint256" },
+          { "name": "avgCompletionTime", "type": "uint256" },
+          { "name": "metadataCID", "type": "string" }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "updateEndpoint",
+    "inputs": [{ "name": "newEndpoint", "type": "string" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addServiceType",
+    "inputs": [{ "name": "serviceType", "type": "string" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeServiceType",
+    "inputs": [{ "name": "serviceTypeHash", "type": "bytes32" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setActiveStatus",
+    "inputs": [{ "name": "isActive", "type": "bool" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getAgent",
+    "inputs": [{ "name": "agentAddress", "type": "address" }],
+    "outputs": [
+      {
+        "components": [
+          { "name": "agentAddress", "type": "address" },
+          { "name": "did", "type": "string" },
+          { "name": "endpoint", "type": "string" },
+          { "name": "serviceTypes", "type": "bytes32[]" },
+          { "name": "stakedAmount", "type": "uint256" },
+          { "name": "reputationScore", "type": "uint256" },
+          { "name": "totalTransactions", "type": "uint256" },
+          { "name": "disputedTransactions", "type": "uint256" },
+          { "name": "totalVolumeUSDC", "type": "uint256" },
+          { "name": "registeredAt", "type": "uint256" },
+          { "name": "updatedAt", "type": "uint256" },
+          { "name": "isActive", "type": "bool" }
+        ],
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getServiceDescriptors",
+    "inputs": [{ "name": "agentAddress", "type": "address" }],
+    "outputs": [
+      {
+        "components": [
+          { "name": "serviceTypeHash", "type": "bytes32" },
+          { "name": "serviceType", "type": "string" },
+          { "name": "schemaURI", "type": "string" },
+          { "name": "minPrice", "type": "uint256" },
+          { "name": "maxPrice", "type": "uint256" },
+          { "name": "avgCompletionTime", "type": "uint256" },
+          { "name": "metadataCID", "type": "string" }
+        ],
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view"
+  }
+]
