@@ -36,7 +36,7 @@ NETWORKS: dict[Network, NetworkConfig] = {
         eas="0x4200000000000000000000000000000000000021",
         eas_schema_registry="0x4200000000000000000000000000000000000020",
         delivery_schema_uid="0x1b0ebdf0bd20c28ec9d5362571ce8715a55f46e81c3de2f9b0d8e1b95fb5ffce",
-        agent_registry="0x0000000000000000000000000000000000000000",
+        agent_registry="0xFed6914Aa70c0a53E9c7Cc4d2Ae159e4748fb09D",  # AIP-7 deployed 2025-12-11
     ),
     Network.BASE: NetworkConfig(
         name=Network.BASE,
