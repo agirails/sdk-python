@@ -100,16 +100,16 @@ class TestACTPClientAdapters:
         )
 
     @pytest.mark.asyncio
-    async def test_beginner_adapter(self, client):
-        """Access beginner adapter."""
-        assert client.beginner is not None
-        assert hasattr(client.beginner, "pay")
+    async def test_basic_adapter(self, client):
+        """Access basic adapter."""
+        assert client.basic is not None
+        assert hasattr(client.basic, "pay")
 
     @pytest.mark.asyncio
-    async def test_intermediate_adapter(self, client):
-        """Access intermediate adapter."""
-        assert client.intermediate is not None
-        assert hasattr(client.intermediate, "create_transaction")
+    async def test_standard_adapter(self, client):
+        """Access standard adapter."""
+        assert client.standard is not None
+        assert hasattr(client.standard, "create_transaction")
 
     @pytest.mark.asyncio
     async def test_advanced_same_as_runtime(self, client):
@@ -187,7 +187,7 @@ class TestACTPClientReset:
         provider = "0x" + "b" * 40
 
         # Create a transaction
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider,
             "amount": 10,
         })
@@ -198,7 +198,7 @@ class TestACTPClientReset:
         await client.reset()
 
         # Transaction should be gone
-        tx = await client.intermediate.get_transaction(result.tx_id)
+        tx = await client.standard.get_transaction(result.tx_id)
         assert tx is None
 
     @pytest.mark.asyncio
@@ -210,7 +210,7 @@ class TestACTPClientReset:
         assert initial_balance == "1000000.00"
 
         # Spend some funds
-        await client.beginner.pay({
+        await client.basic.pay({
             "to": "0x" + "b" * 40,
             "amount": 100,
         })

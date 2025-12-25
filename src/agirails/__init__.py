@@ -12,7 +12,7 @@ Quick Start:
     ...         mode="mock",
     ...         requester_address="0x1234567890123456789012345678901234567890"
     ...     )
-    ...     result = await client.beginner.pay({
+    ...     result = await client.basic.pay({
     ...         "to": "0xabcdefABCDEFabcdefABCDEFabcdefABCDEFabcd",
     ...         "amount": 100
     ...     })
@@ -21,13 +21,13 @@ Quick Start:
     >>> asyncio.run(main())
 
 The SDK provides three levels of API:
-- **Beginner**: Simple `pay()` method for quick payments
-- **Intermediate**: Explicit lifecycle control with `create_transaction()`, `link_escrow()`, etc.
+- **Basic**: Simple `pay()` method for quick payments
+- **Standard**: Explicit lifecycle control with `create_transaction()`, `link_escrow()`, etc.
 - **Advanced**: Direct runtime access for custom workflows
 
 Modules:
 - `client`: ACTPClient factory and configuration
-- `adapters`: BeginnerAdapter, IntermediateAdapter
+- `adapters`: BasicAdapter, StandardAdapter
 - `runtime`: MockRuntime and BlockchainRuntime implementations
 - `errors`: Exception hierarchy for ACTP errors
 - `utils`: Helpers, security, logging, and concurrency utilities
@@ -46,11 +46,11 @@ from agirails.client import (
 # Adapters
 from agirails.adapters import (
     BaseAdapter,
-    BeginnerAdapter,
-    BeginnerPayParams,
-    BeginnerPayResult,
-    IntermediateAdapter,
-    IntermediateTransactionParams,
+    BasicAdapter,
+    BasicPayParams,
+    BasicPayResult,
+    StandardAdapter,
+    StandardTransactionParams,
     TransactionDetails,
     DEFAULT_DEADLINE_SECONDS,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
@@ -234,11 +234,11 @@ __all__ = [
     "ACTPClientMode",
     # Adapters
     "BaseAdapter",
-    "BeginnerAdapter",
-    "BeginnerPayParams",
-    "BeginnerPayResult",
-    "IntermediateAdapter",
-    "IntermediateTransactionParams",
+    "BasicAdapter",
+    "BasicPayParams",
+    "BasicPayResult",
+    "StandardAdapter",
+    "StandardTransactionParams",
     "TransactionDetails",
     "DEFAULT_DEADLINE_SECONDS",
     "DEFAULT_DISPUTE_WINDOW_SECONDS",

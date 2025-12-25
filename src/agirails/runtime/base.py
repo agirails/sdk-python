@@ -116,7 +116,7 @@ class IACTPRuntime(Protocol):
         >>> runtime: IACTPRuntime = MockRuntime()
         >>>
         >>> # Adapters work with either implementation
-        >>> adapter = BeginnerAdapter(runtime, requester_address)
+        >>> adapter = BasicAdapter(runtime, requester_address)
     """
 
     @property

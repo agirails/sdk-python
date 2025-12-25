@@ -1,5 +1,5 @@
 """
-Intermediate adapter for AGIRAILS SDK.
+Standard adapter for AGIRAILS SDK.
 
 Provides granular control over the ACTP transaction lifecycle:
 - Separate create_transaction() and link_escrow()
@@ -7,7 +7,7 @@ Provides granular control over the ACTP transaction lifecycle:
 - Escrow management
 - Full transaction lifecycle control
 
-Use this adapter when you need more control than BeginnerAdapter provides.
+Use this adapter when you need more control than BasicAdapter provides.
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class IntermediateTransactionParams:
+class StandardTransactionParams:
     """
-    Parameters for intermediate create_transaction().
+    Parameters for standard create_transaction().
 
     Args:
         provider: Provider address
@@ -55,7 +55,7 @@ class TransactionDetails:
     """
     Detailed transaction information.
 
-    Returned by get_transaction() for intermediate users who need full details.
+    Returned by get_transaction() for standard users who need full details.
     """
 
     id: str
@@ -73,9 +73,9 @@ class TransactionDetails:
     attestation_uid: Optional[str] = None
 
 
-class IntermediateAdapter(BaseAdapter):
+class StandardAdapter(BaseAdapter):
     """
-    Intermediate adapter for granular ACTP transaction control.
+    Standard adapter for granular ACTP transaction control.
 
     Provides separate methods for each step of the transaction lifecycle:
     1. create_transaction() - Create transaction (no funds locked yet)
@@ -88,8 +88,8 @@ class IntermediateAdapter(BaseAdapter):
         >>> client = await ACTPClient.create(mode="mock", requester_address="0x...")
         >>>
         >>> # Step 1: Create transaction
-        >>> tx_id = await client.intermediate.create_transaction(
-        ...     IntermediateTransactionParams(
+        >>> tx_id = await client.standard.create_transaction(
+        ...     StandardTransactionParams(
         ...         provider="0x...",
         ...         amount="100.50",
         ...         deadline="24h",
@@ -98,17 +98,17 @@ class IntermediateAdapter(BaseAdapter):
         ... )
         >>>
         >>> # Step 2: Link escrow (locks funds)
-        >>> escrow_id = await client.intermediate.link_escrow(tx_id)
+        >>> escrow_id = await client.standard.link_escrow(tx_id)
         >>>
         >>> # Step 3: Provider delivers work...
-        >>> await client.intermediate.transition_state(tx_id, "DELIVERED")
+        >>> await client.standard.transition_state(tx_id, "DELIVERED")
         >>>
         >>> # Step 4: Release funds
-        >>> await client.intermediate.release_escrow(escrow_id)
+        >>> await client.standard.release_escrow(escrow_id)
     """
 
     async def create_transaction(
-        self, params: Union[IntermediateTransactionParams, dict]
+        self, params: Union[StandardTransactionParams, dict]
     ) -> str:
         """
         Create a new ACTP transaction.
@@ -128,7 +128,7 @@ class IntermediateAdapter(BaseAdapter):
         """
         # Convert dict to dataclass if needed
         if isinstance(params, dict):
-            params = IntermediateTransactionParams(**params)
+            params = StandardTransactionParams(**params)
 
         # Validate provider address
         provider = self.validate_address(params.provider, "provider")
@@ -147,7 +147,7 @@ class IntermediateAdapter(BaseAdapter):
             service_hash = params.service_hash
         elif params.description:
             service_metadata = ServiceMetadata(
-                service="intermediate",
+                service="standard",
                 input={"description": params.description},
             )
             service_hash = ServiceHash.hash(service_metadata)

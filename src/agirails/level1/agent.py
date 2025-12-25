@@ -469,7 +469,7 @@ class Agent:
         service_hash = ServiceHash.hash(metadata)
 
         # Create transaction
-        tx_id = await self._client.intermediate.create_transaction(
+        tx_id = await self._client.standard.create_transaction(
             {
                 "provider": provider,
                 "amount": budget,
@@ -478,7 +478,7 @@ class Agent:
         )
 
         # Link escrow
-        await self._client.intermediate.link_escrow(tx_id)
+        await self._client.standard.link_escrow(tx_id)
 
         # Wait for completion
         start_time = asyncio.get_event_loop().time()
@@ -487,7 +487,7 @@ class Agent:
             if elapsed > timeout:
                 raise TimeoutError(f"Request timed out after {timeout}s")
 
-            tx = await self._client.intermediate.get_transaction(tx_id)
+            tx = await self._client.standard.get_transaction(tx_id)
             if tx is None:
                 raise RuntimeError(f"Transaction {tx_id} not found")
 
@@ -838,7 +838,7 @@ class Agent:
         # Transition to DELIVERED
         if self._client is not None:
             try:
-                await self._client.intermediate.transition_state(job.id, "DELIVERED")
+                await self._client.standard.transition_state(job.id, "DELIVERED")
             except Exception as e:
                 _logger.warning(
                     "Failed to transition job to DELIVERED",

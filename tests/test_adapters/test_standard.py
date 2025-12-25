@@ -1,5 +1,5 @@
 """
-Tests for IntermediateAdapter.
+Tests for StandardAdapter.
 
 Tests for:
 - create_transaction()
@@ -12,11 +12,11 @@ Tests for:
 import pytest
 
 from agirails import ACTPClient, ValidationError
-from agirails.adapters import IntermediateTransactionParams
+from agirails.adapters import StandardTransactionParams
 
 
-class TestIntermediateCreateTransaction:
-    """Tests for IntermediateAdapter.create_transaction() method."""
+class TestStandardCreateTransaction:
+    """Tests for StandardAdapter.create_transaction() method."""
 
     @pytest.fixture
     async def client(self):
@@ -33,7 +33,7 @@ class TestIntermediateCreateTransaction:
     @pytest.mark.asyncio
     async def test_create_transaction_happy_path(self, client, provider_address):
         """Basic create_transaction() should work."""
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
@@ -45,31 +45,31 @@ class TestIntermediateCreateTransaction:
     @pytest.mark.asyncio
     async def test_create_transaction_with_dataclass(self, client, provider_address):
         """create_transaction() with dataclass params."""
-        params = IntermediateTransactionParams(
+        params = StandardTransactionParams(
             provider=provider_address,
             amount="50.50",
             deadline="24h",
             description="Test transaction",
         )
 
-        tx_id = await client.intermediate.create_transaction(params)
+        tx_id = await client.standard.create_transaction(params)
         assert tx_id is not None
 
     @pytest.mark.asyncio
     async def test_create_transaction_state_is_initiated(self, client, provider_address):
         """Transaction should start in INITIATED state."""
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
 
-        tx = await client.intermediate.get_transaction(tx_id)
+        tx = await client.standard.get_transaction(tx_id)
         assert tx is not None
         assert tx.state == "INITIATED"
 
 
-class TestIntermediateLinkEscrow:
-    """Tests for IntermediateAdapter.link_escrow() method."""
+class TestStandardLinkEscrow:
+    """Tests for StandardAdapter.link_escrow() method."""
 
     @pytest.fixture
     async def client(self):
@@ -85,12 +85,12 @@ class TestIntermediateLinkEscrow:
     @pytest.mark.asyncio
     async def test_link_escrow_happy_path(self, client, provider_address):
         """link_escrow() should lock funds and return escrow_id."""
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
 
-        escrow_id = await client.intermediate.link_escrow(tx_id)
+        escrow_id = await client.standard.link_escrow(tx_id)
 
         assert escrow_id is not None
         assert escrow_id.startswith("0x")
@@ -98,14 +98,14 @@ class TestIntermediateLinkEscrow:
     @pytest.mark.asyncio
     async def test_link_escrow_transitions_to_committed(self, client, provider_address):
         """link_escrow() should transition to COMMITTED."""
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
 
-        await client.intermediate.link_escrow(tx_id)
+        await client.standard.link_escrow(tx_id)
 
-        tx = await client.intermediate.get_transaction(tx_id)
+        tx = await client.standard.get_transaction(tx_id)
         assert tx.state == "COMMITTED"
 
     @pytest.mark.asyncio
@@ -113,18 +113,18 @@ class TestIntermediateLinkEscrow:
         """link_escrow() should decrease requester balance."""
         before = float(await client.get_balance())
 
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
-        await client.intermediate.link_escrow(tx_id)
+        await client.standard.link_escrow(tx_id)
 
         after = float(await client.get_balance())
         assert before - after == 100
 
 
-class TestIntermediateTransitionState:
-    """Tests for IntermediateAdapter.transition_state() method."""
+class TestStandardTransitionState:
+    """Tests for StandardAdapter.transition_state() method."""
 
     @pytest.fixture
     async def client(self):
@@ -140,46 +140,46 @@ class TestIntermediateTransitionState:
     @pytest.fixture
     async def committed_tx(self, client, provider_address):
         """Create a committed transaction."""
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
-        await client.intermediate.link_escrow(tx_id)
+        await client.standard.link_escrow(tx_id)
         return tx_id
 
     @pytest.mark.asyncio
     async def test_transition_to_in_progress(self, client, committed_tx):
         """Transition COMMITTED -> IN_PROGRESS."""
-        await client.intermediate.transition_state(committed_tx, "IN_PROGRESS")
+        await client.standard.transition_state(committed_tx, "IN_PROGRESS")
 
-        tx = await client.intermediate.get_transaction(committed_tx)
+        tx = await client.standard.get_transaction(committed_tx)
         assert tx.state == "IN_PROGRESS"
 
     @pytest.mark.asyncio
     async def test_transition_to_delivered(self, client, committed_tx):
         """Transition COMMITTED -> DELIVERED."""
-        await client.intermediate.transition_state(committed_tx, "DELIVERED")
+        await client.standard.transition_state(committed_tx, "DELIVERED")
 
-        tx = await client.intermediate.get_transaction(committed_tx)
+        tx = await client.standard.get_transaction(committed_tx)
         assert tx.state == "DELIVERED"
 
     @pytest.mark.asyncio
     async def test_transition_with_proof(self, client, committed_tx):
         """Transition with delivery proof."""
         proof = "0x" + "abc123" * 10 + "abcd"
-        await client.intermediate.transition_state(
+        await client.standard.transition_state(
             committed_tx,
             "DELIVERED",
             proof=proof,
         )
 
-        tx = await client.intermediate.get_transaction(committed_tx)
+        tx = await client.standard.get_transaction(committed_tx)
         assert tx.state == "DELIVERED"
         assert tx.delivery_proof == proof
 
 
-class TestIntermediateReleaseEscrow:
-    """Tests for IntermediateAdapter.release_escrow() method."""
+class TestStandardReleaseEscrow:
+    """Tests for StandardAdapter.release_escrow() method."""
 
     @pytest.fixture
     async def client(self):
@@ -196,22 +196,22 @@ class TestIntermediateReleaseEscrow:
     async def test_release_escrow_happy_path(self, client, provider_address):
         """release_escrow() should release funds and settle."""
         # Setup
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
             "dispute_window": 3600,  # 1 hour
         })
-        escrow_id = await client.intermediate.link_escrow(tx_id)
-        await client.intermediate.transition_state(tx_id, "DELIVERED")
+        escrow_id = await client.standard.link_escrow(tx_id)
+        await client.standard.transition_state(tx_id, "DELIVERED")
 
         # Advance time past dispute window
         await client.runtime.time.advance_time(3700)
 
         # Release
-        await client.intermediate.release_escrow(escrow_id)
+        await client.standard.release_escrow(escrow_id)
 
         # Verify
-        tx = await client.intermediate.get_transaction(tx_id)
+        tx = await client.standard.get_transaction(tx_id)
         assert tx.state == "SETTLED"
 
     @pytest.mark.asyncio
@@ -224,15 +224,15 @@ class TestIntermediateReleaseEscrow:
         before_balance = await client.get_balance(unique_provider)
         before_amount = float(before_balance)
 
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": unique_provider,
             "amount": 100,
             "dispute_window": 3600,
         })
-        escrow_id = await client.intermediate.link_escrow(tx_id)
-        await client.intermediate.transition_state(tx_id, "DELIVERED")
+        escrow_id = await client.standard.link_escrow(tx_id)
+        await client.standard.transition_state(tx_id, "DELIVERED")
         await client.runtime.time.advance_time(3700)
-        await client.intermediate.release_escrow(escrow_id)
+        await client.standard.release_escrow(escrow_id)
 
         # Verify provider got funds (increased by ~99 after 1% fee)
         after_balance = await client.get_balance(unique_provider)
@@ -240,8 +240,8 @@ class TestIntermediateReleaseEscrow:
         assert after_amount > before_amount
 
 
-class TestIntermediateGetTransaction:
-    """Tests for IntermediateAdapter.get_transaction() method."""
+class TestStandardGetTransaction:
+    """Tests for StandardAdapter.get_transaction() method."""
 
     @pytest.fixture
     async def client(self):
@@ -257,12 +257,12 @@ class TestIntermediateGetTransaction:
     @pytest.mark.asyncio
     async def test_get_transaction_returns_details(self, client, provider_address):
         """get_transaction() should return TransactionDetails."""
-        tx_id = await client.intermediate.create_transaction({
+        tx_id = await client.standard.create_transaction({
             "provider": provider_address,
             "amount": 100,
         })
 
-        tx = await client.intermediate.get_transaction(tx_id)
+        tx = await client.standard.get_transaction(tx_id)
 
         assert tx is not None
         assert tx.id == tx_id
@@ -273,12 +273,12 @@ class TestIntermediateGetTransaction:
     @pytest.mark.asyncio
     async def test_get_transaction_not_found(self, client):
         """get_transaction() returns None for non-existent."""
-        tx = await client.intermediate.get_transaction("0x" + "f" * 64)
+        tx = await client.standard.get_transaction("0x" + "f" * 64)
         assert tx is None
 
 
-class TestIntermediateGetAllTransactions:
-    """Tests for IntermediateAdapter.get_all_transactions() method."""
+class TestStandardGetAllTransactions:
+    """Tests for StandardAdapter.get_all_transactions() method."""
 
     @pytest.fixture
     async def client(self):
@@ -296,16 +296,16 @@ class TestIntermediateGetAllTransactions:
         provider1 = "0x" + "b" * 40
         provider2 = "0x" + "c" * 40
 
-        await client.intermediate.create_transaction({"provider": provider1, "amount": 100})
-        await client.intermediate.create_transaction({"provider": provider2, "amount": 200})
+        await client.standard.create_transaction({"provider": provider1, "amount": 100})
+        await client.standard.create_transaction({"provider": provider2, "amount": 200})
 
-        txs = await client.intermediate.get_all_transactions()
+        txs = await client.standard.get_all_transactions()
 
         assert len(txs) == 2
 
 
-class TestIntermediateGetTransactionsByProvider:
-    """Tests for IntermediateAdapter.get_transactions_by_provider() method."""
+class TestStandardGetTransactionsByProvider:
+    """Tests for StandardAdapter.get_transactions_by_provider() method."""
 
     @pytest.fixture
     async def client(self):
@@ -323,11 +323,11 @@ class TestIntermediateGetTransactionsByProvider:
         provider1 = "0x" + "b" * 40
         provider2 = "0x" + "c" * 40
 
-        await client.intermediate.create_transaction({"provider": provider1, "amount": 100})
-        await client.intermediate.create_transaction({"provider": provider1, "amount": 200})
-        await client.intermediate.create_transaction({"provider": provider2, "amount": 300})
+        await client.standard.create_transaction({"provider": provider1, "amount": 100})
+        await client.standard.create_transaction({"provider": provider1, "amount": 200})
+        await client.standard.create_transaction({"provider": provider2, "amount": 300})
 
-        txs = await client.intermediate.get_transactions_by_provider(provider1)
+        txs = await client.standard.get_transactions_by_provider(provider1)
 
         assert len(txs) == 2
         for tx in txs:
@@ -341,11 +341,11 @@ class TestIntermediateGetTransactionsByProvider:
 
         provider = "0x" + "b" * 40
 
-        tx1 = await client.intermediate.create_transaction({"provider": provider, "amount": 100})
-        tx2 = await client.intermediate.create_transaction({"provider": provider, "amount": 200})
-        await client.intermediate.link_escrow(tx1)  # tx1 becomes COMMITTED
+        tx1 = await client.standard.create_transaction({"provider": provider, "amount": 100})
+        tx2 = await client.standard.create_transaction({"provider": provider, "amount": 200})
+        await client.standard.link_escrow(tx1)  # tx1 becomes COMMITTED
 
-        txs = await client.intermediate.get_transactions_by_provider(
+        txs = await client.standard.get_transactions_by_provider(
             provider,
             state="COMMITTED",
         )

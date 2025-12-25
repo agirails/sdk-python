@@ -1,5 +1,5 @@
 """
-Tests for BeginnerAdapter.
+Tests for BasicAdapter.
 
 Tests for:
 - pay() happy path
@@ -10,11 +10,11 @@ Tests for:
 import pytest
 
 from agirails import ACTPClient, ValidationError
-from agirails.adapters import BeginnerPayParams
+from agirails.adapters import BasicPayParams
 
 
-class TestBeginnerPay:
-    """Tests for BeginnerAdapter.pay() method."""
+class TestBasicPay:
+    """Tests for BasicAdapter.pay() method."""
 
     @pytest.fixture
     async def client(self):
@@ -32,7 +32,7 @@ class TestBeginnerPay:
     @pytest.mark.asyncio
     async def test_pay_happy_path(self, client, provider_address):
         """Basic pay() should work."""
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider_address,
             "amount": 100,
         })
@@ -47,14 +47,14 @@ class TestBeginnerPay:
 
     @pytest.mark.asyncio
     async def test_pay_with_dataclass(self, client, provider_address):
-        """pay() with BeginnerPayParams dataclass."""
-        params = BeginnerPayParams(
+        """pay() with BasicPayParams dataclass."""
+        params = BasicPayParams(
             to=provider_address,
             amount="50.50",
             description="Test payment",
         )
 
-        result = await client.beginner.pay(params)
+        result = await client.basic.pay(params)
 
         assert result.tx_id is not None
         assert result.amount == "50500000"
@@ -62,7 +62,7 @@ class TestBeginnerPay:
     @pytest.mark.asyncio
     async def test_pay_string_amount(self, client, provider_address):
         """pay() with string amount."""
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider_address,
             "amount": "25.50",
         })
@@ -72,7 +72,7 @@ class TestBeginnerPay:
     @pytest.mark.asyncio
     async def test_pay_float_amount(self, client, provider_address):
         """pay() with float amount."""
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider_address,
             "amount": 10.25,
         })
@@ -82,7 +82,7 @@ class TestBeginnerPay:
     @pytest.mark.asyncio
     async def test_pay_with_description(self, client, provider_address):
         """pay() with description."""
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider_address,
             "amount": 50,
             "description": "AI text generation service",
@@ -96,7 +96,7 @@ class TestBeginnerPay:
         # Get mock runtime's current time
         mock_now = client.runtime.time.now()
 
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider_address,
             "amount": 50,
             "deadline": "48h",  # 48 hours
@@ -111,7 +111,7 @@ class TestBeginnerPay:
     async def test_pay_invalid_address(self, client):
         """pay() with invalid address should raise."""
         with pytest.raises(ValidationError, match="Invalid to"):
-            await client.beginner.pay({
+            await client.basic.pay({
                 "to": "invalid",
                 "amount": 100,
             })
@@ -120,7 +120,7 @@ class TestBeginnerPay:
     async def test_pay_zero_address(self, client):
         """pay() to zero address should raise."""
         with pytest.raises(ValidationError, match="cannot be zero"):
-            await client.beginner.pay({
+            await client.basic.pay({
                 "to": "0x" + "0" * 40,
                 "amount": 100,
             })
@@ -129,7 +129,7 @@ class TestBeginnerPay:
     async def test_pay_below_minimum(self, client, provider_address):
         """pay() below minimum amount should raise."""
         with pytest.raises(Exception, match="at least"):
-            await client.beginner.pay({
+            await client.basic.pay({
                 "to": provider_address,
                 "amount": 0.01,  # Below $0.05 minimum
             })
@@ -138,14 +138,14 @@ class TestBeginnerPay:
     async def test_pay_zero_amount(self, client, provider_address):
         """pay() with zero amount should raise."""
         with pytest.raises(Exception):
-            await client.beginner.pay({
+            await client.basic.pay({
                 "to": provider_address,
                 "amount": 0,
             })
 
 
-class TestBeginnerGetTransaction:
-    """Tests for BeginnerAdapter.get_transaction() method."""
+class TestBasicGetTransaction:
+    """Tests for BasicAdapter.get_transaction() method."""
 
     @pytest.fixture
     async def client(self):
@@ -162,12 +162,12 @@ class TestBeginnerGetTransaction:
     @pytest.mark.asyncio
     async def test_get_transaction(self, client, provider_address):
         """Get transaction after pay()."""
-        result = await client.beginner.pay({
+        result = await client.basic.pay({
             "to": provider_address,
             "amount": 100,
         })
 
-        tx = await client.beginner.get_transaction(result.tx_id)
+        tx = await client.basic.get_transaction(result.tx_id)
 
         assert tx is not None
         assert tx["tx_id"] == result.tx_id
@@ -176,12 +176,12 @@ class TestBeginnerGetTransaction:
     @pytest.mark.asyncio
     async def test_get_transaction_not_found(self, client):
         """Get non-existent transaction."""
-        tx = await client.beginner.get_transaction("0x" + "f" * 64)
+        tx = await client.basic.get_transaction("0x" + "f" * 64)
         assert tx is None
 
 
-class TestBeginnerGetBalance:
-    """Tests for BeginnerAdapter.get_balance() method."""
+class TestBasicGetBalance:
+    """Tests for BasicAdapter.get_balance() method."""
 
     @pytest.fixture
     async def client(self):
@@ -193,19 +193,19 @@ class TestBeginnerGetBalance:
     @pytest.mark.asyncio
     async def test_get_balance(self, client):
         """Get requester balance."""
-        balance = await client.beginner.get_balance()
+        balance = await client.basic.get_balance()
         assert float(balance) > 0
 
     @pytest.mark.asyncio
     async def test_balance_decreases_after_pay(self, client):
         """Balance should decrease after pay()."""
-        before = float(await client.beginner.get_balance())
+        before = float(await client.basic.get_balance())
 
-        await client.beginner.pay({
+        await client.basic.pay({
             "to": "0x" + "b" * 40,
             "amount": 100,
         })
 
-        after = float(await client.beginner.get_balance())
+        after = float(await client.basic.get_balance())
         assert after < before
         assert before - after == 100

@@ -1,5 +1,5 @@
 """
-Beginner adapter for AGIRAILS SDK.
+Basic adapter for AGIRAILS SDK.
 
 Provides the simplest API for ACTP transactions:
 - Single `pay()` method that handles everything
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class BeginnerPayParams:
+class BasicPayParams:
     """
-    Parameters for beginner pay() method.
+    Parameters for basic pay() method.
 
     Args:
         to: Provider address to pay
@@ -45,9 +45,9 @@ class BeginnerPayParams:
 
 
 @dataclass
-class BeginnerPayResult:
+class BasicPayResult:
     """
-    Result from beginner pay() method.
+    Result from basic pay() method.
 
     Args:
         tx_id: Transaction ID (bytes32)
@@ -64,9 +64,9 @@ class BeginnerPayResult:
     deadline: int
 
 
-class BeginnerAdapter(BaseAdapter):
+class BasicAdapter(BaseAdapter):
     """
-    Beginner-friendly adapter for ACTP transactions.
+    Basic-level adapter for ACTP transactions.
 
     Provides a simple `pay()` method that:
     1. Creates a transaction
@@ -75,7 +75,7 @@ class BeginnerAdapter(BaseAdapter):
 
     Example:
         >>> client = await ACTPClient.create(mode="mock", requester_address="0x...")
-        >>> result = await client.beginner.pay(BeginnerPayParams(
+        >>> result = await client.basic.pay(BasicPayParams(
         ...     to="0x...",
         ...     amount="100.50",
         ...     description="Text generation service"
@@ -83,7 +83,7 @@ class BeginnerAdapter(BaseAdapter):
         >>> print(f"Transaction: {result.tx_id}")
     """
 
-    async def pay(self, params: Union[BeginnerPayParams, dict]) -> BeginnerPayResult:
+    async def pay(self, params: Union[BasicPayParams, dict]) -> BasicPayResult:
         """
         Create and fund a transaction in one call.
 
@@ -94,10 +94,10 @@ class BeginnerAdapter(BaseAdapter):
         4. Returns result with all details
 
         Args:
-            params: Payment parameters (BeginnerPayParams or dict)
+            params: Payment parameters (BasicPayParams or dict)
 
         Returns:
-            BeginnerPayResult with transaction details
+            BasicPayResult with transaction details
 
         Raises:
             ValidationError: If inputs are invalid
@@ -105,7 +105,7 @@ class BeginnerAdapter(BaseAdapter):
             InvalidAddressError: If provider address is invalid
 
         Example:
-            >>> result = await client.beginner.pay({
+            >>> result = await client.basic.pay({
             ...     "to": "0x123...",
             ...     "amount": 100,  # $100 USDC
             ...     "deadline": "24h"  # 24 hours from now
@@ -113,7 +113,7 @@ class BeginnerAdapter(BaseAdapter):
         """
         # Convert dict to dataclass if needed
         if isinstance(params, dict):
-            params = BeginnerPayParams(**params)
+            params = BasicPayParams(**params)
 
         # Validate provider address
         provider = self.validate_address(params.to, "to")
@@ -130,7 +130,7 @@ class BeginnerAdapter(BaseAdapter):
         # Create service hash from description
         if params.description:
             service_metadata = ServiceMetadata(
-                service="beginner",
+                service="basic",
                 input={"description": params.description},
             )
             service_hash = ServiceHash.hash(service_metadata)
@@ -162,7 +162,7 @@ class BeginnerAdapter(BaseAdapter):
         else:
             state = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
 
-        return BeginnerPayResult(
+        return BasicPayResult(
             tx_id=tx_id,
             escrow_id=escrow_id,
             state=state,

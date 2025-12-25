@@ -9,6 +9,9 @@ Example:
     >>> from agirails.runtime import MockRuntime, State
     >>> runtime = MockRuntime()
     >>> await runtime.create_transaction(...)
+
+    >>> from agirails.runtime import BlockchainRuntime
+    >>> runtime = await BlockchainRuntime.create(private_key, network="base-sepolia")
 """
 
 from agirails.runtime.types import (
@@ -35,6 +38,13 @@ from agirails.runtime.base import (
 from agirails.runtime.mock_state_manager import MockStateManager
 from agirails.runtime.mock_runtime import MockRuntime
 
+# BlockchainRuntime requires web3 which may not be installed
+# Import it lazily to avoid breaking tests that don't need it
+try:
+    from agirails.runtime.blockchain_runtime import BlockchainRuntime
+except ImportError:
+    BlockchainRuntime = None  # type: ignore[misc, assignment]
+
 __all__ = [
     # Types
     "State",
@@ -58,4 +68,5 @@ __all__ = [
     # Implementations
     "MockStateManager",
     "MockRuntime",
+    "BlockchainRuntime",
 ]

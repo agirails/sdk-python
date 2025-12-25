@@ -7,8 +7,8 @@ name = "agirails"
 version = "2.0.0"
 description = "AGIRAILS Python SDK - Agent Commerce Transaction Protocol"
 readme = "README.md"
-license = "MIT"
-requires-python = ">=3.10"
+license = "Apache-2.0"
+requires-python = ">=3.9"
 authors = [
     { name = "AGIRAILS Team", email = "developers@agirails.io" },
 ]
@@ -20,13 +20,15 @@ keywords = [
     "web3",
     "ethereum",
     "base",
+    "actp",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -78,12 +80,12 @@ addopts = "-v --tb=short"
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312"]
+target-version = ["py39", "py310", "py311", "py312"]
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py39"
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
@@ -102,7 +104,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

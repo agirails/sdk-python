@@ -1,7 +1,7 @@
 """
 Base adapter for AGIRAILS SDK.
 
-Provides shared utilities for Beginner and Intermediate adapters:
+Provides shared utilities for Basic and Standard adapters:
 - Amount parsing and formatting
 - Deadline parsing
 - Address validation
@@ -35,8 +35,8 @@ class BaseAdapter:
     Base adapter providing shared utilities for all adapters.
 
     Handles common operations like amount parsing, deadline calculation,
-    and validation. Should not be used directly - use BeginnerAdapter
-    or IntermediateAdapter instead.
+    and validation. Should not be used directly - use BasicAdapter
+    or StandardAdapter instead.
     """
 
     def __init__(

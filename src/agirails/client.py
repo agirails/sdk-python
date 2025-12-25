@@ -14,11 +14,11 @@ Usage:
     ...     requester_address="0x1234..."
     ... )
     >>>
-    >>> # Use the beginner API
-    >>> result = await client.beginner.pay({"to": "0x...", "amount": 100})
+    >>> # Use the basic API
+    >>> result = await client.basic.pay({"to": "0x...", "amount": 100})
     >>>
-    >>> # Or the intermediate API
-    >>> tx_id = await client.intermediate.create_transaction(...)
+    >>> # Or the standard API
+    >>> tx_id = await client.standard.create_transaction(...)
     >>>
     >>> # Or direct runtime access (advanced)
     >>> await client.runtime.transition_state(tx_id, "DELIVERED")
@@ -30,8 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
-from agirails.adapters.beginner import BeginnerAdapter
-from agirails.adapters.intermediate import IntermediateAdapter
+from agirails.adapters.basic import BasicAdapter
+from agirails.adapters.standard import StandardAdapter
 from agirails.errors import ValidationError
 from agirails.utils.helpers import Address
 
@@ -90,8 +90,8 @@ class ACTPClient:
     Main client for AGIRAILS SDK.
 
     Provides unified access to ACTP functionality through:
-    - beginner: Simple pay() API
-    - intermediate: Full lifecycle control
+    - basic: Simple pay() API
+    - standard: Full lifecycle control
     - advanced: Direct runtime access
     - runtime: Raw runtime interface
 
@@ -122,8 +122,8 @@ class ACTPClient:
         self._eas_helper = eas_helper
 
         # Initialize adapters
-        self._beginner = BeginnerAdapter(runtime, requester_address, eas_helper)
-        self._intermediate = IntermediateAdapter(runtime, requester_address, eas_helper)
+        self._basic = BasicAdapter(runtime, requester_address, eas_helper)
+        self._standard = StandardAdapter(runtime, requester_address, eas_helper)
 
     @classmethod
     async def create(
@@ -264,28 +264,28 @@ class ACTPClient:
         )
 
     @property
-    def beginner(self) -> BeginnerAdapter:
+    def basic(self) -> BasicAdapter:
         """
-        Get beginner adapter for simple transactions.
+        Get basic adapter for simple transactions.
 
         Example:
-            >>> result = await client.beginner.pay({
+            >>> result = await client.basic.pay({
             ...     "to": "0x...",
             ...     "amount": 100
             ... })
         """
-        return self._beginner
+        return self._basic
 
     @property
-    def intermediate(self) -> IntermediateAdapter:
+    def standard(self) -> StandardAdapter:
         """
-        Get intermediate adapter for full lifecycle control.
+        Get standard adapter for full lifecycle control.
 
         Example:
-            >>> tx_id = await client.intermediate.create_transaction(...)
-            >>> escrow_id = await client.intermediate.link_escrow(tx_id)
+            >>> tx_id = await client.standard.create_transaction(...)
+            >>> escrow_id = await client.standard.link_escrow(tx_id)
         """
-        return self._intermediate
+        return self._standard
 
     @property
     def advanced(self) -> IACTPRuntime:
