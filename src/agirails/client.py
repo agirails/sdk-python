@@ -1,0 +1,406 @@
+"""
+AGIRAILS SDK Client.
+
+The main entry point for the AGIRAILS SDK. ACTPClient provides a factory pattern
+for creating clients with different modes (mock, testnet, mainnet) and unified
+access to all ACTP functionality through adapters.
+
+Usage:
+    >>> from agirails import ACTPClient
+    >>>
+    >>> # Mock mode for testing
+    >>> client = await ACTPClient.create(
+    ...     mode="mock",
+    ...     requester_address="0x1234..."
+    ... )
+    >>>
+    >>> # Use the beginner API
+    >>> result = await client.beginner.pay({"to": "0x...", "amount": 100})
+    >>>
+    >>> # Or the intermediate API
+    >>> tx_id = await client.intermediate.create_transaction(...)
+    >>>
+    >>> # Or direct runtime access (advanced)
+    >>> await client.runtime.transition_state(tx_id, "DELIVERED")
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
+
+from agirails.adapters.beginner import BeginnerAdapter
+from agirails.adapters.intermediate import IntermediateAdapter
+from agirails.errors import ValidationError
+from agirails.utils.helpers import Address
+
+if TYPE_CHECKING:
+    from agirails.runtime.base import IACTPRuntime
+
+
+ACTPClientMode = Literal["mock", "testnet", "mainnet"]
+
+
+@dataclass
+class ACTPClientInfo:
+    """
+    Client information.
+
+    Contains read-only information about the client configuration.
+    """
+
+    mode: ACTPClientMode
+    address: str
+    state_directory: Optional[Path] = None
+
+
+@dataclass
+class ACTPClientConfig:
+    """
+    Configuration for ACTPClient.create().
+
+    Args:
+        mode: Client mode ("mock", "testnet", "mainnet")
+        requester_address: Requester's Ethereum address
+        state_directory: Directory for mock state (mock mode only)
+        private_key: Private key for signing (testnet/mainnet)
+        rpc_url: RPC URL for blockchain (testnet/mainnet)
+        contracts: Contract addresses override
+        gas_settings: Gas configuration override
+        eas_config: EAS configuration
+        require_attestation: Require attestation for releases
+        runtime: Custom runtime instance (overrides mode)
+    """
+
+    mode: ACTPClientMode = "mock"
+    requester_address: str = ""
+    state_directory: Optional[Path] = None
+    private_key: Optional[str] = None
+    rpc_url: Optional[str] = None
+    contracts: Optional[Dict[str, str]] = None
+    gas_settings: Optional[Dict[str, Any]] = None
+    eas_config: Optional[Dict[str, Any]] = None
+    require_attestation: bool = False
+    runtime: Optional[IACTPRuntime] = None
+
+
+class ACTPClient:
+    """
+    Main client for AGIRAILS SDK.
+
+    Provides unified access to ACTP functionality through:
+    - beginner: Simple pay() API
+    - intermediate: Full lifecycle control
+    - advanced: Direct runtime access
+    - runtime: Raw runtime interface
+
+    Use the async create() factory method to instantiate.
+    """
+
+    def __init__(
+        self,
+        runtime: IACTPRuntime,
+        requester_address: str,
+        info: ACTPClientInfo,
+        eas_helper: Optional[object] = None,
+    ) -> None:
+        """
+        Initialize ACTPClient.
+
+        Do not call directly - use ACTPClient.create() instead.
+
+        Args:
+            runtime: ACTP runtime instance
+            requester_address: Requester's address
+            info: Client information
+            eas_helper: Optional EAS helper
+        """
+        self._runtime = runtime
+        self._requester_address = requester_address.lower()
+        self._info = info
+        self._eas_helper = eas_helper
+
+        # Initialize adapters
+        self._beginner = BeginnerAdapter(runtime, requester_address, eas_helper)
+        self._intermediate = IntermediateAdapter(runtime, requester_address, eas_helper)
+
+    @classmethod
+    async def create(
+        cls,
+        mode: Optional[ACTPClientMode] = None,
+        requester_address: Optional[str] = None,
+        state_directory: Optional[Union[Path, str]] = None,
+        private_key: Optional[str] = None,
+        rpc_url: Optional[str] = None,
+        config: Optional[ACTPClientConfig] = None,
+        **kwargs: Any,
+    ) -> "ACTPClient":
+        """
+        Create an ACTPClient instance.
+
+        Factory method that initializes the appropriate runtime based on mode.
+
+        Args:
+            mode: Client mode ("mock", "testnet", "mainnet")
+            requester_address: Requester's Ethereum address
+            state_directory: Directory for mock state (Path or string)
+            private_key: Private key for signing (testnet/mainnet)
+            rpc_url: RPC URL for blockchain (testnet/mainnet)
+            config: Full configuration object (alternative to individual args)
+            **kwargs: Additional configuration passed to config
+
+        Returns:
+            Configured ACTPClient instance
+
+        Raises:
+            ValidationError: If configuration is invalid
+
+        Examples:
+            >>> # Mock mode (for testing)
+            >>> client = await ACTPClient.create(
+            ...     mode="mock",
+            ...     requester_address="0x1234..."
+            ... )
+            >>>
+            >>> # With custom state directory
+            >>> client = await ACTPClient.create(
+            ...     mode="mock",
+            ...     requester_address="0x1234...",
+            ...     state_directory="./my-state"
+            ... )
+            >>>
+            >>> # Using config object
+            >>> config = ACTPClientConfig(
+            ...     mode="mock",
+            ...     requester_address="0x1234..."
+            ... )
+            >>> client = await ACTPClient.create(config=config)
+        """
+        # Build config from arguments
+        if config is None:
+            config = ACTPClientConfig(
+                mode=mode or "mock",
+                requester_address=requester_address or "",
+                state_directory=Path(state_directory) if state_directory else None,
+                private_key=private_key,
+                rpc_url=rpc_url,
+                **kwargs,
+            )
+
+        # Validate requester address
+        if not config.requester_address:
+            raise ValidationError(
+                message="requester_address is required",
+                details={"field": "requester_address"},
+            )
+
+        if not Address.is_valid(config.requester_address):
+            raise ValidationError(
+                message="Invalid requester_address: must be 0x followed by 40 hex characters",
+                details={"field": "requester_address", "value": config.requester_address},
+            )
+
+        # Normalize address
+        requester = Address.normalize(config.requester_address)
+
+        # Create runtime based on mode
+        runtime: IACTPRuntime
+        if config.runtime is not None:
+            # Use provided runtime
+            runtime = config.runtime
+        elif config.mode == "mock":
+            runtime = await cls._create_mock_runtime(config)
+        elif config.mode in ("testnet", "mainnet"):
+            runtime = await cls._create_blockchain_runtime(config)
+        else:
+            raise ValidationError(
+                message=f"Invalid mode: {config.mode}",
+                details={"field": "mode", "value": config.mode, "allowed": ["mock", "testnet", "mainnet"]},
+            )
+
+        # Create info
+        info = ACTPClientInfo(
+            mode=config.mode,
+            address=requester,
+            state_directory=config.state_directory,
+        )
+
+        # Create EAS helper if needed
+        eas_helper = None
+        if config.eas_config:
+            # TODO: Create EAS helper in Phase 4
+            pass
+
+        return cls(runtime, requester, info, eas_helper)
+
+    @classmethod
+    async def _create_mock_runtime(cls, config: ACTPClientConfig) -> IACTPRuntime:
+        """Create mock runtime."""
+        from agirails.runtime.mock_runtime import MockRuntime
+        from agirails.runtime.mock_state_manager import MockStateManager
+
+        # Determine state directory
+        if config.state_directory:
+            state_dir = config.state_directory
+        else:
+            state_dir = Path.cwd() / ".actp"
+
+        state_manager = MockStateManager(state_directory=state_dir)
+        runtime = MockRuntime(state_manager=state_manager)
+
+        # Initialize with requester balance if mock
+        await runtime.mint_tokens(config.requester_address, "1000000000000")  # $1M USDC
+
+        return runtime
+
+    @classmethod
+    async def _create_blockchain_runtime(cls, config: ACTPClientConfig) -> IACTPRuntime:
+        """Create blockchain runtime."""
+        # TODO: Implement in Phase 4
+        raise NotImplementedError(
+            f"BlockchainRuntime not yet implemented. Use mode='mock' for now. "
+            f"Requested mode: {config.mode}"
+        )
+
+    @property
+    def beginner(self) -> BeginnerAdapter:
+        """
+        Get beginner adapter for simple transactions.
+
+        Example:
+            >>> result = await client.beginner.pay({
+            ...     "to": "0x...",
+            ...     "amount": 100
+            ... })
+        """
+        return self._beginner
+
+    @property
+    def intermediate(self) -> IntermediateAdapter:
+        """
+        Get intermediate adapter for full lifecycle control.
+
+        Example:
+            >>> tx_id = await client.intermediate.create_transaction(...)
+            >>> escrow_id = await client.intermediate.link_escrow(tx_id)
+        """
+        return self._intermediate
+
+    @property
+    def advanced(self) -> IACTPRuntime:
+        """
+        Get advanced (raw runtime) access.
+
+        Alias for runtime property. Use for direct runtime operations.
+        """
+        return self._runtime
+
+    @property
+    def runtime(self) -> IACTPRuntime:
+        """
+        Get underlying runtime.
+
+        Provides direct access to all runtime operations.
+        """
+        return self._runtime
+
+    @property
+    def info(self) -> ACTPClientInfo:
+        """Get client information."""
+        return self._info
+
+    def get_address(self) -> str:
+        """
+        Get requester address.
+
+        Returns:
+            Normalized requester address
+        """
+        return self._requester_address
+
+    def get_mode(self) -> ACTPClientMode:
+        """
+        Get client mode.
+
+        Returns:
+            Current mode ("mock", "testnet", "mainnet")
+        """
+        return self._info.mode
+
+    async def reset(self) -> None:
+        """
+        Reset all state (mock mode only).
+
+        Clears all transactions, escrows, and balances.
+
+        Raises:
+            RuntimeError: If not in mock mode
+        """
+        if self._info.mode != "mock":
+            raise RuntimeError("reset() is only available in mock mode")
+
+        await self._runtime.reset()
+        # Re-mint initial balance
+        await self._runtime.mint_tokens(self._requester_address, "1000000000000")
+
+    async def mint_tokens(self, address: str, amount: Union[str, int, float]) -> None:
+        """
+        Mint tokens to an address (mock mode only).
+
+        Args:
+            address: Address to mint to
+            amount: Amount in USDC
+
+        Raises:
+            RuntimeError: If not in mock mode
+        """
+        if self._info.mode != "mock":
+            raise RuntimeError("mint_tokens() is only available in mock mode")
+
+        # Validate address
+        if not Address.is_valid(address):
+            raise ValidationError(
+                message="Invalid address",
+                details={"field": "address", "value": address},
+            )
+
+        # Parse amount
+        from agirails.utils.helpers import USDC
+        amount_wei = str(USDC.to_wei(amount))
+
+        await self._runtime.mint_tokens(Address.normalize(address), amount_wei)
+
+    async def get_balance(self, address: Optional[str] = None) -> str:
+        """
+        Get USDC balance.
+
+        Args:
+            address: Address to check (default: requester)
+
+        Returns:
+            Balance in USDC (formatted string like "100.00")
+        """
+        if address is None:
+            address = self._requester_address
+        else:
+            address = Address.normalize(address)
+
+        balance_wei = await self._runtime.get_balance(address)
+
+        from agirails.utils.helpers import USDC
+        return USDC.from_wei(balance_wei)
+
+    def __repr__(self) -> str:
+        """
+        Safe string representation (no private keys).
+        """
+        return (
+            f"ACTPClient("
+            f"mode={self._info.mode!r}, "
+            f"address={Address.truncate(self._requester_address)})"
+        )
+
+    def __str__(self) -> str:
+        """Human-readable string representation."""
+        return self.__repr__()
