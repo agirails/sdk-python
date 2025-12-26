@@ -12,7 +12,12 @@ Example:
     ...     print(f"ACTP error: {e.code}")
 """
 
-from agirails.errors.base import ACTPError
+from agirails.errors.base import (
+    ACTPError,
+    DEBUG_MODE,
+    set_debug_mode,
+    is_debug_mode,
+)
 from agirails.errors.transaction import (
     TransactionNotFoundError,
     InvalidStateTransitionError,
@@ -62,6 +67,9 @@ from agirails.errors.mock import (
 __all__ = [
     # Base
     "ACTPError",
+    "DEBUG_MODE",
+    "set_debug_mode",
+    "is_debug_mode",
     # Transaction
     "TransactionNotFoundError",
     "InvalidStateTransitionError",

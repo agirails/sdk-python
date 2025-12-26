@@ -27,6 +27,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from dataclasses import dataclass
@@ -55,6 +56,9 @@ GAS_LIMITS = {
     "refund_to_requester": 150_000,
     "approve_usdc": 100_000,
 }
+
+# Security Note (M-3): Default timeout for transaction receipts (5 minutes)
+DEFAULT_TX_WAIT_TIMEOUT = 300.0
 
 
 # ============================================================================
@@ -594,11 +598,40 @@ class EscrowVault:
             "chainId": self.chain_id,
         }
 
-    async def _sign_and_send(self, tx: Dict[str, Any]) -> TxReceipt:
-        """Sign and send a transaction, waiting for receipt."""
+    async def _sign_and_send(
+        self,
+        tx: Dict[str, Any],
+        timeout: float = DEFAULT_TX_WAIT_TIMEOUT,
+    ) -> TxReceipt:
+        """
+        Sign and send a transaction, waiting for receipt.
+
+        Security Note (M-3): Uses timeout to prevent indefinite hangs.
+
+        Args:
+            tx: Transaction dictionary
+            timeout: Max seconds to wait for receipt (default: 300s)
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            TransactionError: If transaction fails or times out
+        """
         signed_tx = self.w3.eth.account.sign_transaction(tx, self.account.key)
         tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        try:
+            receipt = await asyncio.wait_for(
+                self.w3.eth.wait_for_transaction_receipt(tx_hash),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise TransactionError(
+                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
+                "Check network congestion and gas settings.",
+                tx_id=tx_hash.hex(),
+            )
 
         if receipt["status"] != 1:
             raise TransactionError(
@@ -634,6 +667,65 @@ class EscrowVault:
         )
 
 
-def generate_escrow_id() -> str:
-    """Generate a random escrow ID (bytes32 hex string)."""
-    return "0x" + secrets.token_hex(32)
+def generate_escrow_id(
+    requester: Optional[str] = None,
+    provider: Optional[str] = None,
+    amount: Optional[int] = None,
+    additional_entropy: Optional[bytes] = None,
+) -> str:
+    """
+    Generate a cryptographically secure escrow ID (bytes32 hex string).
+
+    Security Note (H-2): Uses multiple entropy sources to ensure uniqueness:
+    - 32 bytes from secrets.token_bytes (CSPRNG)
+    - High-resolution timestamp
+    - Optional context data (requester, provider, amount)
+    - Optional additional entropy (e.g., block hash from blockchain)
+
+    This makes escrow IDs unpredictable even if the random seed is
+    somehow compromised, as the contextual data adds uniqueness.
+
+    Args:
+        requester: Optional requester address for additional entropy
+        provider: Optional provider address for additional entropy
+        amount: Optional amount for additional entropy
+        additional_entropy: Optional bytes for additional entropy (e.g., block hash)
+
+    Returns:
+        Escrow ID as 0x-prefixed 64-character hex string
+    """
+    import hashlib
+    import os
+    import time
+
+    # Primary entropy: 32 bytes from cryptographically secure RNG
+    primary_entropy = secrets.token_bytes(32)
+
+    # Secondary entropy: high-resolution timestamp
+    timestamp_entropy = struct.pack(">Q", int(time.time() * 1_000_000))  # microseconds
+
+    # Tertiary entropy: process/system info
+    try:
+        process_entropy = struct.pack(">II", os.getpid(), os.getppid())
+    except (AttributeError, OSError):
+        process_entropy = b""
+
+    # Contextual entropy: hash of transaction context
+    context_parts = []
+    if requester:
+        context_parts.append(requester.encode("utf-8"))
+    if provider:
+        context_parts.append(provider.encode("utf-8"))
+    if amount is not None:
+        context_parts.append(struct.pack(">Q", amount & 0xFFFFFFFFFFFFFFFF))
+    if additional_entropy:
+        context_parts.append(additional_entropy)
+
+    context_entropy = b"".join(context_parts) if context_parts else b""
+
+    # Combine all entropy sources
+    combined = hashlib.sha256(
+        primary_entropy + timestamp_entropy + process_entropy + context_entropy
+    ).digest()
+
+    return "0x" + combined.hex()

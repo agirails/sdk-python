@@ -32,6 +32,7 @@ class USDC:
     USDC amount utilities (6 decimal places).
 
     SECURITY FIX (MEDIUM-6): Uses integer arithmetic to prevent precision loss.
+    SECURITY FIX (L-4): Includes bounds checking to prevent overflow.
 
     Example:
         >>> USDC.to_wei("100.50")
@@ -44,17 +45,27 @@ class USDC:
 
     DECIMALS: int = 6
     MIN_AMOUNT_WEI: int = 50_000  # $0.05
+    # Security Note (L-4): Maximum amount bounds
+    # Total USDC supply is ~50 billion, so 100 billion is a safe upper bound
+    MAX_AMOUNT_WEI: int = 100_000_000_000_000_000  # $100 billion
+    MAX_AMOUNT_HUMAN: int = 100_000_000_000  # $100 billion
 
     @staticmethod
-    def to_wei(amount: Union[str, int, float]) -> int:
+    def to_wei(amount: Union[str, int, float], validate_bounds: bool = True) -> int:
         """
         Convert human-readable USDC amount to wei (6 decimals).
 
+        Security Note (L-4): Validates bounds by default to prevent overflow.
+
         Args:
             amount: Amount as string, int, or float (e.g., "100.50", 100, 100.50)
+            validate_bounds: If True, raises ValueError for out-of-bounds amounts
 
         Returns:
             Amount in USDC wei (integer)
+
+        Raises:
+            ValueError: If amount is out of bounds (when validate_bounds=True)
 
         Example:
             >>> USDC.to_wei("100")
@@ -77,24 +88,50 @@ class USDC:
         whole_part = parts[0] or "0"
         decimal_part = (parts[1] if len(parts) > 1 else "").ljust(6, "0")[:6]
 
+        # Security Note (L-4): Validate whole part doesn't exceed bounds
+        try:
+            whole_int = int(whole_part)
+        except ValueError:
+            raise ValueError(f"Invalid USDC amount: {amount}")
+
+        if validate_bounds and whole_int > USDC.MAX_AMOUNT_HUMAN:
+            raise ValueError(
+                f"USDC amount exceeds maximum: ${whole_int:,} > ${USDC.MAX_AMOUNT_HUMAN:,}"
+            )
+
         # Calculate wei using integer arithmetic
-        result = int(whole_part) * 1_000_000 + int(decimal_part)
+        result = whole_int * 1_000_000 + int(decimal_part)
+
+        # Security Note (L-4): Final bounds check on wei value
+        if validate_bounds and result > USDC.MAX_AMOUNT_WEI:
+            raise ValueError(
+                f"USDC wei amount exceeds maximum: {result:,} > {USDC.MAX_AMOUNT_WEI:,}"
+            )
 
         return -result if is_negative else result
 
     @staticmethod
-    def from_wei(wei_amount: Union[int, str], decimals: int = 2) -> str:
+    def from_wei(
+        wei_amount: Union[int, str],
+        decimals: int = 2,
+        validate_bounds: bool = True,
+    ) -> str:
         """
         Convert USDC wei to human-readable string.
 
         SECURITY FIX (MEDIUM-6): Uses pure integer arithmetic for precision.
+        SECURITY FIX (L-4): Validates bounds by default.
 
         Args:
             wei_amount: Amount in USDC wei
             decimals: Number of decimal places to show (default: 2)
+            validate_bounds: If True, raises ValueError for out-of-bounds amounts
 
         Returns:
             Formatted string (e.g., "100.50")
+
+        Raises:
+            ValueError: If wei_amount exceeds bounds (when validate_bounds=True)
 
         Example:
             >>> USDC.from_wei(100500000)
@@ -105,6 +142,12 @@ class USDC:
             '100.1260'
         """
         amount = int(wei_amount) if isinstance(wei_amount, str) else wei_amount
+
+        # Security Note (L-4): Validate bounds
+        if validate_bounds and abs(amount) > USDC.MAX_AMOUNT_WEI:
+            raise ValueError(
+                f"USDC wei amount exceeds maximum: {abs(amount):,} > {USDC.MAX_AMOUNT_WEI:,}"
+            )
 
         # Handle negative amounts
         is_negative = amount < 0
@@ -168,17 +211,31 @@ class Deadline:
         >>> Deadline.is_past(timestamp)  # Check if expired
     """
 
+    # Security Note (M-2): Maximum deadline constraints
+    MAX_DEADLINE_DAYS = 365  # 1 year maximum
+    MIN_DEADLINE_HOURS = 0.0167  # ~1 minute minimum (0.0167 hours)
+
     @staticmethod
     def hours_from_now(hours: Union[int, float]) -> int:
         """
         Create deadline N hours from now.
 
+        Security Note (M-2): Validates input is positive and within bounds.
+
         Args:
-            hours: Number of hours from now
+            hours: Number of hours from now (must be positive, max 8760 = 1 year)
 
         Returns:
             Unix timestamp in seconds
+
+        Raises:
+            ValueError: If hours is non-positive or exceeds maximum
         """
+        if hours <= 0:
+            raise ValueError(f"hours must be positive, got {hours}")
+        max_hours = 24 * Deadline.MAX_DEADLINE_DAYS
+        if hours > max_hours:
+            raise ValueError(f"hours exceeds maximum ({max_hours}h = {Deadline.MAX_DEADLINE_DAYS} days)")
         return int(time.time()) + int(hours * 3600)
 
     @staticmethod
@@ -186,12 +243,21 @@ class Deadline:
         """
         Create deadline N days from now.
 
+        Security Note (M-2): Validates input is positive and within bounds.
+
         Args:
-            days: Number of days from now
+            days: Number of days from now (must be positive, max 365)
 
         Returns:
             Unix timestamp in seconds
+
+        Raises:
+            ValueError: If days is non-positive or exceeds maximum
         """
+        if days <= 0:
+            raise ValueError(f"days must be positive, got {days}")
+        if days > Deadline.MAX_DEADLINE_DAYS:
+            raise ValueError(f"days exceeds maximum ({Deadline.MAX_DEADLINE_DAYS})")
         return int(time.time()) + int(days * 86400)
 
     @staticmethod

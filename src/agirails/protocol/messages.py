@@ -34,6 +34,11 @@ from agirails.utils.logger import Logger
 # Module logger for debugging
 _logger = Logger("agirails.protocol.messages")
 
+# secp256k1 curve order (n) - used for signature malleability protection
+# Per EIP-2, valid signatures must have s <= n/2 to prevent malleability
+SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+SECP256K1_N_DIV_2 = SECP256K1_N // 2
+
 from agirails.types.message import (
     DeliveryProof,
     EIP712Domain,
@@ -90,6 +95,79 @@ class SignatureComponents:
         # Ensure v is in range [27, 28] or [0, 1] for compatibility
         v_byte = self.v if self.v < 27 else self.v - 27
         return "0x" + self.r.hex() + self.s.hex() + format(v_byte + 27, "02x")
+
+    def is_low_s(self) -> bool:
+        """
+        Check if signature has low-s value (EIP-2 compliant).
+
+        Per EIP-2, valid signatures must have s <= secp256k1_n / 2
+        to prevent signature malleability.
+
+        Returns:
+            True if s is in the lower half of the curve order
+        """
+        s_int = int.from_bytes(self.s, "big")
+        return s_int <= SECP256K1_N_DIV_2
+
+    def normalize_s(self) -> "SignatureComponents":
+        """
+        Normalize signature to low-s form (EIP-2 compliant).
+
+        If s > n/2, compute s' = n - s and flip v.
+        This ensures the signature is not malleable.
+
+        Returns:
+            New SignatureComponents with low-s value
+        """
+        s_int = int.from_bytes(self.s, "big")
+
+        if s_int <= SECP256K1_N_DIV_2:
+            # Already low-s, return as-is
+            return self
+
+        # Compute s' = n - s
+        s_normalized = SECP256K1_N - s_int
+        s_bytes = s_normalized.to_bytes(32, "big")
+
+        # Flip v: 27 <-> 28
+        v_normalized = 27 if self.v == 28 else 28
+
+        return SignatureComponents(v=v_normalized, r=self.r, s=s_bytes)
+
+
+def normalize_signature(signature: str) -> str:
+    """
+    Normalize an ECDSA signature to low-s form (EIP-2 compliant).
+
+    Security Note (H-3): Prevents signature malleability attacks where
+    both (r, s) and (r, n-s) are valid signatures for the same message.
+
+    Args:
+        signature: Hex-encoded signature (65 bytes: r[32] + s[32] + v[1])
+
+    Returns:
+        Normalized signature hex string with low-s value
+    """
+    components = SignatureComponents.from_signature(signature)
+    normalized = components.normalize_s()
+    return normalized.to_hex()
+
+
+def is_signature_malleable(signature: str) -> bool:
+    """
+    Check if a signature is malleable (has high-s value).
+
+    Args:
+        signature: Hex-encoded signature
+
+    Returns:
+        True if signature has s > n/2 (malleable)
+    """
+    try:
+        components = SignatureComponents.from_signature(signature)
+        return not components.is_low_s()
+    except (ValueError, IndexError):
+        return True  # Invalid signatures are considered malleable
 
 
 class MessageSigner:
@@ -247,12 +325,20 @@ class MessageSigner:
         """
         Sign typed data and return signature + signer address.
 
+        Security Note (H-3): Signatures are automatically normalized to
+        low-s form to prevent signature malleability attacks.
+
         Returns:
             Tuple of (signature_hex, signer_address)
         """
         signable = encode_typed_data(full_message=typed_data)
         signed = self._account.sign_message(signable)
-        return signed.signature.hex(), self._account.address
+        signature_hex = signed.signature.hex()
+
+        # Normalize to low-s form (EIP-2 compliant)
+        normalized = normalize_signature("0x" + signature_hex)
+
+        return normalized[2:], self._account.address  # Remove 0x prefix
 
     def sign_request(self, request: ServiceRequest) -> SignedMessage:
         """
@@ -381,18 +467,28 @@ class MessageSigner:
         self,
         signed_message: SignedMessage,
         expected_signer: Optional[str] = None,
+        reject_malleable: bool = True,
     ) -> bool:
         """
         Verify an EIP-712 signature.
 
+        Security Note (H-3): By default, rejects malleable signatures
+        (high-s values) to prevent signature malleability attacks.
+
         Args:
             signed_message: SignedMessage to verify
             expected_signer: Expected signer address (optional)
+            reject_malleable: If True, reject signatures with high-s values
 
         Returns:
             True if signature is valid and signer matches
         """
         if not signed_message.is_signed:
+            return False
+
+        # Security: Check for malleable signatures (high-s values)
+        if reject_malleable and is_signature_malleable(signed_message.signature):
+            _logger.debug("Rejected malleable signature (high-s value)")
             return False
 
         # Get the type definition based on message type
@@ -535,5 +631,9 @@ __all__ = [
     "SignatureComponents",
     "hash_typed_data",
     "create_typed_data",
+    "normalize_signature",
+    "is_signature_malleable",
+    "SECP256K1_N",
+    "SECP256K1_N_DIV_2",
     "HAS_ETH_ACCOUNT",
 ]

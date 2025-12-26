@@ -21,8 +21,8 @@
 | Faza 3: Level0/Level1 API | 🟢 Completed | 12/12 | 7 dana |
 | Faza 4: BlockchainRuntime | 🟢 Completed | 8/8 | 5 dana |
 | Faza 5: Protocol Modules | 🟢 Completed | 7/7 | 4 dana |
-| Faza 6: Documentation | 🟡 In Progress | 3/6 | 3 dana |
-| Faza 7: CLI Tool | 🔴 Not Started | 0/5 | 3 dana |
+| Faza 6: CLI Tool | 🟢 Completed | 5/5 | 3 dana |
+| Faza 7: Documentation | 🟡 In Progress | 3/6 | 3 dana |
 | **UKUPNO** | | | **33 dana** |
 
 **Legend**: 🔴 Not Started | 🟡 In Progress | 🟢 Completed | ⏸️ Blocked
@@ -54,6 +54,12 @@
   - DIDManager + DIDResolver (decentralized identity)
   - QuoteBuilder + DeliveryProofBuilder (fluent builders)
   - Protocol/builder tests (+96 tests)
+- Faza 6 kompletirana 2024-12-26 (599 tests passing)
+  - CLI framework (Typer + Rich)
+  - Commands: init, pay, balance, mint, config, time, tx
+  - Output modes: pretty, JSON, quiet
+  - Configuration management (.actp/config.json)
+  - CLI tests (+35 tests)
 
 ---
 
@@ -1404,13 +1410,13 @@ actp = "agirails.cli.main:app"
 
 ---
 
-## FAZA 6: Documentation & Release
+## FAZA 7: Documentation & Release
 
 **Cilj**: PyPI release ready
 
 **Estimated**: 3 dana
 
-### 6.1 Documentation
+### 7.1 Documentation
 
 - [x] `README.md` - Complete usage documentation ✅ **Completed 2024-12-25**
   - [x] Installation
@@ -1425,7 +1431,7 @@ actp = "agirails.cli.main:app"
 - [ ] `MIGRATION.md` - v1 to v2 migration guide
 - [ ] `docs/` folder (optional, for detailed docs)
 
-### 6.2 Examples
+### 7.2 Examples
 
 - [ ] `examples/01_basic_mock.py`
 - [ ] `examples/02_standard_mock.py`
@@ -1434,44 +1440,44 @@ actp = "agirails.cli.main:app"
 - [ ] `examples/05_testnet_example.py`
 - [ ] `examples/06_cli_usage.sh`
 
-### 6.3 CI/CD
+### 7.3 CI/CD
 
 - [ ] `.github/workflows/ci.yml` - Test on push
 - [ ] `.github/workflows/release.yml` - PyPI publish
 
-### 6.4 Package Finalization
+### 7.4 Package Finalization
 
 - [ ] `pyproject.toml` - Final dependencies
 - [ ] `py.typed` marker for type hints
 - [ ] License file
 - [ ] Final `__init__.py` exports
 
-### 6.5 Release
+### 7.5 Release
 
 - [ ] Tag v2.0.0-beta
 - [ ] Publish to Test PyPI
 - [ ] Test installation
 - [ ] Publish to PyPI
 
-### Faza 6 Checklist
+### Faza 7 Checklist
 
 ```
-[x] 6.1 Documentation (README.md, CHANGELOG.md done; MIGRATION.md pending)
-[ ] 6.2 Examples (6 files)
-[ ] 6.3 CI/CD (2 files)
-[~] 6.4 Package finalization (pyproject.toml done; py.typed, LICENSE pending)
-[ ] 6.5 Release (publish)
+[x] 7.1 Documentation (README.md, CHANGELOG.md done; MIGRATION.md pending)
+[ ] 7.2 Examples (6 files)
+[ ] 7.3 CI/CD (2 files)
+[~] 7.4 Package finalization (pyproject.toml done; py.typed, LICENSE pending)
+[ ] 7.5 Release (publish)
 ```
 
 ---
 
-## FAZA 7: CLI Tool (NEW)
+## FAZA 6: CLI Tool
 
 **Cilj**: Developer-friendly command-line interface matching TS SDK
 
 **Estimated**: 3 dana
 
-### 7.1 CLI Framework
+### 6.1 CLI Framework
 
 - [ ] `src/agirails/cli/__init__.py`
 - [ ] `src/agirails/cli/main.py`
@@ -1480,7 +1486,7 @@ actp = "agirails.cli.main:app"
   - [ ] Help text with examples
   - [ ] Global options (--json, --quiet)
 
-### 7.2 CLI Commands
+### 6.2 CLI Commands
 
 - [ ] `src/agirails/cli/commands/__init__.py`
 - [ ] `src/agirails/cli/commands/init.py`
@@ -1514,7 +1520,7 @@ actp = "agirails.cli.main:app"
   - [ ] `actp time advance <seconds>` - Advance mock time
   - [ ] `actp time set <timestamp>` - Set mock time
 
-### 7.3 CLI Utilities
+### 6.3 CLI Utilities
 
 - [ ] `src/agirails/cli/utils/__init__.py`
 - [ ] `src/agirails/cli/utils/output.py`
@@ -1528,7 +1534,7 @@ actp = "agirails.cli.main:app"
   - [ ] `load_config()` → `dict` - Load from .actp/config.json
   - [ ] `save_config(config)` - Save config
 
-### 7.4 Tests
+### 6.4 Tests
 
 - [ ] `tests/test_cli.py`
   - [ ] Test init command
@@ -1540,7 +1546,7 @@ actp = "agirails.cli.main:app"
   - [ ] Test JSON output mode
   - [ ] Test quiet output mode
 
-### 7.5 Entry Point
+### 6.5 Entry Point
 
 - [ ] Update `pyproject.toml` - Add scripts entry
   ```toml
@@ -1548,22 +1554,22 @@ actp = "agirails.cli.main:app"
   actp = "agirails.cli.main:app"
   ```
 
-### Faza 7 Checklist
+### Faza 6 Checklist
 
 ```
-[ ] 7.1 CLI framework (2 files)
-[ ] 7.2 CLI commands (10 files)
-[ ] 7.3 CLI utilities (3 files)
-[ ] 7.4 Tests (1 file)
-[ ] 7.5 Entry point (1 file update)
+[x] 6.1 CLI framework (2 files)
+[x] 6.2 CLI commands (10 files)
+[x] 6.3 CLI utilities (3 files)
+[x] 6.4 Tests (1 file)
+[x] 6.5 Entry point (1 file update)
 ```
 
 **Validation Criteria**:
-- [ ] `actp --version` shows version
-- [ ] `actp init` creates .actp folder
-- [ ] `actp pay` works in mock mode
-- [ ] `actp tx status` returns JSON
-- [ ] All commands support --json and --quiet
+- [x] `actp --version` shows version
+- [x] `actp init` creates .actp folder
+- [x] `actp pay` works in mock mode
+- [x] `actp tx status` returns JSON
+- [x] All commands support --json and --quiet
 
 ---
 

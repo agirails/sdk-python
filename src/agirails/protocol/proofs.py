@@ -358,11 +358,15 @@ def verify_merkle_proof(
     """
     Verify a Merkle proof.
 
+    Security Note (M-5): Uses consistent hash ordering with create_merkle_tree().
+    Both functions sort hashes with smaller value first to ensure deterministic
+    Merkle root computation regardless of leaf position.
+
     Args:
         leaf: Leaf hash being proven
         proof: Sibling hashes from leaf to root
         root: Expected Merkle root
-        leaf_index: Position of leaf in original tree
+        leaf_index: Position of leaf in original tree (used for sibling pairing)
 
     Returns:
         True if proof is valid
@@ -376,18 +380,15 @@ def verify_merkle_proof(
     for sibling in proof:
         sibling_bytes = bytes.fromhex(sibling.replace("0x", ""))
 
-        # Determine order based on index
-        if idx & 1 == 0:
-            # Current is left child
-            if current > sibling_bytes:
-                current, sibling_bytes = sibling_bytes, current
+        # Security Note (M-5): Always sort hashes - smaller first
+        # This matches the create_merkle_tree() logic for consistent roots
+        if current > sibling_bytes:
+            left, right = sibling_bytes, current
         else:
-            # Current is right child
-            if sibling_bytes > current:
-                sibling_bytes, current = current, sibling_bytes
+            left, right = current, sibling_bytes
 
         hasher = hashlib.sha256()
-        hasher.update(current + sibling_bytes if current <= sibling_bytes else sibling_bytes + current)
+        hasher.update(left + right)
         current = hasher.digest()
         idx //= 2
 

@@ -6,8 +6,9 @@ Provides input validation functions for:
 - USDC amounts
 - Transaction deadlines
 - Transaction IDs (bytes32)
-- Endpoint URLs (SSRF protection)
+- Endpoint URLs (SSRF protection with DNS rebinding defense)
 - Dispute windows
+- Service metadata size limits
 
 All validation functions raise ValidationError (or subclasses) on failure.
 """
@@ -16,7 +17,8 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from typing import Optional, Union
+import socket
+from typing import List, Optional, Union
 from urllib.parse import urlparse
 
 from agirails.errors import ValidationError, InvalidAddressError, InvalidAmountError
@@ -26,6 +28,11 @@ from agirails.utils.helpers import DisputeWindow
 # Constants
 MAX_UINT256 = 2**256 - 1
 MAX_USDC_WEI = 10**18  # 1 trillion USDC in wei (reasonable max)
+
+# Maximum service metadata size (10 KB)
+MAX_SERVICE_METADATA_SIZE = 10_000
+
+# Private IP ranges for SSRF protection
 PRIVATE_IP_RANGES = [
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -33,9 +40,45 @@ PRIVATE_IP_RANGES = [
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("fc00::/7"),     # IPv6 unique local
+    ipaddress.ip_network("fe80::/10"),    # IPv6 link-local
+    ipaddress.ip_network("fd00::/8"),     # IPv6 private
 ]
+
+# Cloud metadata endpoints to block (H-1 SSRF protection)
+METADATA_HOSTS = frozenset([
+    # AWS IPv4 metadata
+    "169.254.169.254",
+    # AWS IPv6 metadata
+    "fd00:ec2::254",
+    "[fd00:ec2::254]",
+    # GCP metadata
+    "metadata.google.internal",
+    "metadata",
+    # Azure metadata
+    "169.254.169.254",
+    # Generic
+    "metadata.internal",
+])
+
+# Regex patterns for cloud metadata hosts
+METADATA_HOST_PATTERNS = [
+    re.compile(r"^metadata\..*\.amazonaws\.com$", re.IGNORECASE),
+    re.compile(r"^.*\.metadata\.google\.internal$", re.IGNORECASE),
+    re.compile(r"^metadata\.azure\.com$", re.IGNORECASE),
+    re.compile(r"^management\.azure\.com$", re.IGNORECASE),
+]
+
+# Localhost aliases to block
+LOCALHOST_ALIASES = frozenset([
+    "localhost",
+    "0.0.0.0",
+    "[::]",
+    "[::1]",
+    "127.0.0.1",
+    "0",
+    "0.0.0.0.0",
+])
 
 
 def validate_address(address: str, field_name: str = "address") -> str:
@@ -206,25 +249,107 @@ def validate_tx_id(tx_id: str, field_name: str = "tx_id") -> str:
     return tx_id.lower()
 
 
-def validate_endpoint_url(url: str, field_name: str = "url") -> str:
-    """
-    Validate endpoint URL with SSRF protection.
+def _is_private_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP address is in a private range."""
+    for private_range in PRIVATE_IP_RANGES:
+        if ip in private_range:
+            return True
+    return False
 
-    Blocks requests to:
-    - Private IP ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
-    - Localhost (127.x.x.x)
-    - Link-local addresses
-    - IPv6 private ranges
+
+def _is_metadata_host(hostname: str) -> bool:
+    """
+    Check if hostname matches a cloud metadata endpoint.
+
+    Security Note (H-1): Blocks known cloud metadata endpoints
+    including regional AWS endpoints.
+    """
+    hostname_lower = hostname.lower()
+
+    # Check exact matches
+    if hostname_lower in METADATA_HOSTS:
+        return True
+
+    # Check regex patterns (regional endpoints, subdomains)
+    for pattern in METADATA_HOST_PATTERNS:
+        if pattern.match(hostname_lower):
+            return True
+
+    return False
+
+
+def _resolve_and_check_ip(hostname: str, field_name: str, url: str) -> None:
+    """
+    Resolve hostname to IP and check for private IPs.
+
+    Security Note (H-1): Prevents DNS rebinding attacks by resolving
+    the hostname and checking if it points to a private IP.
+
+    Args:
+        hostname: Hostname to resolve
+        field_name: Field name for error messages
+        url: Original URL for error messages
+
+    Raises:
+        ValidationError: If hostname resolves to a private IP
+    """
+    try:
+        # Get all IP addresses for the hostname
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+
+        for family, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if _is_private_ip(ip):
+                    raise ValidationError(
+                        message=f"Invalid {field_name}: hostname resolves to private IP",
+                        details={
+                            "field": field_name,
+                            "value": url,
+                            "reason": "DNS rebinding protection - hostname resolves to private IP",
+                            "hostname": hostname,
+                            "resolved_ip": str(ip),
+                        },
+                    )
+            except ValueError:
+                # Invalid IP format - skip
+                continue
+
+    except socket.gaierror:
+        # DNS resolution failed - allow it to fail naturally on actual request
+        pass
+    except socket.timeout:
+        # DNS timeout - allow it to fail naturally
+        pass
+
+
+def validate_endpoint_url(
+    url: str,
+    field_name: str = "url",
+    resolve_dns: bool = True,
+) -> str:
+    """
+    Validate endpoint URL with comprehensive SSRF protection.
+
+    Security Note (H-1): Provides defense-in-depth SSRF protection:
+    - Blocks private IP ranges (10.x, 172.16-31.x, 192.168.x, 127.x)
+    - Blocks localhost aliases (localhost, 0.0.0.0, ::1)
+    - Blocks IPv6 private ranges (fc00::/7, fe80::/10, fd00::/8)
+    - Blocks cloud metadata endpoints (169.254.169.254, metadata.google.internal)
+    - Blocks regional AWS metadata endpoints (metadata.*.amazonaws.com)
+    - DNS rebinding protection: resolves hostname and checks resolved IP
 
     Args:
         url: URL to validate
         field_name: Field name for error messages
+        resolve_dns: Whether to resolve DNS and check for private IPs (default: True)
 
     Returns:
         Validated URL
 
     Raises:
-        ValidationError: If URL is invalid or points to private network
+        ValidationError: If URL is invalid or points to private/blocked network
     """
     if not url:
         raise ValidationError(
@@ -258,42 +383,37 @@ def validate_endpoint_url(url: str, field_name: str = "url") -> str:
     hostname = parsed.hostname.lower()
 
     # Block localhost aliases
-    localhost_aliases = ["localhost", "0.0.0.0", "[::]", "[::1]"]
-    if hostname in localhost_aliases:
+    if hostname in LOCALHOST_ALIASES:
         raise ValidationError(
             message=f"Invalid {field_name}: localhost not allowed",
             details={"field": field_name, "value": url, "reason": "localhost blocked"},
         )
 
-    # Try to parse as IP address
-    try:
-        ip = ipaddress.ip_address(hostname)
-        for private_range in PRIVATE_IP_RANGES:
-            if ip in private_range:
-                raise ValidationError(
-                    message=f"Invalid {field_name}: private IP addresses not allowed",
-                    details={
-                        "field": field_name,
-                        "value": url,
-                        "reason": "private IP blocked",
-                        "ip": str(ip),
-                    },
-                )
-    except ValueError:
-        # Not an IP address, it's a hostname - that's OK
-        pass
-
-    # Block metadata endpoints (common cloud vulnerability)
-    metadata_hosts = [
-        "169.254.169.254",  # AWS/GCP/Azure metadata
-        "metadata.google.internal",
-        "metadata",
-    ]
-    if hostname in metadata_hosts:
+    # Block cloud metadata endpoints (including patterns)
+    if _is_metadata_host(hostname):
         raise ValidationError(
             message=f"Invalid {field_name}: cloud metadata endpoint not allowed",
             details={"field": field_name, "value": url, "reason": "metadata endpoint blocked"},
         )
+
+    # Try to parse as IP address and check for private ranges
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if _is_private_ip(ip):
+            raise ValidationError(
+                message=f"Invalid {field_name}: private IP addresses not allowed",
+                details={
+                    "field": field_name,
+                    "value": url,
+                    "reason": "private IP blocked",
+                    "ip": str(ip),
+                },
+            )
+    except ValueError:
+        # Not an IP address, it's a hostname
+        # Perform DNS rebinding check if enabled
+        if resolve_dns:
+            _resolve_and_check_ip(hostname, field_name, url)
 
     return url
 
@@ -412,3 +532,126 @@ def validate_service_name(name: str, field_name: str = "service_name") -> str:
         )
 
     return name
+
+
+def validate_service_metadata(
+    metadata: Union[str, bytes, dict],
+    field_name: str = "service_metadata",
+    max_size: int = MAX_SERVICE_METADATA_SIZE,
+) -> Union[str, bytes, dict]:
+    """
+    Validate service metadata size and content.
+
+    Security Note (H-4): Prevents DoS attacks via oversized metadata
+    that could exhaust memory or storage.
+
+    Args:
+        metadata: Service metadata (string, bytes, or dict)
+        field_name: Field name for error messages
+        max_size: Maximum size in bytes (default: 10 KB)
+
+    Returns:
+        Validated metadata (unchanged if valid)
+
+    Raises:
+        ValidationError: If metadata exceeds size limit or is invalid
+    """
+    import json
+
+    if metadata is None:
+        return metadata  # type: ignore[return-value]
+
+    # Calculate size based on type
+    if isinstance(metadata, str):
+        size = len(metadata.encode("utf-8"))
+    elif isinstance(metadata, bytes):
+        size = len(metadata)
+    elif isinstance(metadata, dict):
+        try:
+            # Serialize to JSON to calculate size
+            serialized = json.dumps(metadata, separators=(",", ":"))
+            size = len(serialized.encode("utf-8"))
+        except (TypeError, ValueError) as e:
+            raise ValidationError(
+                message=f"Invalid {field_name}: not JSON-serializable",
+                details={"field": field_name, "reason": str(e)},
+            )
+    else:
+        raise ValidationError(
+            message=f"Invalid {field_name}: must be string, bytes, or dict",
+            details={"field": field_name, "type": type(metadata).__name__},
+        )
+
+    if size > max_size:
+        raise ValidationError(
+            message=f"{field_name} exceeds maximum size ({max_size} bytes)",
+            details={
+                "field": field_name,
+                "size": size,
+                "max_size": max_size,
+                "exceeded_by": size - max_size,
+            },
+        )
+
+    return metadata
+
+
+def validate_content_hash(
+    content_hash: str,
+    field_name: str = "content_hash",
+    expected_prefix: str = "0x",
+) -> str:
+    """
+    Validate content hash format.
+
+    Args:
+        content_hash: Hash to validate (hex string)
+        field_name: Field name for error messages
+        expected_prefix: Expected prefix (default: "0x")
+
+    Returns:
+        Normalized (lowercase) content hash
+
+    Raises:
+        ValidationError: If hash is invalid
+    """
+    if not content_hash:
+        raise ValidationError(
+            message=f"{field_name} is required",
+            details={"field": field_name, "value": None},
+        )
+
+    if not isinstance(content_hash, str):
+        raise ValidationError(
+            message=f"{field_name} must be a string",
+            details={"field": field_name, "type": type(content_hash).__name__},
+        )
+
+    # Check prefix
+    if expected_prefix and not content_hash.startswith(expected_prefix):
+        raise ValidationError(
+            message=f"Invalid {field_name}: must start with {expected_prefix}",
+            details={"field": field_name, "value": content_hash},
+        )
+
+    # Check hex format (after 0x prefix)
+    hex_part = content_hash[len(expected_prefix):] if expected_prefix else content_hash
+    if not re.match(r"^[0-9a-fA-F]+$", hex_part):
+        raise ValidationError(
+            message=f"Invalid {field_name}: must contain only hex characters",
+            details={"field": field_name, "value": content_hash},
+        )
+
+    # Common hash lengths: 32 bytes (SHA256/Keccak256), 20 bytes (RIPEMD160)
+    if len(hex_part) not in (40, 64, 128):  # 20, 32, or 64 bytes
+        raise ValidationError(
+            message=f"Invalid {field_name}: unexpected hash length",
+            details={
+                "field": field_name,
+                "value": content_hash,
+                "length": len(hex_part) // 2,
+                "expected_lengths": [20, 32, 64],
+            },
+        )
+
+    return content_hash.lower()

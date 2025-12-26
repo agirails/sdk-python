@@ -24,7 +24,9 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -49,18 +51,57 @@ from agirails.types.transaction import Transaction, TransactionReceipt, Transact
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 ZERO_BYTES32 = "0x" + "0" * 64
 
+# Security Note (M-3): Default timeout for transaction receipts (5 minutes)
+DEFAULT_TX_WAIT_TIMEOUT = 300.0
+
 # Default values
 DEFAULT_DISPUTE_WINDOW = 48 * 3600  # 48 hours in seconds
 DEFAULT_DEADLINE_HOURS = 24  # 24 hours
 
-# Gas limits for different operations
-GAS_LIMITS = {
+# Security Note (L-5): Gas limits are configurable via environment variables
+# to handle network congestion. Format: AGIRAILS_GAS_<OPERATION>=<LIMIT>
+# Example: AGIRAILS_GAS_CREATE_TRANSACTION=300000
+
+
+def _get_gas_limit(operation: str, default: int) -> int:
+    """
+    Get gas limit from environment variable or use default.
+
+    Security Note (L-5): Allows gas limit overrides for network congestion.
+
+    Args:
+        operation: Operation name (e.g., "create_transaction")
+        default: Default gas limit if not set
+
+    Returns:
+        Gas limit (from env or default)
+    """
+    env_key = f"AGIRAILS_GAS_{operation.upper()}"
+    env_value = os.environ.get(env_key)
+    if env_value:
+        try:
+            limit = int(env_value)
+            if limit > 0:
+                return limit
+        except ValueError:
+            pass
+    return default
+
+
+# Default gas limits for different operations
+_DEFAULT_GAS_LIMITS = {
     "create_transaction": 200_000,
     "transition_state": 150_000,
     "link_escrow": 150_000,
     "release_escrow": 200_000,
     "anchor_attestation": 100_000,
     "release_milestone": 150_000,
+}
+
+# Build actual gas limits with environment overrides
+GAS_LIMITS = {
+    op: _get_gas_limit(op, default)
+    for op, default in _DEFAULT_GAS_LIMITS.items()
 }
 
 
@@ -596,11 +637,40 @@ class ACTPKernel:
             "chainId": self.chain_id,
         }
 
-    async def _sign_and_send(self, tx: Dict[str, Any]) -> TxReceipt:
-        """Sign and send a transaction, waiting for receipt."""
+    async def _sign_and_send(
+        self,
+        tx: Dict[str, Any],
+        timeout: float = DEFAULT_TX_WAIT_TIMEOUT,
+    ) -> TxReceipt:
+        """
+        Sign and send a transaction, waiting for receipt.
+
+        Security Note (M-3): Uses timeout to prevent indefinite hangs.
+
+        Args:
+            tx: Transaction dictionary
+            timeout: Max seconds to wait for receipt (default: 300s)
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            TransactionError: If transaction fails or times out
+        """
         signed_tx = self.w3.eth.account.sign_transaction(tx, self.account.key)
         tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        try:
+            receipt = await asyncio.wait_for(
+                self.w3.eth.wait_for_transaction_receipt(tx_hash),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise TransactionError(
+                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
+                "Check network congestion and gas settings.",
+                tx_id=tx_hash.hex(),
+            )
 
         if receipt["status"] != 1:
             raise TransactionError(

@@ -15,11 +15,15 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+
+# Security Note (M-3): Default timeout for transaction receipts (5 minutes)
+DEFAULT_TX_WAIT_TIMEOUT = 300.0
 
 try:
     from eth_account import Account
@@ -510,11 +514,39 @@ class AgentRegistry:
 
         return function.build_transaction(tx_params)
 
-    async def _send_transaction(self, tx: Dict[str, Any]) -> TransactionReceipt:
-        """Sign and send transaction."""
+    async def _send_transaction(
+        self,
+        tx: Dict[str, Any],
+        timeout: float = DEFAULT_TX_WAIT_TIMEOUT,
+    ) -> TransactionReceipt:
+        """
+        Sign and send transaction.
+
+        Security Note (M-3): Uses timeout to prevent indefinite hangs.
+
+        Args:
+            tx: Transaction dictionary
+            timeout: Max seconds to wait for receipt (default: 300s)
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            RuntimeError: If transaction times out
+        """
         signed = self._account.sign_transaction(tx)
         tx_hash = await self._w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = await self._w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        try:
+            receipt = await asyncio.wait_for(
+                self._w3.eth.wait_for_transaction_receipt(tx_hash),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
+                "Check network congestion and gas settings."
+            )
 
         return TransactionReceipt(
             transaction_hash=receipt["transactionHash"].hex(),

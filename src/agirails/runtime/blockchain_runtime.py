@@ -20,10 +20,11 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import Any, Callable, List, Optional, TypeVar, Union
 
 from eth_account.signers.local import LocalAccount
 from web3 import AsyncWeb3
@@ -37,6 +38,9 @@ from agirails.protocol.nonce import NonceManager
 from agirails.runtime.base import CreateTransactionParams, TimeInterface
 from agirails.runtime.types import MockTransaction, State
 from agirails.types.transaction import TransactionState
+from agirails.utils.security import TokenBucketRateLimiter, RetryConfig, retry_with_backoff
+
+T = TypeVar("T")
 
 
 # ============================================================================
@@ -86,6 +90,27 @@ class BlockchainTime(TimeInterface):
 
 
 # ============================================================================
+# RPC Configuration
+# ============================================================================
+
+# Default RPC rate limit: 10 requests per second
+DEFAULT_RPC_RATE_LIMIT = 10.0
+DEFAULT_RPC_BURST_SIZE = 20
+
+# Default retry configuration
+DEFAULT_RETRY_CONFIG = RetryConfig(
+    max_retries=3,
+    initial_delay=0.5,
+    max_delay=30.0,
+    exponential_base=2.0,
+    jitter=True,
+)
+
+# Transaction wait timeout (5 minutes)
+DEFAULT_TX_WAIT_TIMEOUT = 300.0
+
+
+# ============================================================================
 # BlockchainRuntime
 # ============================================================================
 
@@ -96,6 +121,10 @@ class BlockchainRuntime:
 
     Implements IACTPRuntime for production use on Base L2.
 
+    Security Note (C-3): All RPC calls are rate-limited and have
+    exponential backoff retry logic to handle transient failures
+    and prevent rate limit exhaustion.
+
     Attributes:
         kernel: ACTPKernel contract wrapper
         escrow: EscrowVault contract wrapper
@@ -105,6 +134,7 @@ class BlockchainRuntime:
         w3: AsyncWeb3 instance
         account: Signer account
         config: Network configuration
+        rate_limiter: RPC rate limiter
     """
 
     def __init__(
@@ -116,11 +146,24 @@ class BlockchainRuntime:
         escrow: EscrowVault,
         events: EventMonitor,
         nonce_manager: NonceManager,
+        rate_limiter: Optional[TokenBucketRateLimiter] = None,
+        retry_config: Optional[RetryConfig] = None,
     ) -> None:
         """
         Initialize BlockchainRuntime.
 
         Use BlockchainRuntime.create() for async initialization.
+
+        Args:
+            w3: AsyncWeb3 instance
+            account: Signer account
+            config: Network configuration
+            kernel: ACTPKernel contract wrapper
+            escrow: EscrowVault contract wrapper
+            events: EventMonitor for watching events
+            nonce_manager: NonceManager for transaction nonces
+            rate_limiter: RPC rate limiter (default: 10 req/sec)
+            retry_config: Retry configuration for RPC calls
         """
         self.w3 = w3
         self.account = account
@@ -131,12 +174,21 @@ class BlockchainRuntime:
         self.nonce_manager = nonce_manager
         self._time = BlockchainTime(w3)
 
+        # Initialize rate limiter (C-3)
+        self._rate_limiter = rate_limiter or TokenBucketRateLimiter(
+            max_rate=DEFAULT_RPC_RATE_LIMIT,
+            burst_size=DEFAULT_RPC_BURST_SIZE,
+        )
+        self._retry_config = retry_config or DEFAULT_RETRY_CONFIG
+
     @classmethod
     async def create(
         cls,
         private_key: str,
         network: Union[str, NetworkConfig] = "base-sepolia",
         rpc_url: Optional[str] = None,
+        rpc_rate_limit: float = DEFAULT_RPC_RATE_LIMIT,
+        retry_config: Optional[RetryConfig] = None,
     ) -> "BlockchainRuntime":
         """
         Create a BlockchainRuntime instance.
@@ -145,6 +197,8 @@ class BlockchainRuntime:
             private_key: Private key for signing transactions
             network: Network name or NetworkConfig
             rpc_url: Optional override for RPC URL
+            rpc_rate_limit: RPC rate limit (requests per second, default: 10)
+            retry_config: Retry configuration for RPC calls
 
         Returns:
             Initialized BlockchainRuntime
@@ -153,6 +207,7 @@ class BlockchainRuntime:
             >>> runtime = await BlockchainRuntime.create(
             ...     private_key="0x...",
             ...     network="base-sepolia",
+            ...     rpc_rate_limit=5.0,  # 5 requests per second
             ... )
         """
         # Get network config
@@ -165,15 +220,24 @@ class BlockchainRuntime:
         url = rpc_url or config.rpc_url
         w3 = AsyncWeb3(AsyncWeb3.AsyncHTTPProvider(url))
 
-        # Verify connection
+        # Create rate limiter for connection check
+        rate_limiter = TokenBucketRateLimiter(
+            max_rate=rpc_rate_limit,
+            burst_size=int(rpc_rate_limit * 2),
+        )
+
+        # Verify connection with rate limiting
         try:
-            chain_id = await w3.eth.chain_id
+            async with rate_limiter:
+                chain_id = await w3.eth.chain_id
             if chain_id != config.chain_id:
                 raise ValidationError(
                     f"Chain ID mismatch: expected {config.chain_id}, got {chain_id}",
                     field="chain_id",
                     value=chain_id,
                 )
+        except ValidationError:
+            raise
         except Exception as e:
             raise ConnectionError(f"Failed to connect to RPC: {url}") from e
 
@@ -186,7 +250,84 @@ class BlockchainRuntime:
         events = EventMonitor.from_config(w3, config)
         nonce_manager = NonceManager(w3, account.address)
 
-        return cls(w3, account, config, kernel, escrow, events, nonce_manager)
+        return cls(
+            w3, account, config, kernel, escrow, events, nonce_manager,
+            rate_limiter=rate_limiter,
+            retry_config=retry_config,
+        )
+
+    # =========================================================================
+    # Rate-Limited RPC Helpers (C-3)
+    # =========================================================================
+
+    async def _rate_limited_call(
+        self,
+        operation: Callable[[], Any],
+        retryable_exceptions: tuple = (Exception,),
+    ) -> Any:
+        """
+        Execute an RPC operation with rate limiting and retry logic.
+
+        Security Note (C-3): All RPC calls should go through this method
+        to prevent rate limit exhaustion and handle transient failures.
+
+        Args:
+            operation: Async callable to execute
+            retryable_exceptions: Exception types to retry on
+
+        Returns:
+            Result of the operation
+
+        Raises:
+            Exception: If all retries are exhausted
+        """
+        async def rate_limited_op() -> Any:
+            async with self._rate_limiter:
+                return await operation()
+
+        return await retry_with_backoff(
+            rate_limited_op,
+            config=self._retry_config,
+            retryable_exceptions=retryable_exceptions,
+        )
+
+    async def _wait_for_tx_receipt(
+        self,
+        tx_hash: bytes,
+        timeout: float = DEFAULT_TX_WAIT_TIMEOUT,
+    ) -> Any:
+        """
+        Wait for transaction receipt with timeout.
+
+        Security Note (C-3): Prevents indefinite hangs if transaction
+        is stuck in mempool.
+
+        Args:
+            tx_hash: Transaction hash
+            timeout: Maximum wait time in seconds
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            TransactionError: If timeout expires
+        """
+        try:
+            return await asyncio.wait_for(
+                self.w3.eth.wait_for_transaction_receipt(tx_hash),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise TransactionError(
+                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
+                "Check network congestion and gas settings.",
+                tx_id=tx_hash.hex(),
+            )
+
+    @property
+    def rate_limiter(self) -> TokenBucketRateLimiter:
+        """Get the RPC rate limiter."""
+        return self._rate_limiter
 
     @property
     def time(self) -> BlockchainTime:

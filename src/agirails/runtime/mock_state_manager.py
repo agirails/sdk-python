@@ -47,11 +47,15 @@ class MockStateManager:
         >>> await manager.with_lock(update)
     """
 
+    # Default timeout for the entire with_lock operation (30 seconds)
+    DEFAULT_OPERATION_TIMEOUT_S = 30.0
+
     def __init__(
         self,
         state_directory: Optional[Union[str, Path]] = None,
         state_filename: str = "mock-state.json",
         lock_timeout_ms: int = 5000,
+        operation_timeout_s: float = DEFAULT_OPERATION_TIMEOUT_S,
     ) -> None:
         """
         Initialize MockStateManager.
@@ -60,6 +64,8 @@ class MockStateManager:
             state_directory: Directory for state file (default: .actp in cwd).
             state_filename: Name of the state file.
             lock_timeout_ms: Timeout for acquiring file lock in milliseconds.
+            operation_timeout_s: Timeout for entire with_lock operation in seconds.
+                                Prevents deadlocks if updater callback hangs.
         """
         if state_directory is None:
             state_directory = Path.cwd() / MOCK_STATE_DEFAULTS["state_directory"]
@@ -69,6 +75,7 @@ class MockStateManager:
         self._state_directory = state_directory
         self._state_filename = state_filename
         self._lock_timeout_ms = lock_timeout_ms
+        self._operation_timeout_s = operation_timeout_s
         self._lock_file: Optional[int] = None
 
     @property
@@ -185,21 +192,27 @@ class MockStateManager:
     async def with_lock(
         self,
         updater: Callable[[MockState], Awaitable[Union[MockState, T]]],
+        timeout: Optional[float] = None,
     ) -> T:
         """
-        Perform atomic update with file locking.
+        Perform atomic update with file locking and operation timeout.
 
         Acquires an exclusive lock on the state file, loads state,
         applies the updater function, and saves the result.
 
+        Security Note (C-2): The entire operation has a timeout to prevent
+        deadlocks if the updater callback hangs or crashes.
+
         Args:
             updater: Async function that takes current state and returns updated state.
+            timeout: Operation timeout in seconds (default: operation_timeout_s).
 
         Returns:
             Result of the updater function.
 
         Raises:
             MockStateLockError: If lock cannot be acquired within timeout.
+            asyncio.TimeoutError: If operation exceeds timeout (possible deadlock).
 
         Example:
             >>> async def add_balance(state):
@@ -208,6 +221,27 @@ class MockStateManager:
             ...     )
             ...     return state
             >>> await manager.with_lock(add_balance)
+        """
+        operation_timeout = timeout if timeout is not None else self._operation_timeout_s
+
+        try:
+            # Wrap entire operation in timeout to prevent deadlocks
+            return await asyncio.wait_for(
+                self._with_lock_internal(updater),
+                timeout=operation_timeout,
+            )
+        except asyncio.TimeoutError:
+            raise asyncio.TimeoutError(
+                f"with_lock operation timed out after {operation_timeout}s - "
+                "possible deadlock or slow updater callback"
+            )
+
+    async def _with_lock_internal(
+        self,
+        updater: Callable[[MockState], Awaitable[Union[MockState, T]]],
+    ) -> T:
+        """
+        Internal implementation of with_lock without timeout wrapper.
         """
         self._ensure_directory()
 
