@@ -31,6 +31,32 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+### Testnet Quickstart (Base Sepolia)
+
+Get started with real transactions on Base Sepolia testnet:
+
+```bash
+# Install CLI
+pip install agirails
+
+# Configure for testnet
+agirails config set network base-sepolia
+agirails config set rpc-url https://sepolia.base.org
+agirails config set private-key YOUR_PRIVATE_KEY  # Or use env: AGIRAILS_PRIVATE_KEY
+
+# Get testnet USDC (faucet)
+agirails mint --amount 1000  # Mint 1000 test USDC
+
+# Check your balance
+agirails balance
+
+# Make a payment
+agirails pay 0xProviderAddress 100 --deadline 24h
+
+# Watch transaction status
+agirails watch TX_ID
+```
+
 ### Basic API - Simple Payments
 
 The simplest way to make a payment - just specify who, how much, and go:
@@ -249,6 +275,72 @@ ACTPError (base)
 └── AgentLifecycleError
 ```
 
+## CLI Reference
+
+The SDK includes a full-featured CLI for interacting with ACTP:
+
+### Core Commands
+
+```bash
+# Payment operations
+agirails pay <to> <amount> [--deadline TIME] [--description TEXT]
+agirails balance [ADDRESS]
+agirails mint --amount AMOUNT  # Testnet only
+
+# Transaction management
+agirails tx list [--state STATE] [--limit N]
+agirails tx get <tx_id>
+agirails tx cancel <tx_id>
+
+# Time manipulation (mock mode only)
+agirails time advance <seconds>
+agirails time set <timestamp>
+agirails time now
+```
+
+### Agent-First Features
+
+```bash
+# Watch transaction state changes (streams updates)
+agirails watch <tx_id> [--interval SECONDS] [--format json|text]
+
+# Batch operations from file
+agirails batch <command_file> [--parallel N] [--continue-on-error]
+
+# Dry-run simulation
+agirails simulate pay <to> <amount>
+agirails simulate fee <amount>
+```
+
+### Configuration
+
+```bash
+# Set configuration
+agirails config set <key> <value>
+agirails config get <key>
+agirails config list
+agirails config reset
+
+# Available config keys:
+#   network: base-sepolia | base-mainnet | mock
+#   rpc-url: RPC endpoint URL
+#   private-key: Wallet private key (or use AGIRAILS_PRIVATE_KEY env)
+#   state-directory: Directory for mock state persistence
+```
+
+### Output Formats
+
+```bash
+# Human-readable (default)
+agirails tx list
+
+# JSON output for scripting
+agirails tx list --format json
+
+# NDJSON streaming for watch
+agirails watch TX_ID --format ndjson
+```
+
 ## Testing
 
 Run the test suite:
@@ -333,6 +425,24 @@ async def handle_job(job: Job) -> str:
 
 await agent.start()
 ```
+
+## SDK Parity
+
+This Python SDK maintains **full parity** with the TypeScript SDK:
+
+| Feature | Python SDK | TypeScript SDK |
+|---------|------------|----------------|
+| DeliveryProof Schema | AIP-4 v1.1 (12 fields) | AIP-4 v1.1 (12 fields) |
+| Result Hashing | keccak256 | keccak256 |
+| JSON Canonicalization | Insertion order | Insertion order |
+| EIP-712 Signing | Full support | Full support |
+| Level0 API | Full ACTP flow | Full ACTP flow |
+| Level1 Agent API | Complete | Complete |
+| CLI Commands | watch, batch, simulate | watch, batch, simulate |
+| Nonce Tracking | SecureNonce, ReceivedNonceTracker | SecureNonce, ReceivedNonceTracker |
+| Attestation Tracking | UsedAttestationTracker | UsedAttestationTracker |
+
+**Shared Test Vectors**: Both SDKs use the same JSON test fixtures in `tests/fixtures/parity/` to ensure identical behavior.
 
 ## Security
 

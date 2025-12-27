@@ -351,7 +351,7 @@ class TestStateTransitions:
 
         tx = await funded_runtime.get_transaction(tx_id)
         assert tx.state == State.DELIVERED
-        assert tx.proof == "0xproof"
+        assert tx.delivery_proof == "0xproof"  # PARITY: Renamed from 'proof'
 
     @pytest.mark.asyncio
     async def test_delivered_to_disputed(self, funded_runtime):

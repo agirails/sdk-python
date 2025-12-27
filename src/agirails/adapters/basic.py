@@ -3,6 +3,7 @@ Basic adapter for AGIRAILS SDK.
 
 Provides the simplest API for ACTP transactions:
 - Single `pay()` method that handles everything
+- `check_status()` for transaction status with action hints
 - Automatic escrow creation and linking
 - Sensible defaults for deadline and dispute window
 
@@ -14,6 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, Optional, Union
 
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
+
 from agirails.adapters.base import (
     BaseAdapter,
     DEFAULT_DEADLINE_SECONDS,
@@ -24,6 +30,25 @@ from agirails.utils.helpers import ServiceHash, ServiceMetadata
 
 if TYPE_CHECKING:
     from agirails.runtime.base import IACTPRuntime
+
+
+class CheckStatusResult(TypedDict):
+    """
+    Result from check_status() method.
+
+    PARITY: Matches TypeScript SDK's BasicAdapter.checkStatus() return type.
+
+    Attributes:
+        state: Current transaction state string.
+        can_accept: Whether provider can accept (INITIATED state, before deadline).
+        can_complete: Whether provider can mark as delivered (COMMITTED/IN_PROGRESS).
+        can_dispute: Whether requester can dispute (DELIVERED state, within window).
+    """
+
+    state: str
+    can_accept: bool
+    can_complete: bool
+    can_dispute: bool
 
 
 @dataclass
@@ -205,3 +230,59 @@ class BasicAdapter(BaseAdapter):
         """
         balance_wei = await self._runtime.get_balance(self._requester_address)
         return self.format_amount(balance_wei)
+
+    async def check_status(self, tx_id: str) -> CheckStatusResult:
+        """
+        Check payment status by transaction ID.
+
+        Returns current state plus action hints (what can be done next).
+
+        PARITY: Matches TypeScript SDK's BasicAdapter.checkStatus() exactly.
+
+        Action hints:
+        - can_accept: Provider can accept (INITIATED state, before deadline)
+        - can_complete: Provider can mark as delivered (COMMITTED/IN_PROGRESS)
+        - can_dispute: Requester can dispute (DELIVERED state, within window)
+
+        Args:
+            tx_id: Transaction ID to check.
+
+        Returns:
+            CheckStatusResult with state and action hints.
+
+        Raises:
+            TransactionNotFoundError: If transaction not found.
+
+        Example:
+            >>> status = await adapter.check_status(tx_id)
+            >>> print(f"State: {status['state']}")
+            >>> if status['can_complete']:
+            ...     print("Provider can deliver now")
+        """
+        tx = await self._runtime.get_transaction(tx_id)
+
+        if tx is None:
+            from agirails.errors import TransactionNotFoundError
+            raise TransactionNotFoundError(tx_id)
+
+        now = self._runtime.time.now()
+
+        # Get state as string
+        state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
+
+        # Calculate action hints (matching TS SDK logic exactly)
+        can_accept = state_str == "INITIATED" and tx.deadline > now
+        can_complete = state_str in ("COMMITTED", "IN_PROGRESS")
+
+        # can_dispute: DELIVERED state + within dispute window
+        can_dispute = False
+        if state_str == "DELIVERED" and tx.completed_at is not None:
+            dispute_window_end = tx.completed_at + tx.dispute_window
+            can_dispute = now < dispute_window_end
+
+        return CheckStatusResult(
+            state=state_str,
+            can_accept=can_accept,
+            can_complete=can_complete,
+            can_dispute=can_dispute,
+        )

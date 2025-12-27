@@ -18,14 +18,21 @@ Example:
 
 from __future__ import annotations
 
-import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-from agirails.types.message import DeliveryProof as DeliveryProofMessage
+from agirails.types.message import DeliveryProofMessage
 from agirails.utils.canonical_json import canonical_json_dumps as canonical_json_serialize
+
+# Try to import keccak for proper hashing
+try:
+    from eth_hash.auto import keccak as keccak256
+    HAS_KECCAK = True
+except ImportError:
+    HAS_KECCAK = False
+    keccak256 = None  # type: ignore
 
 
 @dataclass
@@ -33,15 +40,23 @@ class DeliveryProof:
     """
     Proof of service delivery.
 
+    This is the internal SDK representation used by DeliveryProofBuilder.
+    Use to_message() to convert to the AIP-4 v1.1 DeliveryProofMessage
+    format for EIP-712 signing and wire transport.
+
     Attributes:
-        transaction_id: ACTP transaction ID
-        output_hash: SHA-256 hash of the output
-        output_data: Raw output data (optional, for local verification)
-        provider: Provider address
+        transaction_id: ACTP transaction ID (bytes32)
+        output_hash: keccak256 hash of the output (bytes32)
+        provider: Provider address or DID
         attestation_uid: EAS attestation UID (if on-chain)
-        timestamp: Delivery timestamp
-        metadata: Additional metadata
+        timestamp: Delivery timestamp (Unix seconds)
+        output_data: Raw output data (optional, for local verification)
+        metadata: Additional metadata (not signed)
         signature: Optional EIP-712 signature
+        consumer: Consumer address or DID (for AIP-4 v1.1)
+        result_cid: IPFS CID of result (for AIP-4 v1.1)
+        nonce: Monotonically increasing nonce (for AIP-4 v1.1)
+        chain_id: Chain ID (for AIP-4 v1.1)
     """
 
     transaction_id: str
@@ -52,6 +67,11 @@ class DeliveryProof:
     output_data: Optional[Any] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     signature: Optional[str] = None
+    # AIP-4 v1.1 additional fields (with defaults for backwards compatibility)
+    consumer: str = ""
+    result_cid: str = ""
+    nonce: int = 0  # Monotonically increasing integer (NOT bytes32)
+    chain_id: int = 84532  # Base Sepolia default
 
     @property
     def is_on_chain(self) -> bool:
@@ -64,7 +84,7 @@ class DeliveryProof:
         return datetime.fromtimestamp(self.timestamp)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """Convert to dictionary (internal format, not for wire transport)."""
         result: Dict[str, Any] = {
             "transactionId": self.transaction_id,
             "outputHash": self.output_hash,
@@ -79,13 +99,32 @@ class DeliveryProof:
         return result
 
     def to_message(self) -> DeliveryProofMessage:
-        """Convert to EIP-712 message type."""
+        """
+        Convert to AIP-4 v1.1 DeliveryProofMessage for EIP-712 signing.
+
+        PARITY CRITICAL: Returns a DeliveryProofMessage that matches the
+        TypeScript SDK's AIP4DeliveryProofTypes exactly with 9 signed fields.
+
+        Reference: sdk-js/src/types/eip712.ts AIP4DeliveryProofTypes
+        """
+        # Convert addresses to DIDs if needed
+        def to_did(address: str, chain_id: int) -> str:
+            if not address:
+                return f"did:ethr:{chain_id}:{'0x' + '0' * 40}"
+            if address.startswith("did:"):
+                return address
+            return f"did:ethr:{chain_id}:{address}"
+
         return DeliveryProofMessage(
-            transaction_id=self.transaction_id,
-            output_hash=self.output_hash,
-            attestation_uid=self.attestation_uid,
-            provider=self.provider,
-            timestamp=self.timestamp,
+            tx_id=self.transaction_id,
+            provider=to_did(self.provider, self.chain_id),
+            consumer=to_did(self.consumer, self.chain_id),
+            result_cid=self.result_cid or "",
+            result_hash=self.output_hash,
+            eas_attestation_uid=self.attestation_uid or "0x" + "0" * 64,
+            delivered_at=self.timestamp,
+            chain_id=self.chain_id,
+            nonce=self.nonce,
         )
 
     def verify_output(self, expected_output: Any) -> bool:
@@ -108,17 +147,26 @@ MAX_OUTPUT_SIZE = 10 * 1024 * 1024
 
 def compute_output_hash(output: Any) -> str:
     """
-    Compute SHA-256 hash of output data.
+    Compute keccak256 hash of output data.
+
+    PARITY: Uses keccak256 to match TypeScript SDK's computeResultHash.
 
     Args:
         output: Output data to hash
 
     Returns:
-        Hex-encoded hash (bytes32)
+        Hex-encoded keccak256 hash (bytes32)
 
     Raises:
         ValueError: If output exceeds MAX_OUTPUT_SIZE (10 MB)
+        ImportError: If eth_hash is not installed
     """
+    if not HAS_KECCAK:
+        raise ImportError(
+            "eth_hash is required for keccak256 hashing. "
+            "Install with: pip install eth-hash[pycryptodome]"
+        )
+
     if isinstance(output, bytes):
         data = output
     elif isinstance(output, str):
@@ -134,7 +182,7 @@ def compute_output_hash(output: Any) -> str:
             f"({MAX_OUTPUT_SIZE} bytes). Consider chunking large outputs."
         )
 
-    hash_bytes = hashlib.sha256(data).digest()
+    hash_bytes = keccak256(data)
     return "0x" + hash_bytes.hex()
 
 
@@ -161,6 +209,11 @@ class DeliveryProofBuilder:
         self._attestation_uid: str = ""
         self._timestamp: Optional[int] = None
         self._metadata: Dict[str, Any] = {}
+        # AIP-4 v1.1 fields for build_message() parity
+        self._consumer: str = ""
+        self._result_cid: str = ""
+        self._nonce: int = 0
+        self._chain_id: int = 84532  # Base Sepolia default
 
     def for_transaction(self, transaction_id: str) -> "DeliveryProofBuilder":
         """
@@ -287,6 +340,66 @@ class DeliveryProofBuilder:
         self._metadata["resultSizeBytes"] = bytes_count
         return self
 
+    def for_consumer(self, consumer: str) -> "DeliveryProofBuilder":
+        """
+        Set the consumer (requester) address.
+
+        PARITY: Required for build_message() to match TS SDK.
+
+        Args:
+            consumer: Consumer's Ethereum address or DID
+
+        Returns:
+            Self for chaining
+        """
+        self._consumer = consumer
+        return self
+
+    def with_result_cid(self, cid: str) -> "DeliveryProofBuilder":
+        """
+        Set the IPFS CID of the result.
+
+        PARITY: Required for build_message() to match TS SDK.
+
+        Args:
+            cid: IPFS content identifier
+
+        Returns:
+            Self for chaining
+        """
+        self._result_cid = cid
+        return self
+
+    def with_nonce(self, nonce: int) -> "DeliveryProofBuilder":
+        """
+        Set the monotonically increasing nonce.
+
+        PARITY: Required for build_message() to match TS SDK.
+
+        Args:
+            nonce: Unique nonce value
+
+        Returns:
+            Self for chaining
+        """
+        self._nonce = nonce
+        return self
+
+    def on_chain(self, chain_id: int) -> "DeliveryProofBuilder":
+        """
+        Set the chain ID.
+
+        PARITY: Required for build_message() to match TS SDK.
+
+        Args:
+            chain_id: EVM chain ID (default: 84532 Base Sepolia)
+
+        Returns:
+            Self for chaining
+        """
+        self._chain_id = chain_id
+        return self
+
     def build(self) -> DeliveryProof:
         """
         Build the DeliveryProof object.
@@ -312,7 +425,42 @@ class DeliveryProofBuilder:
             timestamp=self._timestamp or int(time.time()),
             output_data=self._output_data,
             metadata=self._metadata,
+            # AIP-4 v1.1 fields
+            consumer=self._consumer,
+            result_cid=self._result_cid,
+            nonce=self._nonce,
+            chain_id=self._chain_id,
         )
+
+    def build_message(self) -> DeliveryProofMessage:
+        """
+        Build the DeliveryProofMessage directly.
+
+        PARITY: TS SDK's DeliveryProofBuilder.build() returns DeliveryProofMessage.
+        This method provides 1:1 parity with TS SDK builder output.
+
+        Returns:
+            Constructed DeliveryProofMessage (AIP-4 v1.1 format)
+
+        Raises:
+            ValueError: If required fields are missing
+
+        Example:
+            >>> message = (
+            ...     DeliveryProofBuilder()
+            ...     .for_transaction("0x123...")
+            ...     .from_provider("0xProvider...")
+            ...     .for_consumer("0xConsumer...")
+            ...     .with_output({"result": "success"})
+            ...     .with_result_cid("Qm...")
+            ...     .with_nonce(1)
+            ...     .on_chain(84532)
+            ...     .build_message()
+            ... )
+        """
+        # Build the DeliveryProof first, then convert to message
+        proof = self.build()
+        return proof.to_message()
 
     def reset(self) -> "DeliveryProofBuilder":
         """

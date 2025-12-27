@@ -142,6 +142,8 @@ class MockTransaction:
     """
     Represents a transaction in the mock runtime.
 
+    PARITY: Field names match TS SDK MockState.Transaction interface.
+
     Attributes:
         id: Transaction ID (bytes32 hex string).
         requester: Requester's Ethereum address.
@@ -152,9 +154,10 @@ class MockTransaction:
         dispute_window: Dispute window duration in seconds.
         created_at: Unix timestamp of creation.
         updated_at: Unix timestamp of last update.
+        completed_at: Unix timestamp when DELIVERED (None if not delivered).
         escrow_id: Linked escrow ID (if any).
         service_description: Optional service description or hash.
-        proof: Optional delivery proof data.
+        delivery_proof: Optional delivery proof JSON string.
     """
 
     id: str
@@ -166,9 +169,10 @@ class MockTransaction:
     dispute_window: int
     created_at: int
     updated_at: int
+    completed_at: Optional[int] = None
     escrow_id: Optional[str] = None
     service_description: Optional[str] = None
-    proof: Optional[str] = None
+    delivery_proof: Optional[str] = None  # PARITY: TS uses 'deliveryProof'
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -182,9 +186,10 @@ class MockTransaction:
             "disputeWindow": self.dispute_window,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
+            "completedAt": self.completed_at,
             "escrowId": self.escrow_id,
             "serviceDescription": self.service_description,
-            "proof": self.proof,
+            "deliveryProof": self.delivery_proof,  # PARITY: camelCase for JSON
         }
 
     @classmethod
@@ -200,9 +205,11 @@ class MockTransaction:
             dispute_window=data.get("disputeWindow", data.get("dispute_window", 172800)),
             created_at=data.get("createdAt", data.get("created_at", 0)),
             updated_at=data.get("updatedAt", data.get("updated_at", 0)),
+            completed_at=data.get("completedAt", data.get("completed_at")),
             escrow_id=data.get("escrowId", data.get("escrow_id")),
             service_description=data.get("serviceDescription", data.get("service_description")),
-            proof=data.get("proof"),
+            # PARITY: Support both old 'proof' and new 'deliveryProof' keys
+            delivery_proof=data.get("deliveryProof", data.get("delivery_proof", data.get("proof"))),
         )
 
 

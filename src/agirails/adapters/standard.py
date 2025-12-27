@@ -317,7 +317,7 @@ class StandardAdapter(BaseAdapter):
             created_at=tx.created_at,
             updated_at=tx.updated_at,
             escrow_id=escrow_id,
-            delivery_proof=tx.proof,
+            delivery_proof=tx.delivery_proof,  # PARITY: Renamed from 'proof' to match TS SDK
             attestation_uid=None,  # Not tracked in MockTransaction
         )
 

@@ -1,0 +1,84 @@
+{
+  "$comment": "Parity test vectors for Canonical JSON serialization - ensures Python SDK produces same output as TypeScript SDK",
+  "test_vectors": [
+    {
+      "description": "Simple object with string values",
+      "input": {"name": "Alice", "role": "Provider"},
+      "expected": "{\"name\":\"Alice\",\"role\":\"Provider\"}"
+    },
+    {
+      "description": "Object with number values",
+      "input": {"amount": 100, "fee": 1},
+      "expected": "{\"amount\":100,\"fee\":1}"
+    },
+    {
+      "description": "Object with boolean values",
+      "input": {"active": true, "paused": false},
+      "expected": "{\"active\":true,\"paused\":false}"
+    },
+    {
+      "description": "Object with null value (should be included)",
+      "input": {"value": null},
+      "expected": "{\"value\":null}"
+    },
+    {
+      "description": "Nested object",
+      "input": {"outer": {"inner": "value"}},
+      "expected": "{\"outer\":{\"inner\":\"value\"}}"
+    },
+    {
+      "description": "Array of primitives",
+      "input": {"items": ["a", "b", "c"]},
+      "expected": "{\"items\":[\"a\",\"b\",\"c\"]}"
+    },
+    {
+      "description": "Array of objects",
+      "input": {"users": [{"id": 1}, {"id": 2}]},
+      "expected": "{\"users\":[{\"id\":1},{\"id\":2}]}"
+    },
+    {
+      "description": "Mixed types",
+      "input": {"string": "hello", "number": 42, "bool": true, "null": null, "array": [1, 2], "object": {"key": "val"}},
+      "expected": "{\"string\":\"hello\",\"number\":42,\"bool\":true,\"null\":null,\"array\":[1,2],\"object\":{\"key\":\"val\"}}"
+    },
+    {
+      "description": "PARITY CRITICAL: Insertion order preserved",
+      "note": "Python dict preserves insertion order since 3.7. JSON.stringify preserves insertion order.",
+      "input": {"z_last": 1, "a_first": 2, "m_middle": 3},
+      "expected": "{\"z_last\":1,\"a_first\":2,\"m_middle\":3}",
+      "not_expected": "{\"a_first\":2,\"m_middle\":3,\"z_last\":1}"
+    },
+    {
+      "description": "Unicode characters",
+      "input": {"greeting": "Hello, \u4e16\u754c"},
+      "expected": "{\"greeting\":\"Hello, \u4e16\u754c\"}"
+    },
+    {
+      "description": "Special characters in strings",
+      "input": {"text": "line1\nline2\ttab"},
+      "expected": "{\"text\":\"line1\\nline2\\ttab\"}"
+    },
+    {
+      "description": "Empty object",
+      "input": {},
+      "expected": "{}"
+    },
+    {
+      "description": "Empty array",
+      "input": {"items": []},
+      "expected": "{\"items\":[]}"
+    },
+    {
+      "description": "Deeply nested structure",
+      "input": {"a": {"b": {"c": {"d": "deep"}}}},
+      "expected": "{\"a\":{\"b\":{\"c\":{\"d\":\"deep\"}}}}"
+    },
+    {
+      "description": "PARITY CRITICAL: No spaces in output",
+      "note": "Both SDKs must produce compact JSON with no whitespace",
+      "input": {"key": "value"},
+      "expected": "{\"key\":\"value\"}",
+      "not_expected_contains": [" ", "\n", "\t"]
+    }
+  ]
+}

@@ -713,11 +713,16 @@ class ServiceHash:
     SECURITY FIX (CRITICAL): The ACTPKernel contract expects a bytes32 serviceHash,
     not a raw JSON string. This utility properly hashes metadata.
 
+    PARITY NOTE: Matches TypeScript SDK's ServiceHash exactly:
+    - Uses insertion order (NOT sorted keys)
+    - Field order: service, input, version, timestamp
+    - Minimal separators (no whitespace)
+
     Example:
         >>> ServiceHash.hash(ServiceMetadata(service="echo", input="hello"))
         '0x1234...abcd'
         >>> ServiceHash.to_canonical(ServiceMetadata(service="echo"))
-        '{"service": "echo"}'
+        '{"service":"echo"}'
     """
 
     ZERO: str = "0x" + "0" * 64
@@ -727,15 +732,21 @@ class ServiceHash:
         """
         Create canonical JSON from service metadata.
 
-        SECURITY: Uses deterministic key ordering for consistent hashes.
+        PARITY: Matches TypeScript SDK's ServiceHash.toCanonical() exactly:
+        - Uses insertion order (NOT sorted keys) to match JSON.stringify()
+        - Fields added in specific order: service, input, version, timestamp
+        - Uses minimal separators (no whitespace)
+        - Uses ensure_ascii=False to preserve unicode (matches JSON.stringify())
 
         Args:
             metadata: Service metadata object
 
         Returns:
-            Canonical JSON string
+            Canonical JSON string (insertion order, no whitespace)
         """
-        # Build ordered dictionary
+        # Build canonical object in specific order to match TS SDK
+        # TypeScript uses: { service, ...(input && { input }), ...(version && { version }), ...(timestamp && { timestamp }) }
+        # This creates insertion order: service first, then optional fields
         canonical: Dict[str, Any] = {"service": metadata.service}
         if metadata.input is not None:
             canonical["input"] = metadata.input
@@ -744,7 +755,10 @@ class ServiceHash:
         if metadata.timestamp is not None:
             canonical["timestamp"] = metadata.timestamp
 
-        return json.dumps(canonical, separators=(",", ":"), sort_keys=True)
+        # PARITY FIX: Do NOT use sort_keys - match TS SDK's JSON.stringify() behavior
+        # Python dict maintains insertion order (Python 3.7+), so this matches TS
+        # PARITY FIX: Use ensure_ascii=False to preserve unicode characters
+        return json.dumps(canonical, separators=(",", ":"), ensure_ascii=False)
 
     @staticmethod
     def hash(metadata: Union[ServiceMetadata, str]) -> str:

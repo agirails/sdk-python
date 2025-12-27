@@ -24,6 +24,26 @@ from agirails.utils.logging import (
     LogContext,
 )
 
+# PARITY: New utilities matching TS SDK
+from agirails.utils.secure_nonce import (
+    generate_secure_nonce,
+    is_valid_nonce,
+    generate_secure_nonces,
+)
+from agirails.utils.used_attestation_tracker import (
+    IUsedAttestationTracker,
+    InMemoryUsedAttestationTracker,
+    FileBasedUsedAttestationTracker,
+    create_used_attestation_tracker,
+)
+from agirails.utils.received_nonce_tracker import (
+    NonceValidationResult,
+    IReceivedNonceTracker,
+    InMemoryReceivedNonceTracker,
+    SetBasedReceivedNonceTracker,
+    create_received_nonce_tracker,
+)
+
 __all__ = [
     # Security
     "timing_safe_equal",
@@ -48,4 +68,19 @@ __all__ = [
     "NonceTracker",
     "NonceManager",
     "NonceStatus",
+    # PARITY: SecureNonce (matches TS SDK)
+    "generate_secure_nonce",
+    "is_valid_nonce",
+    "generate_secure_nonces",
+    # PARITY: UsedAttestationTracker (matches TS SDK)
+    "IUsedAttestationTracker",
+    "InMemoryUsedAttestationTracker",
+    "FileBasedUsedAttestationTracker",
+    "create_used_attestation_tracker",
+    # PARITY: ReceivedNonceTracker (matches TS SDK)
+    "NonceValidationResult",
+    "IReceivedNonceTracker",
+    "InMemoryReceivedNonceTracker",
+    "SetBasedReceivedNonceTracker",
+    "create_received_nonce_tracker",
 ]

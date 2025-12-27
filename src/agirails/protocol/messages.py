@@ -41,6 +41,7 @@ SECP256K1_N_DIV_2 = SECP256K1_N // 2
 
 from agirails.types.message import (
     DeliveryProof,
+    DeliveryProofMessage,
     EIP712Domain,
     ServiceRequest,
     ServiceResponse,
@@ -402,7 +403,9 @@ class MessageSigner:
 
     def sign_delivery_proof(self, proof: DeliveryProof) -> SignedMessage:
         """
-        Sign a delivery proof.
+        Sign a legacy delivery proof.
+
+        For new code, use sign_delivery_proof_message() instead.
 
         Args:
             proof: DeliveryProof to sign
@@ -427,6 +430,42 @@ class MessageSigner:
             message=proof.to_dict(),
             message_type=proof.TYPE_NAME,
             signature="0x" + signature if not signature.startswith("0x") else signature,
+            signer=signer,
+        )
+
+    def sign_delivery_proof_message(self, proof: DeliveryProofMessage) -> SignedMessage:
+        """
+        Sign an AIP-4 v1.1 delivery proof message.
+
+        PARITY CRITICAL: Uses to_signing_dict() which returns ONLY the 9 signed fields.
+        This matches the TypeScript SDK's AIP4DeliveryProofTypes exactly:
+        txId, provider, consumer, resultCID, resultHash, easAttestationUID,
+        deliveredAt, chainId, nonce.
+
+        Args:
+            proof: DeliveryProofMessage to sign (AIP-4 v1.1 schema)
+
+        Returns:
+            SignedMessage containing the signature
+        """
+        # PARITY: Use to_signing_dict() to get ONLY the 9 signed fields
+        # This excludes type, version, signature, and metadata
+        typed_data = self._build_typed_data(
+            primary_type=proof.TYPE_NAME,
+            type_definition=proof.TYPE_DEFINITION,
+            message=proof.to_signing_dict(),
+        )
+
+        signature, signer = self._sign_typed_data(typed_data)
+
+        # Update the proof's signature field
+        proof.signature = "0x" + signature if not signature.startswith("0x") else signature
+
+        return SignedMessage(
+            domain=self.domain,
+            message=proof.to_signing_dict(),  # Return only signed fields
+            message_type=proof.TYPE_NAME,
+            signature=proof.signature,
             signer=signer,
         )
 
@@ -496,6 +535,7 @@ class MessageSigner:
             ServiceRequest.TYPE_NAME: ServiceRequest.TYPE_DEFINITION,
             ServiceResponse.TYPE_NAME: ServiceResponse.TYPE_DEFINITION,
             DeliveryProof.TYPE_NAME: DeliveryProof.TYPE_DEFINITION,
+            DeliveryProofMessage.TYPE_NAME: DeliveryProofMessage.TYPE_DEFINITION,
         }
 
         type_def = type_definitions.get(signed_message.message_type)
@@ -575,30 +615,37 @@ def hash_typed_data(typed_data: Dict[str, Any]) -> str:
 
     This is the hash that gets signed.
 
+    PARITY NOTE: eth_account is REQUIRED - no SHA-256 fallback.
+    This ensures parity with TypeScript SDK which always uses keccak256.
+
     Args:
         typed_data: EIP-712 typed data structure
 
     Returns:
         Hex-encoded hash (bytes32)
 
+    Raises:
+        ImportError: If eth_account is not installed (no fallback)
+
     Note:
         This computes the same hash that eth_account uses internally.
         Requires eth_account for proper EIP-712 hashing.
     """
     if not HAS_ETH_ACCOUNT:
-        # Fallback to simple SHA256 for testing
-        import json
-
-        encoded = json.dumps(typed_data, sort_keys=True, separators=(",", ":"))
-        hash_bytes = hashlib.sha256(encoded.encode()).digest()
-        return "0x" + hash_bytes.hex()
+        # PARITY FIX: No SHA-256 fallback - eth_account is required
+        # This ensures TypeScript and Python SDKs produce identical hashes
+        raise ImportError(
+            "eth_account is required for EIP-712 hash computation. "
+            "Install with: pip install eth-account\n"
+            "SHA-256 fallback is not supported for parity with TypeScript SDK."
+        )
 
     signable = encode_typed_data(full_message=typed_data)
     return "0x" + signable.body.hex()
 
 
 def create_typed_data(
-    message: Union[ServiceRequest, ServiceResponse, DeliveryProof],
+    message: Union[ServiceRequest, ServiceResponse, DeliveryProof, DeliveryProofMessage],
     domain: EIP712Domain,
 ) -> Dict[str, Any]:
     """

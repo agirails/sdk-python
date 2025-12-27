@@ -492,7 +492,7 @@ class BlockchainRuntime:
                 updated_at=tx_view.updated_at,
                 escrow_id=tx_view.escrow_id if tx_view.escrow_id != "0" * 64 else None,
                 service_description=tx_view.service_hash,
-                proof=tx_view.attestation_uid if tx_view.attestation_uid != "0" * 64 else None,
+                delivery_proof="",  # PARITY: TS BlockchainRuntime returns '' (empty), not attestation_uid
             )
         except Exception:
             return None

@@ -428,12 +428,18 @@ class MockRuntime(IMockRuntime):
                 )
 
             old_state = tx.state.value
+            current_time = state.blockchain.timestamp
 
             # Update transaction
             tx.state = new_state
-            tx.updated_at = state.blockchain.timestamp
+            tx.updated_at = current_time
+
+            # Set completed_at when transitioning to DELIVERED (parity with TS SDK)
+            if new_state == State.DELIVERED:
+                tx.completed_at = current_time
+
             if proof:
-                tx.proof = proof
+                tx.delivery_proof = proof  # PARITY: TS uses 'deliveryProof'
 
             # Emit event
             self._emit_event(
@@ -544,9 +550,10 @@ class MockRuntime(IMockRuntime):
                     tx_id=escrow.tx_id,
                 )
 
-            # Check dispute window
+            # Check dispute window (use completed_at for DELIVERED state)
             current_time = state.blockchain.timestamp
-            window_end = tx.updated_at + tx.dispute_window
+            completed_at = tx.completed_at if tx.completed_at is not None else tx.updated_at
+            window_end = completed_at + tx.dispute_window
             if current_time < window_end:
                 remaining = window_end - current_time
                 raise DisputeWindowActiveError(

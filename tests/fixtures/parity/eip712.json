@@ -1,0 +1,139 @@
+{
+  "$comment": "Parity test vectors for EIP-712 typed data signing - ensures Python SDK produces same signatures as TypeScript SDK",
+  "test_vectors": [
+    {
+      "description": "Standard ACTP domain",
+      "domain": {
+        "name": "ACTP",
+        "version": "1",
+        "chainId": 84532,
+        "verifyingContract": "0x0000000000000000000000000000000000000000"
+      },
+      "expected_domain_separator_algorithm": "keccak256(abi.encode(typeHash, nameHash, versionHash, chainId, verifyingContract))"
+    },
+    {
+      "description": "Domain type hash computation",
+      "type_string": "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+      "hash_algorithm": "keccak256",
+      "note": "TypeHash = keccak256(type_string)"
+    },
+    {
+      "description": "DeliveryProof type definition (AIP-4 v1.1)",
+      "primary_type": "DeliveryProof",
+      "types": {
+        "EIP712Domain": [
+          {"name": "name", "type": "string"},
+          {"name": "version", "type": "string"},
+          {"name": "chainId", "type": "uint256"},
+          {"name": "verifyingContract", "type": "address"}
+        ],
+        "DeliveryProof": [
+          {"name": "txId", "type": "bytes32"},
+          {"name": "providerDID", "type": "string"},
+          {"name": "requesterDID", "type": "string"},
+          {"name": "serviceType", "type": "string"},
+          {"name": "inputHash", "type": "bytes32"},
+          {"name": "outputHash", "type": "bytes32"},
+          {"name": "resultCID", "type": "string"},
+          {"name": "timestamp", "type": "uint256"},
+          {"name": "nonce", "type": "bytes32"},
+          {"name": "schemaVersion", "type": "string"},
+          {"name": "attestationType", "type": "string"},
+          {"name": "chainId", "type": "uint256"}
+        ]
+      }
+    },
+    {
+      "description": "PARITY CRITICAL: Type hash for DeliveryProof",
+      "type_string": "DeliveryProof(bytes32 txId,string providerDID,string requesterDID,string serviceType,bytes32 inputHash,bytes32 outputHash,string resultCID,uint256 timestamp,bytes32 nonce,string schemaVersion,string attestationType,uint256 chainId)",
+      "hash_algorithm": "keccak256"
+    },
+    {
+      "description": "Struct hash computation",
+      "algorithm": "keccak256(abi.encode(typeHash, ...encodedValues))",
+      "note": "Strings are encoded as keccak256(string), bytes32 as-is, uint256 as-is"
+    },
+    {
+      "description": "Final signing hash computation",
+      "algorithm": "keccak256('\\x19\\x01' + domainSeparator + structHash)",
+      "prefix": "0x1901",
+      "note": "This is the hash that gets signed"
+    },
+    {
+      "description": "Sample message for signing",
+      "message": {
+        "txId": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "providerDID": "did:ethr:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "requesterDID": "did:ethr:0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "serviceType": "gpt-4-turbo",
+        "inputHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "outputHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resultCID": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        "timestamp": 1700000000,
+        "nonce": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "schemaVersion": "1.1.0",
+        "attestationType": "delivery",
+        "chainId": 84532
+      },
+      "domain": {
+        "name": "ACTP",
+        "version": "1",
+        "chainId": 84532,
+        "verifyingContract": "0x0000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "description": "PARITY CRITICAL: Signature format",
+      "signature_format": {
+        "v": "uint8 (27 or 28)",
+        "r": "bytes32 (hex string with 0x prefix)",
+        "s": "bytes32 (hex string with 0x prefix)"
+      },
+      "compact_signature": "r + s + v (65 bytes)",
+      "note": "Both SDKs must produce identical v, r, s values for the same private key and message"
+    }
+  ],
+  "encoding_test_vectors": [
+    {
+      "description": "String encoding",
+      "value": "hello",
+      "encoded": "keccak256('hello')",
+      "note": "Strings in EIP-712 are hashed before encoding"
+    },
+    {
+      "description": "bytes32 encoding",
+      "value": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "encoded": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "note": "bytes32 values are used as-is"
+    },
+    {
+      "description": "uint256 encoding",
+      "value": 1700000000,
+      "encoded": "abi.encode(uint256(1700000000))",
+      "note": "uint256 values are ABI encoded (32 bytes, big-endian, zero-padded)"
+    },
+    {
+      "description": "address encoding",
+      "value": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "encoded": "abi.encode(address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266))",
+      "note": "Addresses are ABI encoded (32 bytes, zero-padded on left)"
+    }
+  ],
+  "error_cases": [
+    {
+      "description": "Invalid bytes32 (wrong length)",
+      "input": "0x1234",
+      "expected_error": "Invalid bytes32 format"
+    },
+    {
+      "description": "Missing required field",
+      "input": {"txId": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"},
+      "expected_error": "Missing required field"
+    },
+    {
+      "description": "Invalid chain ID",
+      "input": {"chainId": -1},
+      "expected_error": "Invalid chain ID"
+    }
+  ]
+}

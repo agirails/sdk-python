@@ -1,0 +1,98 @@
+{
+  "$comment": "Parity test vectors for DeliveryProof - ensures Python SDK produces same proofs as TypeScript SDK",
+  "schema_version": "AIP-4 v1.1",
+  "test_vectors": [
+    {
+      "description": "Basic delivery proof message",
+      "input": {
+        "txId": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "providerDID": "did:ethr:0xProviderAddress1234567890123456789012",
+        "requesterDID": "did:ethr:0xRequesterAddress123456789012345678901",
+        "serviceType": "gpt-4-turbo",
+        "inputHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "outputHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resultCID": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        "timestamp": 1700000000,
+        "nonce": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "schemaVersion": "1.1.0",
+        "attestationType": "delivery",
+        "chainId": 84532
+      },
+      "expected_field_count": 12,
+      "expected_fields": ["txId", "providerDID", "requesterDID", "serviceType", "inputHash", "outputHash", "resultCID", "timestamp", "nonce", "schemaVersion", "attestationType", "chainId"]
+    },
+    {
+      "description": "Delivery proof with minimal fields (all required)",
+      "input": {
+        "txId": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "providerDID": "did:ethr:0x0000000000000000000000000000000000000001",
+        "requesterDID": "did:ethr:0x0000000000000000000000000000000000000002",
+        "serviceType": "test",
+        "inputHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "outputHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "resultCID": "",
+        "timestamp": 0,
+        "nonce": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "schemaVersion": "1.1.0",
+        "attestationType": "delivery",
+        "chainId": 1
+      },
+      "expected_field_count": 12
+    },
+    {
+      "description": "PARITY CRITICAL: Result hash computation",
+      "note": "Result hash MUST use keccak256(canonicalJSON(result)), NOT SHA-256",
+      "input_result": {"status": "success", "data": {"value": 42}},
+      "expected_canonical": "{\"status\":\"success\",\"data\":{\"value\":42}}",
+      "hash_algorithm": "keccak256",
+      "expected_hash_prefix": "0x"
+    },
+    {
+      "description": "Input hash computation",
+      "input_data": "Hello, world!",
+      "hash_algorithm": "keccak256",
+      "expected_hash_prefix": "0x"
+    },
+    {
+      "description": "Base Sepolia chain ID",
+      "chainId": 84532,
+      "network": "base-sepolia"
+    },
+    {
+      "description": "Base Mainnet chain ID",
+      "chainId": 8453,
+      "network": "base-mainnet"
+    }
+  ],
+  "metadata_test_vectors": [
+    {
+      "description": "Delivery proof metadata structure",
+      "input": {
+        "inputSize": 1024,
+        "outputSize": 2048,
+        "processingTimeMs": 500,
+        "modelVersion": "gpt-4-turbo-2024-01"
+      },
+      "expected_fields": ["inputSize", "outputSize", "processingTimeMs", "modelVersion"]
+    },
+    {
+      "description": "Metadata with optional fields",
+      "input": {
+        "inputSize": 100,
+        "outputSize": 200
+      },
+      "note": "processingTimeMs and modelVersion are optional"
+    }
+  ],
+  "signing_test_vectors": [
+    {
+      "description": "EIP-712 domain for delivery proofs",
+      "domain": {
+        "name": "ACTP",
+        "version": "1",
+        "chainId": 84532,
+        "verifyingContract": "0x0000000000000000000000000000000000000000"
+      }
+    }
+  ]
+}

@@ -31,6 +31,7 @@ from agirails.adapters.basic import (
     BasicAdapter,
     BasicPayParams,
     BasicPayResult,
+    CheckStatusResult,
 )
 from agirails.adapters.standard import (
     StandardAdapter,
@@ -50,6 +51,7 @@ __all__ = [
     "BasicAdapter",
     "BasicPayParams",
     "BasicPayResult",
+    "CheckStatusResult",
     # Standard
     "StandardAdapter",
     "StandardTransactionParams",

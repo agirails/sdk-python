@@ -10,6 +10,9 @@ Usage:
     $ actp mint <address> <amount>
     $ actp time
     $ actp config show
+    $ actp watch <tx_id>           # Agent-first: Stream state changes
+    $ actp batch <file>            # Agent-first: Execute multiple commands
+    $ actp simulate pay <to> <amt> # Agent-first: Dry-run validation
 """
 
 from __future__ import annotations
@@ -109,6 +112,9 @@ from agirails.cli.commands import balance as balance_cmd
 from agirails.cli.commands import mint as mint_cmd
 from agirails.cli.commands import config as config_cmd
 from agirails.cli.commands import time as time_cmd
+from agirails.cli.commands import watch as watch_cmd
+from agirails.cli.commands import batch as batch_cmd
+from agirails.cli.commands import simulate as simulate_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -118,6 +124,9 @@ app.command(name="balance")(balance_cmd.balance)
 app.command(name="mint")(mint_cmd.mint)
 app.add_typer(config_cmd.config_app, name="config")
 app.add_typer(time_cmd.time_app, name="time")
+app.command(name="watch")(watch_cmd.watch)
+app.command(name="batch")(batch_cmd.batch)
+app.add_typer(simulate_cmd.simulate_app, name="simulate")
 
 
 def run() -> None:

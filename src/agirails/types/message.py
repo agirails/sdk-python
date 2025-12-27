@@ -4,6 +4,9 @@ EIP-712 Message types for AGIRAILS SDK.
 Provides types for typed structured data signing according to EIP-712.
 Used for off-chain message signing and verification in the ACTP protocol.
 
+This module implements AIP-4 v1.1 DeliveryProofMessage schema for parity
+with the TypeScript SDK.
+
 Example:
     >>> domain = EIP712Domain(
     ...     name="ACTP",
@@ -21,10 +24,9 @@ Example:
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 @dataclass
@@ -171,12 +173,188 @@ class ServiceResponse:
         }
 
 
+class DeliveryProofMetadata(TypedDict, total=False):
+    """
+    Optional metadata for delivery proof (NOT included in EIP-712 signing).
+
+    This is stored separately from the signed message.
+    Matches TS SDK: sdk-js/src/types/message.ts DeliveryProofMessage.metadata
+    """
+    execution_time: int  # executionTime in TS (seconds)
+    output_format: str   # outputFormat in TS (MIME type)
+    output_size: int     # outputSize in TS (bytes)
+    notes: str           # Max 500 chars
+
+
+@dataclass
+class DeliveryProofMessage:
+    """
+    AIP-4 v1.1 Delivery proof message for EIP-712 signing.
+
+    PARITY CRITICAL: This class matches the TypeScript SDK's AIP4DeliveryProofTypes
+    EXACTLY with 9 signed fields. The primary type is "DeliveryProof".
+
+    Reference: sdk-js/src/types/eip712.ts AIP4DeliveryProofTypes
+
+    Fields are ordered to match the TS SDK type definition:
+    1. txId - bytes32 (transaction ID)
+    2. provider - string (provider's DID, e.g., "did:ethr:84532:0x...")
+    3. consumer - string (consumer's DID)
+    4. resultCID - string (IPFS CID, e.g., "bafybeig...")
+    5. resultHash - bytes32 (keccak256 hash of result)
+    6. easAttestationUID - bytes32 (EAS attestation UID)
+    7. deliveredAt - uint256 (delivery timestamp)
+    8. chainId - uint256 (chain ID)
+    9. nonce - uint256 (monotonically increasing integer)
+
+    Non-signed wrapper fields (from DeliveryProofMessage interface):
+    - type: 'agirails.delivery.v1'
+    - version: string (e.g., "1.0.0")
+    - metadata: optional execution metadata
+    - signature: EIP-712 signature
+
+    Example:
+        >>> proof = DeliveryProofMessage(
+        ...     tx_id="0x1234...",
+        ...     provider="did:ethr:84532:0xProvider...",
+        ...     consumer="did:ethr:84532:0xConsumer...",
+        ...     result_cid="bafybeig...",
+        ...     result_hash="0xbbb...",
+        ...     eas_attestation_uid="0xccc...",
+        ...     delivered_at=1700000000,
+        ...     chain_id=84532,
+        ...     nonce=1,
+        ... )
+    """
+
+    # Required EIP-712 signed fields (match TS SDK AIP4DeliveryProofTypes order)
+    tx_id: str  # bytes32
+    provider: str  # string (DID)
+    consumer: str  # string (DID)
+    result_cid: str  # string (IPFS CID)
+    result_hash: str  # bytes32 (keccak256)
+    eas_attestation_uid: str  # bytes32
+    delivered_at: int  # uint256 (Unix timestamp)
+    chain_id: int  # uint256
+    nonce: int  # uint256 (NOT bytes32 - this is a monotonically increasing integer)
+
+    # Non-signed wrapper fields (from DeliveryProofMessage interface)
+    type: str = "agirails.delivery.v1"  # Message type constant
+    version: str = "1.0.0"  # Semantic version
+
+    # NOT included in EIP-712 signing (stored separately)
+    signature: str = ""  # Set after signing
+    metadata: Optional[DeliveryProofMetadata] = None  # Optional execution metadata
+
+    # EIP-712 type constants - MUST match TS SDK AIP4DeliveryProofTypes exactly
+    TYPE_NAME = "DeliveryProof"
+    TYPE_DEFINITION = [
+        {"name": "txId", "type": "bytes32"},
+        {"name": "provider", "type": "string"},
+        {"name": "consumer", "type": "string"},
+        {"name": "resultCID", "type": "string"},
+        {"name": "resultHash", "type": "bytes32"},
+        {"name": "easAttestationUID", "type": "bytes32"},
+        {"name": "deliveredAt", "type": "uint256"},
+        {"name": "chainId", "type": "uint256"},
+        {"name": "nonce", "type": "uint256"},
+    ]
+
+    def __post_init__(self) -> None:
+        """Set defaults."""
+        if self.delivered_at == 0:
+            self.delivered_at = int(datetime.now().timestamp())
+
+    def to_signing_dict(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary for EIP-712 signing.
+
+        PARITY CRITICAL: Returns ONLY the 9 fields that get signed.
+        Matches TS SDK AIP4DeliveryProofData interface.
+        Does NOT include type, version, signature, or metadata.
+        """
+        return {
+            "txId": self.tx_id,
+            "provider": self.provider,
+            "consumer": self.consumer,
+            "resultCID": self.result_cid,
+            "resultHash": self.result_hash,
+            "easAttestationUID": self.eas_attestation_uid,
+            "deliveredAt": self.delivered_at,
+            "chainId": self.chain_id,
+            "nonce": self.nonce,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert to full dictionary including non-signed fields.
+
+        Matches TS SDK DeliveryProofMessage interface.
+        Use to_signing_dict() for EIP-712 signing.
+
+        PARITY: Always includes 'signature' key (empty string before signing)
+        to match TS SDK which always includes the key.
+        """
+        result: Dict[str, Any] = {
+            "type": self.type,
+            "version": self.version,
+            **self.to_signing_dict(),
+            "signature": self.signature,  # PARITY: Always include, even if empty
+        }
+        if self.metadata:
+            md: Dict[str, Any] = {}
+            if "execution_time" in self.metadata:
+                md["executionTime"] = self.metadata["execution_time"]
+            if "output_format" in self.metadata:
+                md["outputFormat"] = self.metadata["output_format"]
+            if "output_size" in self.metadata:
+                md["outputSize"] = self.metadata["output_size"]
+            if "notes" in self.metadata:
+                md["notes"] = self.metadata["notes"]
+            result["metadata"] = md
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DeliveryProofMessage":
+        """Create from dictionary (handles both camelCase and snake_case)."""
+        # Handle camelCase keys from TS SDK
+        metadata = None
+        if "metadata" in data and data["metadata"]:
+            md = data["metadata"]
+            metadata = DeliveryProofMetadata(
+                execution_time=md.get("executionTime", md.get("execution_time")),
+                output_format=md.get("outputFormat", md.get("output_format")),
+                output_size=md.get("outputSize", md.get("output_size")),
+                notes=md.get("notes"),
+            )
+            # Remove None values
+            metadata = {k: v for k, v in metadata.items() if v is not None}  # type: ignore
+
+        return cls(
+            tx_id=data.get("txId", data.get("tx_id", "")),
+            provider=data.get("provider", ""),
+            consumer=data.get("consumer", ""),
+            result_cid=data.get("resultCID", data.get("result_cid", "")),
+            result_hash=data.get("resultHash", data.get("result_hash", "")),
+            eas_attestation_uid=data.get("easAttestationUID", data.get("eas_attestation_uid", "")),
+            delivered_at=data.get("deliveredAt", data.get("delivered_at", 0)),
+            chain_id=data.get("chainId", data.get("chain_id", 84532)),
+            nonce=data.get("nonce", 0),
+            type=data.get("type", "agirails.delivery.v1"),
+            version=data.get("version", "1.0.0"),
+            signature=data.get("signature", ""),
+            metadata=metadata if metadata else None,
+        )
+
+
+# Backwards compatibility alias
 @dataclass
 class DeliveryProof:
     """
-    Delivery proof message for signing.
+    Legacy delivery proof message (DEPRECATED).
 
-    Used to prove delivery of service output.
+    This class is kept for backwards compatibility. For new code,
+    use DeliveryProofMessage which implements AIP-4 v1.1 schema.
 
     Attributes:
         transaction_id: ACTP transaction ID
@@ -215,6 +393,42 @@ class DeliveryProof:
             "provider": self.provider,
             "timestamp": self.timestamp,
         }
+
+    def to_delivery_proof_message(
+        self,
+        consumer: str = "",
+        result_cid: str = "",
+        chain_id: int = 84532,
+        nonce: int = 0,
+    ) -> DeliveryProofMessage:
+        """
+        Convert legacy DeliveryProof to AIP-4 v1.1 DeliveryProofMessage.
+
+        Args:
+            consumer: Consumer DID (e.g., "did:ethr:84532:0x...")
+            result_cid: IPFS CID of result (e.g., "bafybeig...")
+            chain_id: Ethereum chain ID (84532 for Base Sepolia)
+            nonce: Monotonically increasing nonce for replay protection
+
+        Returns:
+            DeliveryProofMessage with mapped fields matching TS SDK schema
+        """
+        # Convert provider address to DID format if needed
+        provider_did = self.provider
+        if not provider_did.startswith("did:"):
+            provider_did = f"did:ethr:{chain_id}:{self.provider}"
+
+        return DeliveryProofMessage(
+            tx_id=self.transaction_id,
+            provider=provider_did,
+            consumer=consumer or f"did:ethr:{chain_id}:{'0x' + '0' * 40}",
+            result_cid=result_cid,
+            result_hash=self.output_hash,
+            eas_attestation_uid=self.attestation_uid or "0x" + "0" * 64,
+            delivered_at=self.timestamp,
+            chain_id=chain_id,
+            nonce=nonce,
+        )
 
 
 @dataclass
@@ -361,7 +575,7 @@ class TypedData:
         proof: DeliveryProof,
         domain: EIP712Domain,
     ) -> TypedData:
-        """Create TypedData from a DeliveryProof."""
+        """Create TypedData from a legacy DeliveryProof."""
         return cls(
             types={
                 "EIP712Domain": domain.type_definition,
@@ -370,6 +584,29 @@ class TypedData:
             primary_type=proof.TYPE_NAME,
             domain=domain.to_dict(),
             message=proof.to_dict(),
+        )
+
+    @classmethod
+    def from_delivery_proof_message(
+        cls,
+        proof: DeliveryProofMessage,
+        domain: EIP712Domain,
+    ) -> TypedData:
+        """
+        Create TypedData from AIP-4 v1.1 DeliveryProofMessage.
+
+        PARITY CRITICAL: Uses to_signing_dict() to include ONLY the 9 signed
+        fields, matching TS SDK AIP4DeliveryProofTypes. Does NOT include
+        wrapper fields (type, version, signature, metadata).
+        """
+        return cls(
+            types={
+                "EIP712Domain": domain.type_definition,
+                proof.TYPE_NAME: proof.TYPE_DEFINITION,
+            },
+            primary_type=proof.TYPE_NAME,
+            domain=domain.to_dict(),
+            message=proof.to_signing_dict(),  # PARITY: Only signed fields
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -382,53 +619,99 @@ class TypedData:
         }
 
 
+def _get_keccak256() -> Any:
+    """
+    Get keccak256 hash function.
+
+    Tries eth_hash first (required for parity), falls back with error.
+
+    Returns:
+        keccak256 function
+
+    Raises:
+        ImportError: If eth_hash is not installed (no fallback allowed for parity)
+    """
+    try:
+        from eth_hash.auto import keccak
+        return keccak
+    except ImportError:
+        raise ImportError(
+            "eth_hash is required for keccak256 hashing. "
+            "Install with: pip install eth-hash[pycryptodome]"
+        )
+
+
+def compute_result_hash(result_data: Any) -> str:
+    """
+    Compute result hash using keccak256 over canonical JSON.
+
+    This matches the TypeScript SDK's computeResultHash function exactly:
+    - Uses fast-json-stable-stringify equivalent (sorted keys, no whitespace)
+    - Uses keccak256 hash
+
+    Args:
+        result_data: Result data to hash (dict, list, or primitive)
+
+    Returns:
+        Hex-encoded keccak256 hash (0x prefixed)
+
+    Example:
+        >>> compute_result_hash({"hello": "world"})
+        '0x...'
+    """
+    from agirails.utils.canonical_json import canonical_json_dumps
+
+    # Get canonical JSON (matches fast-json-stable-stringify)
+    canonical = canonical_json_dumps(result_data)
+
+    # Compute keccak256
+    keccak = _get_keccak256()
+    hash_bytes = keccak(canonical.encode("utf-8"))
+    return "0x" + hash_bytes.hex()
+
+
 def hash_message(message: Dict[str, Any]) -> str:
     """
-    Hash a message for signing.
+    Hash a message using keccak256 over canonical JSON.
+
+    This is the primary hash function for EIP-712 compatible hashing.
+    Uses keccak256 for parity with TypeScript SDK.
 
     Args:
         message: Message dictionary
 
     Returns:
-        Hex-encoded hash
+        Hex-encoded keccak256 hash (0x prefixed)
     """
-    import json
-
-    # Canonical JSON encoding
-    encoded = json.dumps(message, sort_keys=True, separators=(",", ":"))
-    hash_bytes = hashlib.sha256(encoded.encode()).digest()
-    return "0x" + hash_bytes.hex()
+    return compute_result_hash(message)
 
 
 def create_input_hash(input_data: Any) -> str:
     """
-    Create a hash of input data.
+    Create a keccak256 hash of input data.
+
+    Uses canonical JSON serialization and keccak256 hashing
+    for parity with TypeScript SDK.
 
     Args:
         input_data: Input data to hash
 
     Returns:
-        Hex-encoded hash (bytes32)
+        Hex-encoded keccak256 hash (bytes32, 0x prefixed)
     """
-    import json
-
-    if isinstance(input_data, str):
-        data = input_data
-    else:
-        data = json.dumps(input_data, sort_keys=True, separators=(",", ":"))
-
-    hash_bytes = hashlib.sha256(data.encode()).digest()
-    return "0x" + hash_bytes.hex()
+    return compute_result_hash(input_data)
 
 
 def create_output_hash(output_data: Any) -> str:
     """
-    Create a hash of output data.
+    Create a keccak256 hash of output data.
+
+    Alias for create_input_hash - both use same hashing algorithm.
 
     Args:
         output_data: Output data to hash
 
     Returns:
-        Hex-encoded hash (bytes32)
+        Hex-encoded keccak256 hash (bytes32, 0x prefixed)
     """
     return create_input_hash(output_data)

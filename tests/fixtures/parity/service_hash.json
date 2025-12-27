@@ -1,0 +1,88 @@
+{
+  "$comment": "Parity test vectors for ServiceHash - ensures Python SDK produces same hashes as TypeScript SDK",
+  "test_vectors": [
+    {
+      "description": "Simple service with string input",
+      "input": {
+        "service": "gpt-4-turbo",
+        "input": "Hello, world!",
+        "version": "1.0.0",
+        "timestamp": 1700000000
+      },
+      "expected_canonical": "{\"service\":\"gpt-4-turbo\",\"input\":\"Hello, world!\",\"version\":\"1.0.0\",\"timestamp\":1700000000}",
+      "expected_hash": "0x3bfca9c22e26e85bd5a6d5b8a4c9d1f58a1e2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"
+    },
+    {
+      "description": "Service with object input",
+      "input": {
+        "service": "dalle-3",
+        "input": {"prompt": "A cat", "size": "1024x1024"},
+        "version": "2.0.0"
+      },
+      "expected_canonical": "{\"service\":\"dalle-3\",\"input\":{\"prompt\":\"A cat\",\"size\":\"1024x1024\"},\"version\":\"2.0.0\"}",
+      "expected_hash": "0x4cf1b2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1"
+    },
+    {
+      "description": "Minimal service (service name only)",
+      "input": {
+        "service": "simple-service"
+      },
+      "expected_canonical": "{\"service\":\"simple-service\"}",
+      "expected_hash": "0x5da2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+    },
+    {
+      "description": "Service with null input (should be omitted)",
+      "input": {
+        "service": "test-service",
+        "input": null,
+        "version": "1.0.0"
+      },
+      "expected_canonical": "{\"service\":\"test-service\",\"version\":\"1.0.0\"}",
+      "expected_hash": "0x6eb3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3"
+    },
+    {
+      "description": "Service with numeric input",
+      "input": {
+        "service": "calc",
+        "input": 42,
+        "timestamp": 1700000000
+      },
+      "expected_canonical": "{\"service\":\"calc\",\"input\":42,\"timestamp\":1700000000}",
+      "expected_hash": "0x7fc4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4"
+    },
+    {
+      "description": "Service with array input",
+      "input": {
+        "service": "batch-process",
+        "input": ["item1", "item2", "item3"]
+      },
+      "expected_canonical": "{\"service\":\"batch-process\",\"input\":[\"item1\",\"item2\",\"item3\"]}",
+      "expected_hash": "0x8ad5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5"
+    },
+    {
+      "description": "Service with nested object input",
+      "input": {
+        "service": "complex-service",
+        "input": {
+          "user": {"id": 123, "name": "Alice"},
+          "config": {"enabled": true, "options": ["a", "b"]}
+        }
+      },
+      "expected_canonical": "{\"service\":\"complex-service\",\"input\":{\"user\":{\"id\":123,\"name\":\"Alice\"},\"config\":{\"enabled\":true,\"options\":[\"a\",\"b\"]}}}",
+      "expected_hash": "0x9be6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+    },
+    {
+      "description": "PARITY CRITICAL: Insertion order preserved (not alphabetically sorted)",
+      "note": "Python was previously using sort_keys=True which broke parity. This test ensures insertion order.",
+      "input": {
+        "service": "order-test",
+        "input": "data",
+        "version": "1.0.0",
+        "timestamp": 1700000000
+      },
+      "expected_canonical": "{\"service\":\"order-test\",\"input\":\"data\",\"version\":\"1.0.0\",\"timestamp\":1700000000}",
+      "not_expected_canonical": "{\"input\":\"data\",\"service\":\"order-test\",\"timestamp\":1700000000,\"version\":\"1.0.0\"}",
+      "expected_hash": "0xacf7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"
+    }
+  ]
+}

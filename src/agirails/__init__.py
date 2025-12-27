@@ -49,6 +49,7 @@ from agirails.adapters import (
     BasicAdapter,
     BasicPayParams,
     BasicPayResult,
+    CheckStatusResult,
     StandardAdapter,
     StandardTransactionParams,
     TransactionDetails,
@@ -134,6 +135,21 @@ from agirails.utils import (
     Logger,
     Semaphore,
     RateLimiter,
+    # PARITY: SecureNonce
+    generate_secure_nonce,
+    is_valid_nonce,
+    generate_secure_nonces,
+    # PARITY: UsedAttestationTracker
+    IUsedAttestationTracker,
+    InMemoryUsedAttestationTracker,
+    FileBasedUsedAttestationTracker,
+    create_used_attestation_tracker,
+    # PARITY: ReceivedNonceTracker
+    NonceValidationResult,
+    IReceivedNonceTracker,
+    InMemoryReceivedNonceTracker,
+    SetBasedReceivedNonceTracker,
+    create_received_nonce_tracker,
 )
 
 # Utilities - Helpers
@@ -219,8 +235,81 @@ from agirails.types import (
     ServiceRequest,
     ServiceResponse,
     DeliveryProof,
+    DeliveryProofMessage,
+    DeliveryProofMetadata,
     SignedMessage,
     TypedData,
+    compute_result_hash,
+)
+
+# Protocol Layer (PARITY: Match TS SDK exports)
+from agirails.protocol import (
+    # Messages
+    MessageSigner,
+    SignatureComponents,
+    hash_typed_data,
+    create_typed_data,
+    HAS_MESSAGES,
+    # Proofs
+    ProofGenerator,
+    ContentProof,
+    MerkleProof,
+    verify_merkle_proof,
+    hash_service_input,
+    hash_service_output,
+    # DID
+    DIDManager,
+    DIDResolver,
+    VerificationMethod,
+    ServiceEndpoint,
+    create_did_from_address,
+    did_to_address,
+)
+
+# Protocol modules (conditional, require web3)
+try:
+    from agirails.protocol import (
+        # Kernel
+        ACTPKernel,
+        TransactionView,
+        # Escrow
+        EscrowVault,
+        CreateEscrowParams,
+        EscrowInfo,
+        generate_escrow_id,
+        # Events
+        EventMonitor,
+        EventFilter,
+        EventType,
+        ACTPEvent,
+        TransactionCreatedEvent,
+        StateTransitionedEvent,
+        EscrowCreatedEvent,
+        EscrowPayoutEvent,
+        # Nonce
+        NonceManager,
+        NonceManagerPool,
+        # EAS
+        EASHelper,
+        Attestation,
+        DeliveryAttestationData,
+        Schema,
+        DELIVERY_SCHEMA,
+        ZERO_BYTES32,
+        # Agent Registry
+        AgentRegistry,
+        AgentProfile,
+        ServiceDescriptor,
+        compute_service_type_hash,
+    )
+    HAS_WEB3_PROTOCOL = True
+except ImportError:
+    HAS_WEB3_PROTOCOL = False
+
+# Builders
+from agirails.builders import (
+    DeliveryProofBuilder,
+    QuoteBuilder,
 )
 
 __all__ = [
@@ -237,6 +326,7 @@ __all__ = [
     "BasicAdapter",
     "BasicPayParams",
     "BasicPayResult",
+    "CheckStatusResult",
     "StandardAdapter",
     "StandardTransactionParams",
     "TransactionDetails",
@@ -318,6 +408,21 @@ __all__ = [
     "Logger",
     "Semaphore",
     "RateLimiter",
+    # PARITY: SecureNonce
+    "generate_secure_nonce",
+    "is_valid_nonce",
+    "generate_secure_nonces",
+    # PARITY: UsedAttestationTracker
+    "IUsedAttestationTracker",
+    "InMemoryUsedAttestationTracker",
+    "FileBasedUsedAttestationTracker",
+    "create_used_attestation_tracker",
+    # PARITY: ReceivedNonceTracker
+    "NonceValidationResult",
+    "IReceivedNonceTracker",
+    "InMemoryReceivedNonceTracker",
+    "SetBasedReceivedNonceTracker",
+    "create_received_nonce_tracker",
     # Utilities - Helpers
     "USDC",
     "Deadline",
@@ -385,6 +490,58 @@ __all__ = [
     "ServiceRequest",
     "ServiceResponse",
     "DeliveryProof",
+    "DeliveryProofMessage",
+    "DeliveryProofMetadata",
     "SignedMessage",
     "TypedData",
+    "compute_result_hash",
+    # Protocol Layer (PARITY with TS SDK)
+    "MessageSigner",
+    "SignatureComponents",
+    "hash_typed_data",
+    "create_typed_data",
+    "HAS_MESSAGES",
+    "ProofGenerator",
+    "ContentProof",
+    "MerkleProof",
+    "verify_merkle_proof",
+    "hash_service_input",
+    "hash_service_output",
+    "DIDManager",
+    "DIDResolver",
+    "VerificationMethod",
+    "ServiceEndpoint",
+    "create_did_from_address",
+    "did_to_address",
+    # Protocol (web3 required)
+    "HAS_WEB3_PROTOCOL",
+    "ACTPKernel",
+    "TransactionView",
+    "EscrowVault",
+    "CreateEscrowParams",
+    "EscrowInfo",
+    "generate_escrow_id",
+    "EventMonitor",
+    "EventFilter",
+    "EventType",
+    "ACTPEvent",
+    "TransactionCreatedEvent",
+    "StateTransitionedEvent",
+    "EscrowCreatedEvent",
+    "EscrowPayoutEvent",
+    "NonceManager",
+    "NonceManagerPool",
+    "EASHelper",
+    "Attestation",
+    "DeliveryAttestationData",
+    "Schema",
+    "DELIVERY_SCHEMA",
+    "ZERO_BYTES32",
+    "AgentRegistry",
+    "AgentProfile",
+    "ServiceDescriptor",
+    "compute_service_type_hash",
+    # Builders
+    "DeliveryProofBuilder",
+    "QuoteBuilder",
 ]

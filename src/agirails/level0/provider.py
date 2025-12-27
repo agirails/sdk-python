@@ -25,7 +25,7 @@ from agirails.level0.directory import ServiceDirectory, ServiceEntry
 from agirails.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from agirails.core import ACTPClient
+    from agirails.client import ACTPClient
 
 _logger = get_logger(__name__)
 
@@ -394,14 +394,316 @@ class Provider:
         """
         Poll for incoming service requests.
 
-        This is a placeholder that would be implemented with
-        actual blockchain polling in a full implementation.
+        PARITY: Matches TypeScript SDK's Agent.pollForJobs() method.
+
+        Queries runtime for transactions where this provider is assigned
+        and the transaction is in INITIATED state. For each pending
+        transaction, links escrow to accept the job and processes it.
         """
-        # In a real implementation, this would:
-        # 1. Query the blockchain for pending transactions for our services
-        # 2. Filter transactions by our registered service names
-        # 3. Create tasks to handle each transaction
-        pass
+        if self._client is None:
+            return
+
+        try:
+            # Query for transactions assigned to this provider in INITIATED state
+            runtime = self._client.runtime
+            pending_txs: List[Any] = []  # Can be MockTransaction objects or dicts
+
+            # Check if runtime has filtered query method
+            if hasattr(runtime, "get_transactions_by_provider"):
+                # Use optimized filtered query (max 100 per poll)
+                pending_txs = await runtime.get_transactions_by_provider(
+                    self.address,
+                    state="INITIATED",
+                    limit=100,
+                )
+            elif hasattr(runtime, "get_all_transactions"):
+                # Fallback to getting all and filtering
+                all_txs = await runtime.get_all_transactions()
+                # PARITY FIX: Use attribute access for MockTransaction objects
+                pending_txs = [
+                    tx for tx in all_txs
+                    if self._get_tx_field(tx, "provider") == self.address
+                    and self._get_tx_field(tx, "state") == "INITIATED"
+                ]
+
+            if not pending_txs:
+                return
+
+            _logger.debug(
+                f"Found {len(pending_txs)} pending transactions",
+                extra={"provider": self._config.name or "unnamed"},
+            )
+
+            # Process each pending transaction
+            for tx in pending_txs:
+                tx_id = self._get_tx_field(tx, "id") or ""
+                try:
+                    # Skip if already being processed
+                    if tx_id in self._active_jobs:
+                        continue
+
+                    # Find handler for this service
+                    service_name = self._extract_service_name(tx)
+                    handler = self.get_handler(service_name)
+                    if handler is None:
+                        _logger.debug(
+                            f"No handler for service '{service_name}'",
+                            extra={"tx_id": tx_id[:18]},
+                        )
+                        continue
+
+                    # Mark as active to prevent reprocessing
+                    self._active_jobs.add(tx_id)
+
+                    # Link escrow to accept the job (transitions INITIATED -> COMMITTED)
+                    amount = self._get_tx_field(tx, "amount") or "0"
+                    if hasattr(runtime, "link_escrow"):
+                        await runtime.link_escrow(tx_id, amount)
+
+                    self._stats["jobs_received"] += 1
+                    _logger.info(
+                        "Job accepted",
+                        extra={
+                            "provider": self._config.name or "unnamed",
+                            "service": service_name,
+                            "tx_id": tx_id[:18],
+                        },
+                    )
+
+                    # Process job asynchronously (don't await to continue polling)
+                    asyncio.create_task(
+                        self._process_job(tx_id, tx, service_name, handler)
+                    )
+
+                except Exception as e:
+                    _logger.error(
+                        f"Error processing transaction {tx_id[:18]}: {e}",
+                        extra={"provider": self._config.name or "unnamed"},
+                    )
+                    self._active_jobs.discard(tx_id)
+
+        except Exception as e:
+            _logger.error(
+                f"Polling error: {e}",
+                extra={"provider": self._config.name or "unnamed"},
+            )
+
+    def _get_tx_field(self, tx: Any, field: str) -> Any:
+        """
+        Get a field from a transaction (supports both dict and MockTransaction).
+
+        PARITY FIX: Runtime returns MockTransaction objects, not dicts.
+        This helper handles both for compatibility.
+        """
+        # Handle dict
+        if isinstance(tx, dict):
+            return tx.get(field)
+
+        # Handle MockTransaction object - use attribute access
+        if hasattr(tx, field):
+            value = getattr(tx, field)
+            # State enum needs string value
+            if field == "state" and hasattr(value, "value"):
+                return value.value
+            return value
+
+        # Fallback for snake_case to camelCase mapping
+        snake_field = self._to_snake_case(field)
+        if hasattr(tx, snake_field):
+            value = getattr(tx, snake_field)
+            if hasattr(value, "value"):
+                return value.value
+            return value
+
+        return None
+
+    def _to_snake_case(self, name: str) -> str:
+        """Convert camelCase to snake_case."""
+        import re
+        return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+
+    def _extract_service_name(self, tx: Any) -> str:
+        """
+        Extract service name from transaction metadata.
+
+        PARITY FIX: Uses _get_tx_field for MockTransaction compatibility.
+
+        Supports multiple formats:
+        1. JSON: {"service": "name", "input": ...}
+        2. Legacy: "service:name;input:..."
+        3. Plain string (service name directly)
+        """
+        service_desc = (
+            self._get_tx_field(tx, "serviceDescription")
+            or self._get_tx_field(tx, "service_description")
+            or ""
+        )
+        if not service_desc:
+            return "unknown"
+
+        # Try JSON format first
+        try:
+            import json
+            parsed = json.loads(service_desc)
+            if isinstance(parsed, dict) and "service" in parsed:
+                return parsed["service"]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Try legacy format: "service:NAME;input:..."
+        if service_desc.startswith("service:"):
+            parts = service_desc.split(";", 1)
+            if parts:
+                return parts[0].replace("service:", "")
+
+        # Plain string (if short enough)
+        if len(service_desc) < 64:
+            return service_desc
+
+        return "unknown"
+
+    def _extract_input(self, tx: Any) -> Any:
+        """
+        Extract input data from transaction metadata.
+
+        PARITY FIX: Uses _get_tx_field for MockTransaction compatibility.
+
+        Supports multiple formats:
+        1. JSON: {"service": "name", "input": {...}}
+        2. Legacy: "service:name;input:JSON"
+        """
+        service_desc = (
+            self._get_tx_field(tx, "serviceDescription")
+            or self._get_tx_field(tx, "service_description")
+            or ""
+        )
+        if not service_desc:
+            return {}
+
+        # Try JSON format first
+        try:
+            import json
+            parsed = json.loads(service_desc)
+            if isinstance(parsed, dict) and "input" in parsed:
+                return parsed["input"]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Try legacy format: "service:name;input:JSON"
+        if ";input:" in service_desc:
+            parts = service_desc.split(";input:", 1)
+            if len(parts) > 1:
+                try:
+                    import json
+                    return json.loads(parts[1])
+                except (json.JSONDecodeError, TypeError):
+                    return parts[1]
+
+        return {}
+
+    async def _process_job(
+        self,
+        tx_id: str,
+        tx: Any,
+        service_name: str,
+        handler: ServiceHandler,
+    ) -> None:
+        """
+        Process a job by invoking the handler and transitioning state.
+
+        PARITY: Matches TypeScript SDK's Agent.processJob() method.
+
+        Creates delivery proof with wrapper format:
+        {
+            type: 'delivery.proof',
+            txId: ...,
+            contentHash: ...,
+            timestamp: ...,
+            result: <handler_output>  // Original result included
+        }
+        """
+        import json
+        import time
+        start_time = time.time()
+
+        try:
+            # Extract input from transaction
+            input_data = self._extract_input(tx)
+
+            # Call handler
+            result = handler(input_data)
+            if asyncio.iscoroutine(result):
+                result = await result
+
+            # Build delivery proof with wrapper format
+            # PARITY: TS SDK Agent.ts creates: { ...deliveryProof, result }
+            from agirails.builders.delivery_proof import compute_output_hash
+
+            # Compute content hash
+            # PARITY FIX: Use separators=(',', ':') to match JS JSON.stringify() (no whitespace)
+            # PARITY FIX: Use ensure_ascii=False to match JS JSON.stringify() unicode handling
+            deliverable = result if isinstance(result, str) else json.dumps(
+                result, separators=(",", ":"), ensure_ascii=False
+            )
+            content_hash = compute_output_hash(deliverable)
+
+            # Create wrapper matching TS SDK format
+            # TS: { type: 'delivery.proof', txId, contentHash, timestamp, metadata, result }
+            # PARITY FIX: Add size and mimeType to metadata (from TS ProofGenerator.ts)
+            deliverable_size = len(deliverable.encode('utf-8')) if isinstance(deliverable, str) else len(deliverable)
+            delivery_proof_wrapper = {
+                "type": "delivery.proof",  # PARITY: Unique marker for request extraction
+                "txId": tx_id,
+                "contentHash": content_hash,
+                "timestamp": int(time.time() * 1000),
+                "metadata": {
+                    "service": service_name,
+                    "completedAt": int(time.time() * 1000),
+                    "size": deliverable_size,  # PARITY: TS ProofGenerator includes size
+                    "mimeType": "application/octet-stream",  # PARITY: TS ProofGenerator default mimeType
+                },  # NOTE: TS does NOT include executionTimeMs
+                "result": result,  # PARITY: Include original result for extraction
+            }
+            # PARITY FIX: Use ensure_ascii=False for unicode handling
+            delivery_proof_json = json.dumps(delivery_proof_wrapper, ensure_ascii=False)
+
+            # Transition to DELIVERED state with proof
+            if self._client is not None:
+                runtime = self._client.runtime
+
+                # PARITY FIX: Pass proof to transition_state instead of separate set_delivery_proof
+                # This matches TS SDK behavior where proof is stored during transition
+                if hasattr(runtime, "transition_state"):
+                    await runtime.transition_state(tx_id, "DELIVERED", proof=delivery_proof_json)
+
+            # Update stats
+            self._stats["jobs_completed"] += 1
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            _logger.info(
+                "Job completed",
+                extra={
+                    "provider": self._config.name or "unnamed",
+                    "service": service_name,
+                    "tx_id": tx_id[:18],
+                    "duration_ms": duration_ms,
+                },
+            )
+
+        except Exception as e:
+            self._stats["jobs_failed"] += 1
+            _logger.error(
+                f"Job failed: {e}",
+                extra={
+                    "provider": self._config.name or "unnamed",
+                    "service": service_name,
+                    "tx_id": tx_id[:18],
+                    "traceback": traceback.format_exc(),
+                },
+            )
+
+        finally:
+            self._active_jobs.discard(tx_id)
 
     async def handle_request(
         self,

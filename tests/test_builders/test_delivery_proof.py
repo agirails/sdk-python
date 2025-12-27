@@ -105,17 +105,24 @@ class TestDeliveryProof:
         assert "isOnChain" in d
 
     def test_to_message(self) -> None:
-        """Test converting to message type."""
+        """Test converting to AIP-4 v1.1 message type."""
         proof = DeliveryProof(
             transaction_id="0x" + "1" * 64,
             output_hash="0x" + "a" * 64,
             provider="0x" + "b" * 40,
             attestation_uid="0x" + "c" * 64,
+            chain_id=84532,
         )
 
         message = proof.to_message()
-        assert message.transaction_id == "0x" + "1" * 64
-        assert message.output_hash == "0x" + "a" * 64
+        # AIP-4 v1.1: Use tx_id instead of transaction_id
+        assert message.tx_id == "0x" + "1" * 64
+        # AIP-4 v1.1: Use result_hash instead of output_hash
+        assert message.result_hash == "0x" + "a" * 64
+        # Verify DID format for provider (includes chain_id)
+        assert message.provider == "did:ethr:84532:0x" + "b" * 40
+        # Verify attestation UID
+        assert message.eas_attestation_uid == "0x" + "c" * 64
 
     def test_verify_output(self) -> None:
         """Test output verification."""

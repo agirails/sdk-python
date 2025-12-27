@@ -20,21 +20,24 @@ def canonical_json_dumps(
     *,
     sort_keys: bool = True,
     separators: Optional[Tuple[str, str]] = None,
-    ensure_ascii: bool = True,
+    ensure_ascii: bool = False,
 ) -> str:
     """
     Serialize object to canonical JSON string.
 
+    PARITY CRITICAL: Uses ensure_ascii=False to match JavaScript's
+    JSON.stringify() behavior which preserves unicode characters.
+
     Features:
-    - Sorted keys (deterministic ordering)
+    - Sorted keys (deterministic ordering for hashing)
     - Minimal whitespace (no spaces after separators)
-    - ASCII-safe encoding (unicode escaped)
+    - Unicode preserved (not escaped) - matches JS JSON.stringify()
 
     Args:
         obj: Object to serialize
         sort_keys: Sort dictionary keys (default: True)
         separators: Custom separators (default: (",", ":"))
-        ensure_ascii: Escape non-ASCII characters (default: True)
+        ensure_ascii: Escape non-ASCII characters (default: False for JS parity)
 
     Returns:
         Canonical JSON string
@@ -44,6 +47,8 @@ def canonical_json_dumps(
         '{"a":1,"b":2}'
         >>> canonical_json_dumps({"nested": {"z": 1, "a": 2}})
         '{"nested":{"a":2,"z":1}}'
+        >>> canonical_json_dumps({"emoji": "🎉"})  # Unicode preserved
+        '{"emoji":"🎉"}'
     """
     if separators is None:
         separators = (",", ":")
