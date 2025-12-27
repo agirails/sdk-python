@@ -30,6 +30,8 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import struct
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -296,11 +298,15 @@ class EscrowVault:
         # Convert escrow_id to bytes32
         escrow_id_bytes = self._to_bytes32(params.escrow_id)
 
+        # Convert addresses to checksum format (web3.py requirement)
+        requester_checksum = self.w3.to_checksum_address(params.requester)
+        provider_checksum = self.w3.to_checksum_address(params.provider)
+
         # Build transaction
         tx = await self.contract.functions.createEscrow(
             escrow_id_bytes,
-            params.requester,
-            params.provider,
+            requester_checksum,
+            provider_checksum,
             params.amount,
         ).build_transaction(
             await self._build_tx_params(
@@ -334,9 +340,11 @@ class EscrowVault:
             >>> await escrow.approve_usdc(1000000)  # Approve 1 USDC
         """
         spender = spender or self.contract.address
+        # Convert address to checksum format (web3.py requirement)
+        spender_checksum = self.w3.to_checksum_address(spender)
 
         tx = await self.usdc_contract.functions.approve(
-            spender,
+            spender_checksum,
             amount,
         ).build_transaction(
             await self._build_tx_params(
@@ -374,9 +382,12 @@ class EscrowVault:
         """
         escrow_id_bytes = self._to_bytes32(escrow_id)
 
+        # Convert address to checksum format (web3.py requirement)
+        recipient_checksum = self.w3.to_checksum_address(recipient)
+
         tx = await self.contract.functions.payout(
             escrow_id_bytes,
-            recipient,
+            recipient_checksum,
             amount,
         ).build_transaction(
             await self._build_tx_params(
@@ -516,10 +527,15 @@ class EscrowVault:
             Tuple of (is_active, escrow_amount)
         """
         escrow_id_bytes = self._to_bytes32(escrow_id)
+
+        # Convert addresses to checksum format (web3.py requirement)
+        requester_checksum = self.w3.to_checksum_address(requester)
+        provider_checksum = self.w3.to_checksum_address(provider)
+
         result = await self.contract.functions.verifyEscrow(
             escrow_id_bytes,
-            requester,
-            provider,
+            requester_checksum,
+            provider_checksum,
             amount,
         ).call()
         return result[0], result[1]
@@ -535,7 +551,9 @@ class EscrowVault:
             Balance in USDC (6 decimals)
         """
         address = address or self.account.address
-        return await self.usdc_contract.functions.balanceOf(address).call()
+        # Convert address to checksum format (web3.py requirement)
+        address_checksum = self.w3.to_checksum_address(address)
+        return await self.usdc_contract.functions.balanceOf(address_checksum).call()
 
     async def get_usdc_allowance(
         self,
@@ -554,7 +572,10 @@ class EscrowVault:
         """
         owner = owner or self.account.address
         spender = spender or self.contract.address
-        return await self.usdc_contract.functions.allowance(owner, spender).call()
+        # Convert addresses to checksum format (web3.py requirement)
+        owner_checksum = self.w3.to_checksum_address(owner)
+        spender_checksum = self.w3.to_checksum_address(spender)
+        return await self.usdc_contract.functions.allowance(owner_checksum, spender_checksum).call()
 
     async def get_token_address(self) -> str:
         """Get the USDC token address used by the vault."""
@@ -575,7 +596,8 @@ class EscrowVault:
         max_priority_fee_per_gas: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Build transaction parameters."""
-        nonce = await self.w3.eth.get_transaction_count(self.account.address)
+        # Use "pending" to get nonce including unconfirmed transactions
+        nonce = await self.w3.eth.get_transaction_count(self.account.address, "pending")
 
         # Get gas prices if not provided
         if max_fee_per_gas is None or max_priority_fee_per_gas is None:

@@ -90,12 +90,12 @@ def _get_gas_limit(operation: str, default: int) -> int:
 
 # Default gas limits for different operations
 _DEFAULT_GAS_LIMITS = {
-    "create_transaction": 200_000,
-    "transition_state": 150_000,
-    "link_escrow": 150_000,
-    "release_escrow": 200_000,
-    "anchor_attestation": 100_000,
-    "release_milestone": 150_000,
+    "create_transaction": 300_000,  # Actual: ~240k, with buffer
+    "transition_state": 200_000,  # Increased for safety
+    "link_escrow": 350_000,  # Actual: ~280k (creates escrow + state transition)
+    "release_escrow": 300_000,  # Increased for safety
+    "anchor_attestation": 200_000,  # Increased for safety
+    "release_milestone": 250_000,  # Increased for safety
 }
 
 # Build actual gas limits with environment overrides
@@ -337,13 +337,17 @@ class ACTPKernel:
         # Use sender address as requester if not specified
         requester = params.requester or self.account.address
 
+        # Convert addresses to checksum format (web3.py requirement)
+        provider_checksum = self.w3.to_checksum_address(params.provider)
+        requester_checksum = self.w3.to_checksum_address(requester)
+
         # Convert service_hash to bytes32
         service_hash = self._to_bytes32(params.service_hash)
 
         # Build transaction
         tx = await self.contract.functions.createTransaction(
-            params.provider,
-            requester,
+            provider_checksum,
+            requester_checksum,
             params.amount,
             params.deadline,
             params.dispute_window,
@@ -614,7 +618,8 @@ class ACTPKernel:
         max_priority_fee_per_gas: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Build transaction parameters."""
-        nonce = await self.w3.eth.get_transaction_count(self.account.address)
+        # Use "pending" to get nonce including unconfirmed transactions
+        nonce = await self.w3.eth.get_transaction_count(self.account.address, "pending")
 
         # Get gas prices if not provided
         if max_fee_per_gas is None or max_priority_fee_per_gas is None:
