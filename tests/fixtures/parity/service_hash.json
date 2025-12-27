@@ -1,5 +1,6 @@
 {
   "$comment": "Parity test vectors for ServiceHash - ensures Python SDK produces same hashes as TypeScript SDK",
+  "$note": "Both SDKs use INSERTION ORDER (not sorted keys): service, input, version, timestamp. Null inputs are omitted.",
   "test_vectors": [
     {
       "description": "Simple service with string input",
@@ -10,7 +11,7 @@
         "timestamp": 1700000000
       },
       "expected_canonical": "{\"service\":\"gpt-4-turbo\",\"input\":\"Hello, world!\",\"version\":\"1.0.0\",\"timestamp\":1700000000}",
-      "expected_hash": "0x3bfca9c22e26e85bd5a6d5b8a4c9d1f58a1e2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"
+      "expected_hash": "0xab39b249750272b9aa3289e5983ebe2316d47b0d0ce29cb52ce02e344442dd13"
     },
     {
       "description": "Service with object input",
@@ -20,7 +21,7 @@
         "version": "2.0.0"
       },
       "expected_canonical": "{\"service\":\"dalle-3\",\"input\":{\"prompt\":\"A cat\",\"size\":\"1024x1024\"},\"version\":\"2.0.0\"}",
-      "expected_hash": "0x4cf1b2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1"
+      "expected_hash": "0xce57955961a4a5e7e0d1fb31930d75f53f404f7fd9a187eeb4fddc59204d7127"
     },
     {
       "description": "Minimal service (service name only)",
@@ -28,17 +29,18 @@
         "service": "simple-service"
       },
       "expected_canonical": "{\"service\":\"simple-service\"}",
-      "expected_hash": "0x5da2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+      "expected_hash": "0x2938f38aec404b340f27dec4d504c0a1e20cf02942971fb63adec84a195c9ef6"
     },
     {
       "description": "Service with null input (should be omitted)",
+      "note": "Null inputs are OMITTED from canonical JSON (matching TS SDK spread operator behavior)",
       "input": {
         "service": "test-service",
         "input": null,
         "version": "1.0.0"
       },
       "expected_canonical": "{\"service\":\"test-service\",\"version\":\"1.0.0\"}",
-      "expected_hash": "0x6eb3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3"
+      "expected_hash": "0x13aa8e0b9138cb73a124d6c8b85207fc1231c9e0ed6192f5352f085fe4429809"
     },
     {
       "description": "Service with numeric input",
@@ -48,7 +50,7 @@
         "timestamp": 1700000000
       },
       "expected_canonical": "{\"service\":\"calc\",\"input\":42,\"timestamp\":1700000000}",
-      "expected_hash": "0x7fc4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4"
+      "expected_hash": "0x47039a960853ebaf64bc351787824d136c8dacd362f2b1c70bfb6b8ae6a61fe8"
     },
     {
       "description": "Service with array input",
@@ -57,7 +59,7 @@
         "input": ["item1", "item2", "item3"]
       },
       "expected_canonical": "{\"service\":\"batch-process\",\"input\":[\"item1\",\"item2\",\"item3\"]}",
-      "expected_hash": "0x8ad5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5"
+      "expected_hash": "0xdde96fad018bc7d286b03c4d1acc43341873b5b09928e2d50af95a188271eccb"
     },
     {
       "description": "Service with nested object input",
@@ -69,11 +71,11 @@
         }
       },
       "expected_canonical": "{\"service\":\"complex-service\",\"input\":{\"user\":{\"id\":123,\"name\":\"Alice\"},\"config\":{\"enabled\":true,\"options\":[\"a\",\"b\"]}}}",
-      "expected_hash": "0x9be6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+      "expected_hash": "0x28195c4fb679613503ad1a07e6fa645dcd50d6692145f87a183484a1f70e933f"
     },
     {
-      "description": "PARITY CRITICAL: Insertion order preserved (not alphabetically sorted)",
-      "note": "Python was previously using sort_keys=True which broke parity. This test ensures insertion order.",
+      "description": "PARITY CRITICAL: Insertion order (service first, NOT alphabetical)",
+      "note": "Keys follow INSERTION ORDER: service, input, version, timestamp (not alphabetically sorted)",
       "input": {
         "service": "order-test",
         "input": "data",
@@ -82,7 +84,17 @@
       },
       "expected_canonical": "{\"service\":\"order-test\",\"input\":\"data\",\"version\":\"1.0.0\",\"timestamp\":1700000000}",
       "not_expected_canonical": "{\"input\":\"data\",\"service\":\"order-test\",\"timestamp\":1700000000,\"version\":\"1.0.0\"}",
-      "expected_hash": "0xacf7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"
+      "expected_hash": "0x8bf856669d1343d72db3fa592d7dd77447fef5380b09e0ee7aa39b99fc93898a"
+    },
+    {
+      "description": "Unicode preservation test",
+      "note": "Both SDKs preserve unicode characters (no escaping)",
+      "input": {
+        "service": "unicode-test",
+        "input": "Hello 世界 🌍"
+      },
+      "expected_canonical": "{\"service\":\"unicode-test\",\"input\":\"Hello 世界 🌍\"}",
+      "expected_hash": "0x7bf88fd82f247b59a708e64e91f372ab08cf529635ade28a48c7dfb5ed6cd593"
     }
   ]
 }

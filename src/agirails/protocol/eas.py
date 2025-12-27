@@ -450,7 +450,7 @@ class EASHelper:
         gas = await function.estimate_gas(tx_params)
         tx_params["gas"] = int(gas * 1.2)  # 20% buffer
 
-        return function.build_transaction(tx_params)
+        return await function.build_transaction(tx_params)
 
     async def _send_transaction(
         self,

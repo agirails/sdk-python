@@ -142,14 +142,34 @@ class TestDeliveryProof:
 class TestDeliveryProofBuilder:
     """Tests for DeliveryProofBuilder class."""
 
-    def test_build_proof(self) -> None:
-        """Test building a delivery proof."""
+    def test_build_returns_delivery_proof_message(self) -> None:
+        """Test that build() returns DeliveryProofMessage (TS SDK parity)."""
+        from agirails.types.message import DeliveryProofMessage
+
+        message = (
+            DeliveryProofBuilder()
+            .for_transaction("0x" + "1" * 64)
+            .from_provider("0x" + "a" * 40)
+            .for_consumer("0x" + "b" * 40)
+            .with_output({"result": "done"})
+            .with_nonce(1)
+            .on_chain(84532)
+            .build()
+        )
+
+        assert isinstance(message, DeliveryProofMessage)
+        assert message.tx_id == "0x" + "1" * 64
+        assert "0x" + "a" * 40 in message.provider  # DID format
+        assert message.result_hash.startswith("0x")
+
+    def test_build_legacy_returns_delivery_proof(self) -> None:
+        """Test that build_legacy() returns legacy DeliveryProof."""
         proof = (
             DeliveryProofBuilder()
             .for_transaction("0x" + "1" * 64)
             .from_provider("0x" + "a" * 40)
             .with_output({"result": "done"})
-            .build()
+            .build_legacy()
         )
 
         assert proof.transaction_id == "0x" + "1" * 64
@@ -165,7 +185,7 @@ class TestDeliveryProofBuilder:
             .for_transaction("0x" + "1" * 64)
             .from_provider("0x" + "a" * 40)
             .with_output_hash(output_hash)
-            .build()
+            .build_legacy()
         )
 
         assert proof.output_hash == output_hash
@@ -180,7 +200,7 @@ class TestDeliveryProofBuilder:
             .from_provider("0x" + "a" * 40)
             .with_output({"result": "done"})
             .with_attestation(attestation_uid)
-            .build()
+            .build_legacy()
         )
 
         assert proof.attestation_uid == attestation_uid
@@ -196,7 +216,7 @@ class TestDeliveryProofBuilder:
             .from_provider("0x" + "a" * 40)
             .with_output("result")
             .at_timestamp(timestamp)
-            .build()
+            .build_legacy()
         )
 
         assert proof.timestamp == timestamp
@@ -210,7 +230,7 @@ class TestDeliveryProofBuilder:
             .with_output("result")
             .with_metadata("key1", "value1")
             .with_metadata("key2", 42)
-            .build()
+            .build_legacy()
         )
 
         assert proof.metadata["key1"] == "value1"
@@ -224,7 +244,7 @@ class TestDeliveryProofBuilder:
             .from_provider("0x" + "a" * 40)
             .with_output("result")
             .with_execution_time(500)
-            .build()
+            .build_legacy()
         )
 
         assert proof.metadata["executionTimeMs"] == 500
@@ -237,7 +257,7 @@ class TestDeliveryProofBuilder:
             .from_provider("0x" + "a" * 40)
             .with_output("result")
             .with_result_size(1024)
-            .build()
+            .build_legacy()
         )
 
         assert proof.metadata["resultSizeBytes"] == 1024
@@ -291,6 +311,37 @@ class TestDeliveryProofBuilder:
 
         with pytest.raises(ValueError):
             builder.build()
+
+    def test_build_message_alias(self) -> None:
+        """Test that build_message() is an alias for build()."""
+        from agirails.types.message import DeliveryProofMessage
+
+        builder = (
+            DeliveryProofBuilder()
+            .for_transaction("0x" + "1" * 64)
+            .from_provider("0x" + "a" * 40)
+            .for_consumer("0x" + "b" * 40)
+            .with_output({"result": "done"})
+            .with_nonce(1)
+            .on_chain(84532)
+        )
+
+        message1 = builder.build()
+        builder.reset()
+        message2 = (
+            DeliveryProofBuilder()
+            .for_transaction("0x" + "1" * 64)
+            .from_provider("0x" + "a" * 40)
+            .for_consumer("0x" + "b" * 40)
+            .with_output({"result": "done"})
+            .with_nonce(1)
+            .on_chain(84532)
+            .build_message()
+        )
+
+        assert isinstance(message1, DeliveryProofMessage)
+        assert isinstance(message2, DeliveryProofMessage)
+        assert message1.tx_id == message2.tx_id
 
 
 class TestBatchDeliveryProofBuilder:

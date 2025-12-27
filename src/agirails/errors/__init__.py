@@ -27,6 +27,8 @@ from agirails.errors.transaction import (
     DisputeWindowActiveError,
     ContractPausedError,
     InsufficientBalanceError,
+    TransactionError,
+    EscrowError,
 )
 from agirails.errors.validation import (
     ValidationError,
@@ -79,6 +81,8 @@ __all__ = [
     "DisputeWindowActiveError",
     "ContractPausedError",
     "InsufficientBalanceError",
+    "TransactionError",
+    "EscrowError",
     # Validation
     "ValidationError",
     "InvalidAddressError",

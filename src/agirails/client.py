@@ -256,12 +256,27 @@ class ACTPClient:
 
     @classmethod
     async def _create_blockchain_runtime(cls, config: ACTPClientConfig) -> IACTPRuntime:
-        """Create blockchain runtime."""
-        # TODO: Implement in Phase 4
-        raise NotImplementedError(
-            f"BlockchainRuntime not yet implemented. Use mode='mock' for now. "
-            f"Requested mode: {config.mode}"
+        """Create blockchain runtime for testnet/mainnet."""
+        from agirails.runtime.blockchain_runtime import BlockchainRuntime
+
+        # Validate private key
+        if not config.private_key:
+            raise ValidationError(
+                message="private_key is required for testnet/mainnet mode",
+                details={"field": "private_key", "mode": config.mode},
+            )
+
+        # Map mode to network name
+        network_name = "base-sepolia" if config.mode == "testnet" else "base"
+
+        # Create blockchain runtime
+        runtime = await BlockchainRuntime.create(
+            private_key=config.private_key,
+            network=network_name,
+            rpc_url=config.rpc_url,
         )
+
+        return runtime
 
     @property
     def basic(self) -> BasicAdapter:
@@ -313,6 +328,16 @@ class ACTPClient:
     def get_address(self) -> str:
         """
         Get requester address.
+
+        Returns:
+            Normalized requester address
+        """
+        return self._requester_address
+
+    @property
+    def address(self) -> str:
+        """
+        Alias for requester_address (for Provider compatibility).
 
         Returns:
             Normalized requester address

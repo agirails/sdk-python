@@ -389,15 +389,20 @@ class BlockchainRuntime:
         """
         Link an escrow to a transaction.
 
-        Creates escrow on EscrowVault and links to ACTPKernel.
-        Automatically transitions to COMMITTED state.
+        Per AIP-3, the ACTPKernel.linkEscrow() is the ONLY way to create escrow.
+        EscrowVault.createEscrow() has onlyKernel modifier - cannot be called directly.
+
+        Flow:
+        1. Approve USDC spending by EscrowVault
+        2. Call ACTPKernel.linkEscrow() which internally creates the escrow
+        3. Transaction auto-transitions to COMMITTED
 
         Args:
             tx_id: Transaction ID
             amount: Amount to lock in escrow
 
         Returns:
-            Escrow ID
+            Escrow ID (same as tx_id per TypeScript SDK convention)
         """
         # Get transaction to verify it exists and get details
         tx_view = await self.kernel.get_transaction(tx_id)
@@ -410,20 +415,14 @@ class BlockchainRuntime:
         # Convert amount
         amount_int = int(amount) if isinstance(amount, str) else amount
 
-        # Generate escrow ID
-        escrow_id = generate_escrow_id()
+        # Use tx_id as escrow_id (per TypeScript SDK convention)
+        escrow_id = tx_id
 
-        # Create escrow (this will approve and transfer USDC)
-        await self.escrow.create_escrow(
-            CreateEscrowParams(
-                escrow_id=escrow_id,
-                requester=tx_view.requester,
-                provider=tx_view.provider,
-                amount=amount_int,
-            )
-        )
+        # Step 1: Approve USDC spending by EscrowVault (must be done before linkEscrow)
+        await self.escrow.approve_usdc(amount_int)
 
-        # Link escrow to transaction (auto-transitions to COMMITTED)
+        # Step 2: Link escrow via Kernel (this creates escrow internally + auto-transitions to COMMITTED)
+        # The Kernel will call EscrowVault.createEscrow() internally
         await self.kernel.link_escrow(
             tx_id,
             self.config.contracts.escrow_vault,
@@ -494,7 +493,10 @@ class BlockchainRuntime:
                 service_description=tx_view.service_hash,
                 delivery_proof="",  # PARITY: TS BlockchainRuntime returns '' (empty), not attestation_uid
             )
-        except Exception:
+        except Exception as e:
+            # Log error for debugging but return None for compatibility
+            import logging
+            logging.getLogger(__name__).debug(f"get_transaction failed: {e}")
             return None
 
     async def get_all_transactions(self) -> List[MockTransaction]:
@@ -609,6 +611,21 @@ class BlockchainRuntime:
             amount: Amount to release
         """
         await self.kernel.release_milestone(tx_id, amount)
+
+    async def get_balance(self, address: Optional[str] = None) -> str:
+        """
+        Get USDC balance for an address.
+
+        This method satisfies the IACTPRuntime interface.
+
+        Args:
+            address: Address to check (defaults to current account)
+
+        Returns:
+            Balance in USDC wei as string
+        """
+        balance = await self.escrow.get_usdc_balance(address)
+        return str(balance)
 
     async def get_usdc_balance(self, address: Optional[str] = None) -> int:
         """

@@ -452,6 +452,28 @@ This Python SDK maintains **full parity** with the TypeScript SDK:
 - **Input validation** for all user inputs
 - **Query caps** to prevent DoS attacks
 
+## Platform Notes
+
+### Windows File Locking Limitation
+
+The SDK uses `fcntl.flock()` for atomic file operations in the `MockStateManager`. This is **only available on Unix-like systems** (Linux, macOS).
+
+**Impact on Windows**:
+- `MockStateManager` file locking is disabled (graceful degradation)
+- State persistence still works, but without locking protection
+- **Production environments on Windows should use blockchain mode** instead of mock mode
+
+**Workaround for Windows Development**:
+```python
+# Windows users should use mock mode without file persistence
+client = await ACTPClient.create(mode="mock", persist_state=False)
+```
+
+For production deployments on Windows, use the blockchain runtime:
+```python
+client = await ACTPClient.create(mode="blockchain", rpc_url="https://...")
+```
+
 ## Requirements
 
 - Python 3.9+

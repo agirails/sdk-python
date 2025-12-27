@@ -280,12 +280,13 @@ class TestM3DoSNestedJsonPrevention:
     """
 
     def test_rejects_deeply_nested_json(self):
-        """JSON nested beyond 20 levels is rejected."""
+        """JSON nested beyond 20 levels is rejected (returns None for TS parity)."""
         # Create JSON with 25 levels of nesting
         deep_json = '{"a": ' * 25 + '"value"' + '}' * 25
 
-        with pytest.raises(ValueError, match="[Nn]esting depth"):
-            safe_json_parse(deep_json, max_depth=20)
+        # TS SDK returns null instead of throwing for DoS protection
+        result = safe_json_parse(deep_json, max_depth=20)
+        assert result is None
 
     def test_accepts_reasonable_nesting(self):
         """JSON with reasonable nesting (<20 levels) is accepted."""
@@ -305,12 +306,13 @@ class TestM3DoSNestedJsonPrevention:
         assert result is not None
 
     def test_rejects_deeply_nested_arrays(self):
-        """Deeply nested arrays are also rejected."""
-        # Create deeply nested array
-        deep_array = '[' * 25 + '1' + ']' * 25
+        """Deeply nested arrays are also rejected (returns None for TS parity)."""
+        # Create deeply nested array - top level must be object for TS parity
+        deep_array = '{"arr": ' + '[' * 25 + '1' + ']' * 25 + '}'
 
-        with pytest.raises(ValueError, match="[Nn]esting depth"):
-            safe_json_parse(deep_array, max_depth=20)
+        # TS SDK returns null instead of throwing for DoS protection
+        result = safe_json_parse(deep_array, max_depth=20)
+        assert result is None
 
 
 # =============================================================================

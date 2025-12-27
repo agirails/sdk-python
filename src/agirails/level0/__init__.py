@@ -35,11 +35,15 @@ from agirails.level0.provider import (
 from agirails.level0.provide import (
     provide,
     ProvideOptions,
+    set_provider_client,
+    start_provider,
+    stop_provider,
 )
 from agirails.level0.request import (
     request,
     RequestOptions,
     RequestResult,
+    ProgressInfo,
 )
 
 __all__ = [
@@ -54,7 +58,11 @@ __all__ = [
     # Functions
     "provide",
     "ProvideOptions",
+    "set_provider_client",
+    "start_provider",
+    "stop_provider",
     "request",
     "RequestOptions",
     "RequestResult",
+    "ProgressInfo",
 ]

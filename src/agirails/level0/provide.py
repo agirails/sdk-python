@@ -189,11 +189,29 @@ def list_provided() -> List[str]:
     return provider.services
 
 
+def set_provider_client(client: "ACTPClient", address: Optional[str] = None) -> None:
+    """
+    Set the ACTP client for the global provider.
+
+    Must be called before start_provider() to enable polling.
+
+    Args:
+        client: ACTP client instance
+        address: Provider address (overrides client address for polling)
+    """
+    provider = _get_global_provider()
+    provider._client = client
+    if address:
+        provider._config.address = address
+
+
 async def start_provider() -> None:
     """
     Start the global provider.
 
     Begins polling for incoming transactions.
+
+    Note: Call set_provider_client() first to enable polling.
     """
     provider = _get_global_provider()
     await provider.start()

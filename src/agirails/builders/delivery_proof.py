@@ -104,9 +104,12 @@ class DeliveryProof:
 
         PARITY CRITICAL: Returns a DeliveryProofMessage that matches the
         TypeScript SDK's AIP4DeliveryProofTypes exactly with 9 signed fields.
+        Also transfers metadata for non-signed wrapper fields.
 
         Reference: sdk-js/src/types/eip712.ts AIP4DeliveryProofTypes
         """
+        from agirails.types.message import DeliveryProofMetadata
+
         # Convert addresses to DIDs if needed
         def to_did(address: str, chain_id: int) -> str:
             if not address:
@@ -114,6 +117,16 @@ class DeliveryProof:
             if address.startswith("did:"):
                 return address
             return f"did:ethr:{chain_id}:{address}"
+
+        # Convert metadata dict to DeliveryProofMetadata if present
+        msg_metadata = None
+        if self.metadata:
+            msg_metadata = DeliveryProofMetadata(
+                execution_time=self.metadata.get("executionTimeMs"),
+                output_format=self.metadata.get("outputFormat"),
+                output_size=self.metadata.get("resultSizeBytes"),
+                notes=self.metadata.get("notes"),
+            )
 
         return DeliveryProofMessage(
             tx_id=self.transaction_id,
@@ -125,6 +138,7 @@ class DeliveryProof:
             delivered_at=self.timestamp,
             chain_id=self.chain_id,
             nonce=self.nonce,
+            metadata=msg_metadata,
         )
 
     def verify_output(self, expected_output: Any) -> bool:
@@ -400,12 +414,14 @@ class DeliveryProofBuilder:
         self._chain_id = chain_id
         return self
 
-    def build(self) -> DeliveryProof:
+    def build_legacy(self) -> DeliveryProof:
         """
-        Build the DeliveryProof object.
+        Build the legacy DeliveryProof object.
+
+        DEPRECATED: Use build() for TS SDK parity (returns DeliveryProofMessage).
 
         Returns:
-            Constructed DeliveryProof
+            Constructed DeliveryProof (legacy format)
 
         Raises:
             ValueError: If required fields are missing
@@ -432,12 +448,12 @@ class DeliveryProofBuilder:
             chain_id=self._chain_id,
         )
 
-    def build_message(self) -> DeliveryProofMessage:
+    def build(self) -> DeliveryProofMessage:
         """
-        Build the DeliveryProofMessage directly.
+        Build the DeliveryProofMessage.
 
         PARITY: TS SDK's DeliveryProofBuilder.build() returns DeliveryProofMessage.
-        This method provides 1:1 parity with TS SDK builder output.
+        This method provides 1:1 API parity with TS SDK builder output.
 
         Returns:
             Constructed DeliveryProofMessage (AIP-4 v1.1 format)
@@ -455,12 +471,23 @@ class DeliveryProofBuilder:
             ...     .with_result_cid("Qm...")
             ...     .with_nonce(1)
             ...     .on_chain(84532)
-            ...     .build_message()
+            ...     .build()
             ... )
         """
-        # Build the DeliveryProof first, then convert to message
-        proof = self.build()
+        # Build the legacy DeliveryProof first, then convert to message
+        proof = self.build_legacy()
         return proof.to_message()
+
+    def build_message(self) -> DeliveryProofMessage:
+        """
+        Alias for build() - kept for backwards compatibility.
+
+        DEPRECATED: Use build() directly for TS SDK parity.
+
+        Returns:
+            Constructed DeliveryProofMessage (AIP-4 v1.1 format)
+        """
+        return self.build()
 
     def reset(self) -> "DeliveryProofBuilder":
         """
@@ -564,10 +591,11 @@ class BatchDeliveryProofBuilder:
                 .from_provider(self._provider)
                 .with_output(delivery["output"])
                 .with_attestation(self._attestation_uid)
-                .build()
+                .build_legacy()
             )
             # Add any extra metadata
-            proof.metadata.update(delivery["metadata"])
+            if delivery["metadata"]:
+                proof.metadata.update(delivery["metadata"])
             proofs.append(proof)
 
         return proofs
@@ -592,6 +620,9 @@ def create_delivery_proof(
     """
     Create a delivery proof with minimal parameters.
 
+    NOTE: This returns the legacy DeliveryProof format.
+    For TS SDK parity (DeliveryProofMessage), use DeliveryProofBuilder().build() directly.
+
     Args:
         transaction_id: ACTP transaction ID
         output: Output data
@@ -599,7 +630,7 @@ def create_delivery_proof(
         attestation_uid: Optional EAS attestation UID
 
     Returns:
-        DeliveryProof object
+        DeliveryProof object (legacy format)
     """
     builder = (
         DeliveryProofBuilder()
@@ -611,7 +642,7 @@ def create_delivery_proof(
     if attestation_uid:
         builder.with_attestation(attestation_uid)
 
-    return builder.build()
+    return builder.build_legacy()
 
 
 __all__ = [

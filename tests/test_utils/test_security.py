@@ -207,10 +207,10 @@ class TestSafeJsonParse:
         result = safe_json_parse('{"name": "test", "value": 123}')
         assert result == {"name": "test", "value": 123}
 
-    def test_array_json(self):
-        """JSON arrays should be parsed correctly."""
+    def test_array_json_returns_none(self):
+        """JSON arrays at top level should return None (TS parity: only objects allowed)."""
         result = safe_json_parse('[1, 2, 3]')
-        assert result == [1, 2, 3]
+        assert result is None  # TS SDK only accepts objects at top level
 
     def test_nested_json(self):
         """Nested JSON should be parsed correctly."""
@@ -242,24 +242,50 @@ class TestSafeJsonParse:
         )
         assert result == {"outer": {"safe": "value"}}
 
-    def test_removes_dangerous_keys_in_arrays(self):
-        """Dangerous keys in objects within arrays should be removed."""
+    def test_removes_dangerous_keys_in_nested_arrays(self):
+        """Dangerous keys in objects within nested arrays should be removed."""
         result = safe_json_parse(
-            '[{"name": "safe"}, {"__proto__": {"admin": true}, "value": 1}]'
+            '{"items": [{"name": "safe"}, {"__proto__": {"admin": true}, "value": 1}]}'
         )
-        assert result == [{"name": "safe"}, {"value": 1}]
+        assert result == {"items": [{"name": "safe"}, {"value": 1}]}
 
-    def test_invalid_json_raises(self):
-        """Invalid JSON should raise JSONDecodeError."""
-        with pytest.raises(json.JSONDecodeError):
-            safe_json_parse("{invalid json}")
+    def test_invalid_json_returns_none(self):
+        """Invalid JSON should return None (TS parity: no exceptions)."""
+        result = safe_json_parse("{invalid json}")
+        assert result is None
 
-    def test_max_depth_exceeded(self):
-        """JSON exceeding max depth should raise ValueError."""
+    def test_max_depth_exceeded_returns_none(self):
+        """JSON exceeding max depth should return None (TS parity: no exceptions)."""
         # Create deeply nested JSON
         deep_json = '{"a": ' * 25 + '1' + '}' * 25
-        with pytest.raises(ValueError, match="nesting depth exceeds"):
-            safe_json_parse(deep_json, max_depth=20)
+        result = safe_json_parse(deep_json, max_depth=20)
+        assert result is None
+
+    def test_max_size_exceeded_returns_none(self):
+        """JSON exceeding max size should return None (C-3 DoS protection)."""
+        # Create large JSON (over 1MB)
+        large_json = '{"data": "' + "x" * 1_000_001 + '"}'
+        result = safe_json_parse(large_json)
+        assert result is None
+
+    def test_schema_validation_filters_fields(self):
+        """Schema validation should whitelist fields and check types."""
+        schema = {"name": "string", "count": "number"}
+        result = safe_json_parse(
+            '{"name": "test", "count": 5, "extra": true}',
+            schema=schema
+        )
+        assert result == {"name": "test", "count": 5}
+        assert "extra" not in result
+
+    def test_schema_validation_type_mismatch(self):
+        """Schema validation should skip fields with wrong types."""
+        schema = {"name": "string", "count": "number"}
+        result = safe_json_parse(
+            '{"name": 123, "count": "not a number"}',
+            schema=schema
+        )
+        assert result == {}  # Both fields filtered due to type mismatch
 
     def test_max_depth_at_limit(self):
         """JSON at exactly max depth should be accepted."""

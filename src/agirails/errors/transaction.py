@@ -216,3 +216,56 @@ class ContractPausedError(ACTPError):
             details=details,
         )
         self.contract_name = contract_name
+
+
+class TransactionError(ACTPError):
+    """
+    General transaction error for blockchain operations.
+
+    Example:
+        >>> raise TransactionError("Transaction reverted", tx_id="0x123...")
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tx_id: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(
+            message,
+            code="TRANSACTION_ERROR",
+            tx_hash=tx_id,
+            details=details,
+        )
+        self.tx_id = tx_id
+
+
+class EscrowError(ACTPError):
+    """
+    General escrow operation error.
+
+    Example:
+        >>> raise EscrowError("Escrow operation failed", escrow_id="0x123...")
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        escrow_id: Optional[str] = None,
+        tx_id: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        details = details or {}
+        if escrow_id:
+            details["escrow_id"] = escrow_id
+
+        super().__init__(
+            message,
+            code="ESCROW_ERROR",
+            tx_hash=tx_id,
+            details=details,
+        )
+        self.escrow_id = escrow_id

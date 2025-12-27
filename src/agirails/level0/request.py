@@ -502,13 +502,21 @@ class RequestHandle:
             return {}
 
         # Parse delivery proof JSON
-        # PARITY FIX: TS safeJSONParse returns null on error, Python raises exception
-        # Catch exceptions to match TS behavior
-        try:
-            parsed = safe_json_parse(delivery_proof)
-        except (json.JSONDecodeError, ValueError):
-            # Invalid JSON or depth exceeded - return raw data like TS
-            return {"data": delivery_proof}
+        # PARITY FIX: Use schema whitelist exactly like TS SDK (request.ts line 242-251)
+        # This validates structure and filters to expected fields only
+        DELIVERY_PROOF_SCHEMA = {
+            "result": "any",
+            "data": "any",
+            "metadata": "object",
+            "proof": "string",
+            "timestamp": "number",
+            "contentHash": "string",
+            "txId": "string",
+            "type": "string",  # Unique marker: 'delivery.proof'
+        }
+
+        # PARITY: TS safeJSONParse returns null on error (no exceptions)
+        parsed = safe_json_parse(delivery_proof, schema=DELIVERY_PROOF_SCHEMA)
         if parsed is None:
             return {"data": delivery_proof}
 
@@ -736,7 +744,11 @@ async def request(
         amount_wei = str(int(budget * 1_000_000))
 
         # Get requester address
-        requester_address = _get_requester_address(wallet)
+        # PARITY FIX: Use client.address when client is provided, otherwise derive from wallet
+        if effective_client is not None:
+            requester_address = effective_client.address
+        else:
+            requester_address = _get_requester_address(wallet)
 
         # Build service metadata as JSON
         # PARITY FIX: Use separators=(',', ':') to match JS JSON.stringify() (no whitespace)

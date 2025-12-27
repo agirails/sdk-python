@@ -516,48 +516,123 @@ def _sanitize_object(obj: Any) -> Any:
         return obj
 
 
-def safe_json_parse(json_string: str, max_depth: int = 20) -> Any:
+def safe_json_parse(
+    json_string: str,
+    schema: Optional[Dict[str, str]] = None,
+    max_depth: int = 20,
+    max_size: int = 1_000_000,  # 1MB default (C-3 DoS protection)
+) -> Optional[Any]:
     """
-    Safely parse JSON with prototype pollution prevention.
+    Safely parse JSON with prototype pollution prevention and optional schema validation.
 
-    Security Note (C-3): This function:
+    PARITY: Matches TypeScript SDK's safeJSONParse() behavior exactly:
+    - Size limit to prevent DoS attacks (C-3)
+    - Schema validation with type checking and field whitelisting
+    - Returns None instead of raising on parse errors
     - Removes dangerous keys (__proto__, constructor, prototype)
     - Limits recursion depth to prevent stack overflow
-    - Uses standard json library for parsing
 
     Args:
         json_string: JSON string to parse.
-        max_depth: Maximum allowed nesting depth.
+        schema: Optional schema for field validation. Dict mapping field names
+                to expected types ('string', 'number', 'object', 'array', 'any').
+                If provided, only whitelisted fields matching types are returned.
+        max_depth: Maximum allowed nesting depth (default: 20).
+        max_size: Maximum JSON string size in bytes (default: 1MB).
 
     Returns:
-        Parsed and sanitized JSON object.
-
-    Raises:
-        json.JSONDecodeError: If JSON is invalid.
-        ValueError: If nesting depth exceeds max_depth.
+        Parsed and sanitized JSON object, or None if parsing fails.
 
     Example:
         >>> safe_json_parse('{"name": "test", "__proto__": {"admin": true}}')
         {'name': 'test'}
+
+        >>> # With schema validation
+        >>> schema = {"name": "string", "count": "number"}
+        >>> safe_json_parse('{"name": "test", "count": 5, "extra": true}', schema)
+        {'name': 'test', 'count': 5}  # 'extra' filtered out
     """
+    # SECURITY FIX (C-3): Check size to prevent DoS attacks
+    if not json_string or not isinstance(json_string, str):
+        return None
+
+    if len(json_string) > max_size:
+        return None
+
     # Parse JSON
-    parsed = json.loads(json_string)
+    try:
+        parsed = json.loads(json_string)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    # Ensure we got an object (not a primitive or array at top level)
+    if not isinstance(parsed, dict):
+        return None
 
     # Check depth
-    def check_depth(obj: Any, current_depth: int = 0) -> None:
+    def check_depth(obj: Any, current_depth: int = 0) -> bool:
         if current_depth > max_depth:
-            raise ValueError(f"JSON nesting depth exceeds maximum of {max_depth}")
+            return False
 
         if isinstance(obj, dict):
             for value in obj.values():
-                check_depth(value, current_depth + 1)
+                if not check_depth(value, current_depth + 1):
+                    return False
         elif isinstance(obj, list):
             for item in obj:
-                check_depth(item, current_depth + 1)
+                if not check_depth(item, current_depth + 1):
+                    return False
+        return True
 
-    check_depth(parsed)
+    if not check_depth(parsed):
+        return None
 
-    # Sanitize
+    # Remove dangerous properties
+    for key in DANGEROUS_KEYS:
+        parsed.pop(key, None)
+
+    # If schema is provided, validate and whitelist
+    if schema:
+        validated: Dict[str, Any] = {}
+
+        for field_name, expected_type in schema.items():
+            value = parsed.get(field_name)
+
+            # Skip if field doesn't exist
+            if value is None:
+                continue
+
+            # Type check
+            actual_type = "array" if isinstance(value, list) else type(value).__name__
+            # Map Python types to schema types
+            type_map = {
+                "str": "string",
+                "int": "number",
+                "float": "number",
+                "bool": "boolean",
+                "dict": "object",
+                "list": "array",
+            }
+            mapped_type = type_map.get(actual_type, actual_type)
+
+            if mapped_type != expected_type and expected_type != "any":
+                # Type mismatch - skip this field
+                continue
+
+            # Recursively sanitize nested objects
+            if isinstance(value, dict):
+                validated[field_name] = _sanitize_object(value)
+            elif isinstance(value, list):
+                validated[field_name] = [
+                    _sanitize_object(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                validated[field_name] = value
+
+        return validated
+
+    # No schema - return sanitized object
     return _sanitize_object(parsed)
 
 

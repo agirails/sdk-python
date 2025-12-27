@@ -143,9 +143,12 @@ class Provider:
     @property
     def address(self) -> Optional[str]:
         """Get provider address."""
+        # Prefer explicit config address over client address
+        if self._config.address:
+            return self._config.address
         if self._client is not None:
             return self._client.address
-        return self._config.address
+        return None
 
     @property
     def services(self) -> List[str]:
