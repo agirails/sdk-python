@@ -487,4 +487,5 @@ Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
 - [Documentation](https://docs.agirails.io)
 - [GitHub](https://github.com/agirails/sdk-python)
+- [Discord](https://discord.gg/nuhCt75qe4)
 - [AGIRAILS Website](https://agirails.io)
