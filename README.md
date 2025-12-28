@@ -24,8 +24,8 @@ pip install agirails
 Or install from source:
 
 ```bash
-git clone https://github.com/agirails/python-sdk.git
-cd python-sdk
+git clone https://github.com/agirails/sdk-python.git
+cd sdk-python
 pip install -e ".[dev]"
 ```
 
@@ -486,5 +486,5 @@ Apache 2.0 License - see [LICENSE](LICENSE) for details.
 ## Links
 
 - [Documentation](https://docs.agirails.io)
-- [GitHub](https://github.com/agirails/python-sdk)
+- [GitHub](https://github.com/agirails/sdk-python)
 - [AGIRAILS Website](https://agirails.io)

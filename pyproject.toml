@@ -81,8 +81,8 @@ actp = "agirails.cli.main:run"
 [project.urls]
 Homepage = "https://agirails.io"
 Documentation = "https://docs.agirails.io"
-Repository = "https://github.com/agirails/python-sdk"
-Issues = "https://github.com/agirails/python-sdk/issues"
+Repository = "https://github.com/agirails/sdk-python"
+Issues = "https://github.com/agirails/sdk-python/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agirails"]

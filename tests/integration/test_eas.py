@@ -51,13 +51,13 @@ def funded_private_key() -> str:
     """
     Private key for a funded account on Base Sepolia testnet.
 
-    Uses CLIENT_PRIVATE_KEY from environment or defaults to deployer wallet.
-    Address: 0x42a2f11555b9363fb7ebdcdc76d7cb26e01dcb00
+    Uses CLIENT_PRIVATE_KEY from environment.
+    Set this to a funded testnet wallet before running integration tests.
     """
-    return os.getenv(
-        "CLIENT_PRIVATE_KEY",
-        "0x238cc2b1027ce126a6c11075ea6c06a4a91088cfff3205b82f2bb41f1159352e"
-    )
+    key = os.getenv("CLIENT_PRIVATE_KEY")
+    if not key:
+        pytest.skip("CLIENT_PRIVATE_KEY not set - required for integration tests")
+    return key
 
 
 @pytest.fixture
