@@ -31,6 +31,7 @@ Modules:
 - `runtime`: MockRuntime and BlockchainRuntime implementations
 - `errors`: Exception hierarchy for ACTP errors
 - `utils`: Helpers, security, logging, and concurrency utilities
+- `storage`: Hybrid storage layer (AIP-7 §4) - IPFS (Filebase) + Arweave (Irys)
 """
 
 from agirails.version import __version__, __version_info__
@@ -312,6 +313,45 @@ from agirails.builders import (
     QuoteBuilder,
 )
 
+# Storage Layer (AIP-7 §4 - Hybrid Storage)
+from agirails.storage import (
+    # Clients
+    FilebaseClient,
+    ArweaveClient,
+    # Builders
+    ArchiveBundleBuilder,
+    compute_content_hash,
+    compute_json_hash,
+    validate_archive_bundle,
+    PROTOCOL_VERSION,
+    ARCHIVE_SCHEMA_VERSION,
+    # Types - Filebase
+    FilebaseConfig,
+    # Types - Arweave
+    ArweaveConfig,
+    IrysCurrency,
+    IrysNetwork,
+    # Types - Archive Bundle
+    ArchiveBundle,
+    ArchiveChainId,
+    ArchiveFinalState,
+    ArchiveParticipants,
+    ArchiveReferences,
+    ArchiveHashes,
+    ArchiveSignatures,
+    ArchiveAttestation,
+    ArchiveSettlement,
+    EscrowRelease,
+    ArchiveTags,
+    ARCHIVE_BUNDLE_TYPE,
+    # Types - Results
+    IPFSUploadResult,
+    ArweaveUploadResult,
+    DownloadResult,
+    # Types - Circuit Breaker
+    CircuitBreakerConfig,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -544,4 +584,40 @@ __all__ = [
     # Builders
     "DeliveryProofBuilder",
     "QuoteBuilder",
+    # Storage Layer (AIP-7 §4 - Hybrid Storage)
+    # Clients
+    "FilebaseClient",
+    "ArweaveClient",
+    # Builders
+    "ArchiveBundleBuilder",
+    "compute_content_hash",
+    "compute_json_hash",
+    "validate_archive_bundle",
+    "PROTOCOL_VERSION",
+    "ARCHIVE_SCHEMA_VERSION",
+    # Types - Filebase
+    "FilebaseConfig",
+    # Types - Arweave
+    "ArweaveConfig",
+    "IrysCurrency",
+    "IrysNetwork",
+    # Types - Archive Bundle
+    "ArchiveBundle",
+    "ArchiveChainId",
+    "ArchiveFinalState",
+    "ArchiveParticipants",
+    "ArchiveReferences",
+    "ArchiveHashes",
+    "ArchiveSignatures",
+    "ArchiveAttestation",
+    "ArchiveSettlement",
+    "EscrowRelease",
+    "ArchiveTags",
+    "ARCHIVE_BUNDLE_TYPE",
+    # Types - Results
+    "IPFSUploadResult",
+    "ArweaveUploadResult",
+    "DownloadResult",
+    # Types - Circuit Breaker
+    "CircuitBreakerConfig",
 ]

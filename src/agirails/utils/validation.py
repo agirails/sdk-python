@@ -655,3 +655,117 @@ def validate_content_hash(
         )
 
     return content_hash.lower()
+
+
+# ============================================================================
+# Storage Validation (AIP-7)
+# ============================================================================
+
+# IPFS Gateway Whitelist (SSRF Protection)
+ALLOWED_IPFS_GATEWAYS = frozenset([
+    "https://ipfs.filebase.io",
+    "https://gateway.pinata.cloud",
+    "https://ipfs.io",
+    "https://cloudflare-ipfs.com",
+    "https://w3s.link",
+    "https://dweb.link",
+])
+
+# Arweave Gateway Whitelist
+ALLOWED_ARWEAVE_GATEWAYS = frozenset([
+    "https://arweave.net",
+    "https://gateway.irys.xyz",
+])
+
+# CID Patterns
+CID_V0_PATTERN = re.compile(r"^Qm[1-9A-HJ-NP-Za-km-z]{44}$")
+CID_V1_PATTERN = re.compile(r"^b[a-z2-7]{58,}$")
+
+
+def validate_cid(cid: str) -> bool:
+    """
+    Validate IPFS CID format (v0 or v1).
+
+    Args:
+        cid: IPFS CID to validate
+
+    Returns:
+        True if valid CID format, False otherwise
+
+    Example:
+        >>> validate_cid("QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco")
+        True
+        >>> validate_cid("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
+        True
+        >>> validate_cid("invalid-cid")
+        False
+    """
+    if not cid:
+        return False
+
+    # CIDv0 starts with Qm (46 chars total)
+    if CID_V0_PATTERN.match(cid):
+        return True
+
+    # CIDv1 starts with b (base32, variable length but typically 59+ chars)
+    if CID_V1_PATTERN.match(cid):
+        return True
+
+    return False
+
+
+def is_gateway_allowed(gateway_url: str) -> bool:
+    """
+    Check if gateway URL is in whitelist (SSRF protection).
+
+    Args:
+        gateway_url: Gateway URL to check
+
+    Returns:
+        True if gateway is whitelisted, False otherwise
+
+    Example:
+        >>> is_gateway_allowed("https://ipfs.filebase.io/ipfs/Qm...")
+        True
+        >>> is_gateway_allowed("https://evil.com/ipfs/Qm...")
+        False
+    """
+    if not gateway_url:
+        return False
+
+    try:
+        parsed = urlparse(gateway_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Check against both IPFS and Arweave gateways
+        return base in ALLOWED_IPFS_GATEWAYS or base in ALLOWED_ARWEAVE_GATEWAYS
+    except Exception:
+        return False
+
+
+def sanitize_for_logging(value: str) -> str:
+    """
+    Sanitize sensitive values for safe logging.
+
+    Masks sensitive data while keeping enough info for debugging.
+
+    Args:
+        value: Value to sanitize
+
+    Returns:
+        Sanitized string safe for logs
+
+    Example:
+        >>> sanitize_for_logging("sk_live_abc123xyz789secret")
+        "sk_l...cret"
+        >>> sanitize_for_logging("short")
+        "[redacted]"
+    """
+    if not value:
+        return "[empty]"
+
+    if len(value) <= 8:
+        return "[redacted]"
+
+    # Show first 4 and last 4 characters
+    return f"{value[:4]}...{value[-4:]}"
