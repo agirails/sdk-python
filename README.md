@@ -44,8 +44,9 @@ agirails config set network base-sepolia
 agirails config set rpc-url https://sepolia.base.org
 agirails config set private-key YOUR_PRIVATE_KEY  # Or use env: AGIRAILS_PRIVATE_KEY
 
-# Get testnet USDC (faucet)
-agirails mint --amount 1000  # Mint 1000 test USDC
+# Note: mint is mock mode only. For testnet/mainnet, bridge real USDC via bridge.base.org
+# In mock mode:
+agirails mint --amount 1000  # Mint 1000 test USDC (mock mode only)
 
 # Check your balance
 agirails balance
@@ -77,11 +78,9 @@ async def main():
         "to": "0xabcdefABCDEFabcdefABCDEFabcdefABCDEFabcd",
         "amount": 100,  # $100 USDC
         "deadline": "24h",  # Optional: expires in 24 hours
-        "description": "AI text generation service"
     })
 
     print(f"Transaction ID: {result.tx_id}")
-    print(f"Escrow ID: {result.escrow_id}")
     print(f"State: {result.state}")
 
 asyncio.run(main())
@@ -117,10 +116,15 @@ async def main():
     escrow_id = await client.standard.link_escrow(tx_id)
     print(f"Escrow linked: {escrow_id}")
 
-    # Step 3: Provider delivers work...
-    await client.standard.transition_state(tx_id, "DELIVERED", proof="ipfs://...")
+    # Step 3: Provider starts work (REQUIRED before DELIVERED!)
+    await client.standard.transition_state(tx_id, "IN_PROGRESS")
 
-    # Step 4: Release funds to provider
+    # Step 4: Provider delivers with dispute window proof
+    from eth_abi import encode
+    dispute_window_proof = "0x" + encode(["uint256"], [172800]).hex()  # 2 days
+    await client.standard.transition_state(tx_id, "DELIVERED", proof=dispute_window_proof)
+
+    # Step 5: Release funds to provider (after dispute window)
     await client.standard.release_escrow(escrow_id)
     print("Payment complete!")
 
@@ -190,12 +194,19 @@ client = await ACTPClient.create(
     state_directory=".actp"  # Optional: persist state to disk
 )
 
-# Blockchain mode - real transactions (coming soon)
+# Testnet mode - Base Sepolia
 client = await ACTPClient.create(
-    mode="blockchain",
+    mode="testnet",
     requester_address="0x...",
     private_key="0x...",
-    rpc_url="https://sepolia.base.org"
+    rpc_url="https://sepolia.base.org"  # Optional: custom RPC
+)
+
+# Mainnet mode - Base
+client = await ACTPClient.create(
+    mode="mainnet",
+    requester_address="0x...",
+    private_key="0x..."
 )
 ```
 
@@ -285,7 +296,7 @@ The SDK includes a full-featured CLI for interacting with ACTP:
 # Payment operations
 agirails pay <to> <amount> [--deadline TIME] [--description TEXT]
 agirails balance [ADDRESS]
-agirails mint --amount AMOUNT  # Testnet only
+agirails mint --amount AMOUNT  # Mock mode only
 
 # Transaction management
 agirails tx list [--state STATE] [--limit N]
@@ -386,7 +397,7 @@ pytest -k "test_pay"
 |--------|-------------|
 | `create_transaction(params)` | Create transaction |
 | `link_escrow(tx_id)` | Link escrow and lock funds |
-| `transition_state(tx_id, state)` | Transition to new state |
+| `transition_state(tx_id, state, proof=None)` | Transition to new state |
 | `release_escrow(escrow_id)` | Release funds |
 | `get_transaction(tx_id)` | Get transaction details |
 | `get_all_transactions()` | List all transactions |
@@ -469,9 +480,14 @@ The SDK uses `fcntl.flock()` for atomic file operations in the `MockStateManager
 client = await ACTPClient.create(mode="mock", persist_state=False)
 ```
 
-For production deployments on Windows, use the blockchain runtime:
+For production deployments on Windows, use testnet/mainnet mode:
 ```python
-client = await ACTPClient.create(mode="blockchain", rpc_url="https://...")
+client = await ACTPClient.create(
+    mode="mainnet",  # or "testnet"
+    requester_address="0x...",
+    private_key="0x...",
+    rpc_url="https://mainnet.base.org"
+)
 ```
 
 ## Requirements
