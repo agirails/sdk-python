@@ -463,6 +463,118 @@ This Python SDK maintains **full parity** with the TypeScript SDK:
 - **Input validation** for all user inputs
 - **Query caps** to prevent DoS attacks
 
+## Decentralized Identifiers (DIDs)
+
+AGIRAILS uses **did:ethr** DIDs based on the [ERC-1056](https://eips.ethereum.org/EIPS/eip-1056) standard for identity management.
+
+### DID Format
+
+Every Ethereum address automatically IS a DID - no registration required:
+
+```
+did:ethr:84532:0x742d35cc6634c0532925a3b844bc9e7595f0beb
+       ↑      ↑
+   chainId  address
+```
+
+### Basic Usage
+
+```python
+from agirails import DIDResolver
+
+# Build DID from address (no registration needed!)
+did = DIDResolver.build_did("0x742d35cc6634c0532925a3b844bc9e7595f0beb", 84532)
+# → 'did:ethr:84532:0x742d35cc6634c0532925a3b844bc9e7595f0beb'
+
+# Parse DID components
+parsed = DIDResolver.parse_did(did)
+print(parsed.method)   # 'ethr'
+print(parsed.chain_id) # 84532
+print(parsed.address)  # '0x742d35cc6634c0532925a3b844bc9e7595f0beb'
+
+# Validate DID format
+is_valid = DIDResolver.is_valid_did(did)  # True
+```
+
+### Resolve DID to DID Document
+
+```python
+from agirails import DIDResolver
+
+# Create resolver for Base Sepolia
+resolver = await DIDResolver.create(network="base-sepolia")
+
+# Resolve DID to W3C DID Document
+result = await resolver.resolve("did:ethr:84532:0x742d35cc...")
+
+if result.did_document:
+    print("Controller:", result.did_document.controller)
+    print("Verification Methods:", result.did_document.verification_method)
+    print("Service Endpoints:", result.did_document.service)
+```
+
+### Verify Signatures
+
+```python
+from agirails import DIDResolver
+
+resolver = await DIDResolver.create(network="base-sepolia")
+
+# Verify a signature was made by a DID's controller (or authorized delegate)
+result = await resolver.verify_signature(
+    did="did:ethr:84532:0x742d35cc...",
+    message="Hello AGIRAILS",
+    signature="0x1234...",
+    chain_id=84532
+)
+
+if result.valid:
+    print("Signature valid!")
+    print(f"Signer: {result.signer}")
+    print(f"Is delegate: {result.is_delegate}")
+```
+
+### Advanced: Manage Identity (Optional)
+
+For advanced use cases, use `DIDManager` to manage delegates and attributes:
+
+```python
+from agirails import DIDManager
+
+# Create manager with signer
+manager = DIDManager(signer, network="base-sepolia")
+
+# Add a signing delegate (valid for 24 hours)
+await manager.add_delegate(
+    did="did:ethr:84532:0x742d35cc...",
+    delegate="0xDelegateAddress...",
+    delegate_type="sigAuth",
+    validity=86400  # seconds
+)
+
+# Rotate key ownership
+await manager.change_owner(
+    did="did:ethr:84532:0x742d35cc...",
+    new_owner="0xNewOwnerAddress..."
+)
+
+# Add service endpoint attribute
+await manager.set_attribute(
+    did="did:ethr:84532:0x742d35cc...",
+    name="did/svc/AgentService",
+    value="https://my-agent.example.com/api",
+    validity=86400
+)
+```
+
+### DID in ACTP Transactions
+
+DIDs are used internally for:
+- **Provider/Consumer Identity**: Transaction parties identified by DIDs
+- **Message Signing**: EIP-712 messages reference DIDs
+- **Delivery Proofs**: Attestations link to provider DIDs
+- **Reputation**: Future reputation system will be DID-based
+
 ## Platform Notes
 
 ### Windows File Locking Limitation
