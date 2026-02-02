@@ -83,20 +83,23 @@ class TransactionState(IntEnum):
                 TransactionState.COMMITTED,
                 TransactionState.CANCELLED,
             ],
+            # AUDIT FIX: COMMITTED cannot skip to DELIVERED - must go through IN_PROGRESS
             TransactionState.COMMITTED: [
                 TransactionState.IN_PROGRESS,
-                TransactionState.DELIVERED,
                 TransactionState.CANCELLED,
             ],
             TransactionState.IN_PROGRESS: [
                 TransactionState.DELIVERED,
+                TransactionState.CANCELLED,
             ],
             TransactionState.DELIVERED: [
                 TransactionState.SETTLED,
                 TransactionState.DISPUTED,
             ],
+            # AUDIT FIX: DISPUTED can be cancelled by admin/pauser
             TransactionState.DISPUTED: [
                 TransactionState.SETTLED,
+                TransactionState.CANCELLED,
             ],
             TransactionState.SETTLED: [],
             TransactionState.CANCELLED: [],
@@ -136,7 +139,7 @@ class Transaction:
     amount: int
     fee: int = 0
     deadline: int = 0
-    dispute_window: int = 3600  # 1 hour default
+    dispute_window: int = 172800  # 2 days default (AUDIT FIX: was 1 hour)
     input_hash: str = ""
     output_hash: str = ""
     attestation_uid: str = ""
@@ -212,7 +215,7 @@ class Transaction:
             amount=data["amount"],
             fee=data.get("fee", 0),
             deadline=data.get("deadline", 0),
-            dispute_window=data.get("disputeWindow", 3600),
+            dispute_window=data.get("disputeWindow", 172800),
             input_hash=data.get("inputHash", ""),
             output_hash=data.get("outputHash", ""),
             attestation_uid=data.get("attestationUid", ""),
@@ -357,20 +360,23 @@ VALID_TRANSITIONS: Dict[TransactionState, Set[TransactionState]] = {
         TransactionState.COMMITTED,
         TransactionState.CANCELLED,
     },
+    # AUDIT FIX: COMMITTED cannot skip to DELIVERED - must go through IN_PROGRESS
     TransactionState.COMMITTED: {
         TransactionState.IN_PROGRESS,
-        TransactionState.DELIVERED,
         TransactionState.CANCELLED,
     },
     TransactionState.IN_PROGRESS: {
         TransactionState.DELIVERED,
+        TransactionState.CANCELLED,
     },
     TransactionState.DELIVERED: {
         TransactionState.SETTLED,
         TransactionState.DISPUTED,
     },
+    # AUDIT FIX: DISPUTED can be cancelled by admin/pauser
     TransactionState.DISPUTED: {
         TransactionState.SETTLED,
+        TransactionState.CANCELLED,
     },
     TransactionState.SETTLED: set(),
     TransactionState.CANCELLED: set(),

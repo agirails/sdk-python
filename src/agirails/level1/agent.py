@@ -780,6 +780,22 @@ class Agent:
         self._emit("job:started", job)
         start_time = asyncio.get_event_loop().time()
 
+        # AUDIT FIX: Transition to IN_PROGRESS before starting work
+        # Contract requires: COMMITTED -> IN_PROGRESS -> DELIVERED
+        if self._client is not None:
+            try:
+                await self._client.standard.transition_state(job.id, "IN_PROGRESS")
+                _logger.debug(
+                    "Job transitioned to IN_PROGRESS",
+                    extra={"agent": self.name, "job_id": job.id},
+                )
+            except Exception as e:
+                _logger.warning(
+                    "Failed to transition job to IN_PROGRESS",
+                    extra={"agent": self.name, "job_id": job.id, "error": str(e)},
+                )
+                # Don't fail the job - it might already be IN_PROGRESS
+
         try:
             # Create context
             ctx = JobContext(self, job)

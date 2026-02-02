@@ -76,13 +76,14 @@ INT_TO_STATE: Dict[int, State] = {v: k for k, v in _STATE_TO_INT.items()}
 
 # Valid state transitions (directed acyclic graph)
 # Key: current state, Value: list of valid target states
+# AUDIT FIX: COMMITTED cannot skip to DELIVERED - must go through IN_PROGRESS
 STATE_TRANSITIONS: Dict[State, List[State]] = {
     State.INITIATED: [State.QUOTED, State.COMMITTED, State.CANCELLED],
     State.QUOTED: [State.COMMITTED, State.CANCELLED],
-    State.COMMITTED: [State.IN_PROGRESS, State.DELIVERED, State.CANCELLED],
+    State.COMMITTED: [State.IN_PROGRESS, State.CANCELLED],  # AUDIT FIX: removed DELIVERED
     State.IN_PROGRESS: [State.DELIVERED, State.CANCELLED],
     State.DELIVERED: [State.SETTLED, State.DISPUTED],
-    State.DISPUTED: [State.SETTLED],
+    State.DISPUTED: [State.SETTLED, State.CANCELLED],  # AUDIT FIX: admin can cancel
     State.SETTLED: [],  # Terminal
     State.CANCELLED: [],  # Terminal
 }

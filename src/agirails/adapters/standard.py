@@ -215,10 +215,10 @@ class StandardAdapter(BaseAdapter):
         Valid transitions depend on current state:
         - INITIATED → QUOTED, COMMITTED, CANCELLED
         - QUOTED → COMMITTED, CANCELLED
-        - COMMITTED → IN_PROGRESS, DELIVERED, CANCELLED
+        - COMMITTED → IN_PROGRESS, CANCELLED (AUDIT FIX: must go through IN_PROGRESS)
         - IN_PROGRESS → DELIVERED, CANCELLED
         - DELIVERED → SETTLED, DISPUTED
-        - DISPUTED → SETTLED
+        - DISPUTED → SETTLED, CANCELLED (admin only)
 
         Note: Some transitions (like → COMMITTED) happen automatically via link_escrow().
 
