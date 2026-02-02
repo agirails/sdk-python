@@ -418,11 +418,12 @@ class TestStateTransitionParity:
         assert valid == expected
 
     def test_committed_transitions(self) -> None:
-        """COMMITTED can go to: IN_PROGRESS, DELIVERED, CANCELLED."""
+        """COMMITTED can go to: IN_PROGRESS, CANCELLED (AUDIT FIX: cannot skip to DELIVERED)."""
         from agirails.runtime.types import STATE_TRANSITIONS, State
 
         valid = set(STATE_TRANSITIONS[State.COMMITTED])
-        expected = {State.IN_PROGRESS, State.DELIVERED, State.CANCELLED}
+        # AUDIT FIX: COMMITTED cannot skip directly to DELIVERED - must go through IN_PROGRESS
+        expected = {State.IN_PROGRESS, State.CANCELLED}
         assert valid == expected
 
     def test_in_progress_transitions(self) -> None:
@@ -442,11 +443,12 @@ class TestStateTransitionParity:
         assert valid == expected
 
     def test_disputed_transitions(self) -> None:
-        """DISPUTED can only go to: SETTLED."""
+        """DISPUTED can go to: SETTLED, CANCELLED (AUDIT FIX: admin can cancel)."""
         from agirails.runtime.types import STATE_TRANSITIONS, State
 
         valid = set(STATE_TRANSITIONS[State.DISPUTED])
-        expected = {State.SETTLED}
+        # AUDIT FIX: DISPUTED can be cancelled by admin/pauser
+        expected = {State.SETTLED, State.CANCELLED}
         assert valid == expected
 
     def test_settled_is_terminal(self) -> None:

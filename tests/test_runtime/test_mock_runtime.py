@@ -333,8 +333,10 @@ class TestStateTransitions:
         assert tx.state == State.IN_PROGRESS
 
     @pytest.mark.asyncio
-    async def test_committed_to_delivered(self, funded_runtime):
-        """COMMITTED -> DELIVERED transition (skip IN_PROGRESS)."""
+    async def test_committed_to_delivered_rejected(self, funded_runtime):
+        """AUDIT FIX: COMMITTED -> DELIVERED direct transition is rejected."""
+        from agirails.errors import InvalidStateTransitionError
+
         current_time = funded_runtime.time.now()
 
         tx_id = await funded_runtime.create_transaction(
@@ -346,6 +348,31 @@ class TestStateTransitions:
             )
         )
         await funded_runtime.link_escrow(tx_id, "100000000")
+
+        # AUDIT FIX: Direct COMMITTED -> DELIVERED should now fail
+        with pytest.raises(InvalidStateTransitionError):
+            await funded_runtime.transition_state(tx_id, State.DELIVERED, proof="0xproof")
+
+        # Transaction should still be in COMMITTED
+        tx = await funded_runtime.get_transaction(tx_id)
+        assert tx.state == State.COMMITTED
+
+    @pytest.mark.asyncio
+    async def test_in_progress_to_delivered(self, funded_runtime):
+        """IN_PROGRESS -> DELIVERED transition with proof."""
+        current_time = funded_runtime.time.now()
+
+        tx_id = await funded_runtime.create_transaction(
+            CreateTransactionParams(
+                provider=PROVIDER,
+                requester=REQUESTER,
+                amount="100000000",
+                deadline=current_time + 86400,
+            )
+        )
+        await funded_runtime.link_escrow(tx_id, "100000000")
+        # AUDIT FIX: Must go through IN_PROGRESS
+        await funded_runtime.transition_state(tx_id, State.IN_PROGRESS)
 
         await funded_runtime.transition_state(tx_id, State.DELIVERED, proof="0xproof")
 
@@ -367,6 +394,8 @@ class TestStateTransitions:
             )
         )
         await funded_runtime.link_escrow(tx_id, "100000000")
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await funded_runtime.transition_state(tx_id, State.IN_PROGRESS)
         await funded_runtime.transition_state(tx_id, State.DELIVERED)
 
         await funded_runtime.transition_state(tx_id, State.DISPUTED)
@@ -388,6 +417,8 @@ class TestStateTransitions:
             )
         )
         await funded_runtime.link_escrow(tx_id, "100000000")
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await funded_runtime.transition_state(tx_id, State.IN_PROGRESS)
         await funded_runtime.transition_state(tx_id, State.DELIVERED)
         await funded_runtime.transition_state(tx_id, State.DISPUTED)
 
@@ -493,6 +524,8 @@ class TestReleaseEscrow:
             )
         )
         escrow_id = await funded_runtime.link_escrow(tx_id, "100000000")
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await funded_runtime.transition_state(tx_id, State.IN_PROGRESS)
         await funded_runtime.transition_state(tx_id, State.DELIVERED)
 
         # Advance time past dispute window
@@ -527,6 +560,8 @@ class TestReleaseEscrow:
             )
         )
         escrow_id = await funded_runtime.link_escrow(tx_id, "100000000")
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await funded_runtime.transition_state(tx_id, State.IN_PROGRESS)
         await funded_runtime.transition_state(tx_id, State.DELIVERED)
 
         # Try to release immediately (dispute window still active)
@@ -915,6 +950,8 @@ class TestFullLifecycle:
             )
         )
         await funded_runtime.link_escrow(tx_id, "100000000")
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await funded_runtime.transition_state(tx_id, State.IN_PROGRESS)
         await funded_runtime.transition_state(tx_id, State.DELIVERED)
 
         # Dispute

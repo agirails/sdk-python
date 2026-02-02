@@ -157,7 +157,14 @@ class TestStandardTransitionState:
 
     @pytest.mark.asyncio
     async def test_transition_to_delivered(self, client, committed_tx):
-        """Transition COMMITTED -> DELIVERED."""
+        """Transition COMMITTED -> IN_PROGRESS -> DELIVERED (AUDIT FIX: must go through IN_PROGRESS)."""
+        # First transition to IN_PROGRESS
+        await client.standard.transition_state(committed_tx, "IN_PROGRESS")
+
+        tx = await client.standard.get_transaction(committed_tx)
+        assert tx.state == "IN_PROGRESS"
+
+        # Then transition to DELIVERED
         await client.standard.transition_state(committed_tx, "DELIVERED")
 
         tx = await client.standard.get_transaction(committed_tx)
@@ -165,7 +172,11 @@ class TestStandardTransitionState:
 
     @pytest.mark.asyncio
     async def test_transition_with_proof(self, client, committed_tx):
-        """Transition with delivery proof."""
+        """Transition with delivery proof (AUDIT FIX: must go through IN_PROGRESS)."""
+        # First transition to IN_PROGRESS
+        await client.standard.transition_state(committed_tx, "IN_PROGRESS")
+
+        # Then transition to DELIVERED with proof
         proof = "0x" + "abc123" * 10 + "abcd"
         await client.standard.transition_state(
             committed_tx,
@@ -176,6 +187,18 @@ class TestStandardTransitionState:
         tx = await client.standard.get_transaction(committed_tx)
         assert tx.state == "DELIVERED"
         assert tx.delivery_proof == proof
+
+    @pytest.mark.asyncio
+    async def test_committed_cannot_skip_to_delivered(self, client, committed_tx):
+        """AUDIT FIX: Verify COMMITTED cannot skip directly to DELIVERED."""
+        from agirails.errors import InvalidStateTransitionError
+
+        with pytest.raises(InvalidStateTransitionError):
+            await client.standard.transition_state(committed_tx, "DELIVERED")
+
+        # Transaction should still be in COMMITTED state
+        tx = await client.standard.get_transaction(committed_tx)
+        assert tx.state == "COMMITTED"
 
 
 class TestStandardReleaseEscrow:
@@ -202,6 +225,8 @@ class TestStandardReleaseEscrow:
             "dispute_window": 3600,  # 1 hour
         })
         escrow_id = await client.standard.link_escrow(tx_id)
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await client.standard.transition_state(tx_id, "IN_PROGRESS")
         await client.standard.transition_state(tx_id, "DELIVERED")
 
         # Advance time past dispute window
@@ -230,6 +255,8 @@ class TestStandardReleaseEscrow:
             "dispute_window": 3600,
         })
         escrow_id = await client.standard.link_escrow(tx_id)
+        # AUDIT FIX: Must go through IN_PROGRESS before DELIVERED
+        await client.standard.transition_state(tx_id, "IN_PROGRESS")
         await client.standard.transition_state(tx_id, "DELIVERED")
         await client.runtime.time.advance_time(3700)
         await client.standard.release_escrow(escrow_id)

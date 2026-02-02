@@ -98,6 +98,8 @@ try:
         DeliveryAttestationData,
         Schema,
         DELIVERY_SCHEMA,
+        DELIVERY_SCHEMA_AIP6,
+        DELIVERY_SCHEMA_AIP4,
         ZERO_BYTES32,
     )
     from agirails.protocol.agent_registry import (
@@ -135,6 +137,8 @@ try:
         "DeliveryAttestationData",
         "Schema",
         "DELIVERY_SCHEMA",
+        "DELIVERY_SCHEMA_AIP6",
+        "DELIVERY_SCHEMA_AIP4",
         "ZERO_BYTES32",
         # Agent Registry
         "AgentRegistry",

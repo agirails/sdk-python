@@ -24,12 +24,15 @@ import asyncio
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, TypeVar, Union
+from typing import Any, Callable, List, Optional, TypeVar, Union, TYPE_CHECKING
 
 from eth_account.signers.local import LocalAccount
 from web3 import AsyncWeb3
 
 from agirails.config.networks import NetworkConfig, get_network
+
+if TYPE_CHECKING:
+    from agirails.protocol.eas import EASHelper
 from agirails.errors import EscrowError, TransactionError, ValidationError
 from agirails.protocol.escrow import CreateEscrowParams, EscrowVault, generate_escrow_id
 from agirails.protocol.events import EventFilter, EventMonitor
@@ -39,6 +42,10 @@ from agirails.runtime.base import CreateTransactionParams, TimeInterface
 from agirails.runtime.types import MockTransaction, State
 from agirails.types.transaction import TransactionState
 from agirails.utils.security import TokenBucketRateLimiter, RetryConfig, retry_with_backoff
+from agirails.utils.logging import get_logger
+from agirails.errors import DisputeWindowActiveError
+
+_logger = get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -148,6 +155,7 @@ class BlockchainRuntime:
         nonce_manager: NonceManager,
         rate_limiter: Optional[TokenBucketRateLimiter] = None,
         retry_config: Optional[RetryConfig] = None,
+        eas_helper: Optional["EASHelper"] = None,
     ) -> None:
         """
         Initialize BlockchainRuntime.
@@ -164,6 +172,7 @@ class BlockchainRuntime:
             nonce_manager: NonceManager for transaction nonces
             rate_limiter: RPC rate limiter (default: 10 req/sec)
             retry_config: Retry configuration for RPC calls
+            eas_helper: Optional EASHelper for attestation verification
         """
         self.w3 = w3
         self.account = account
@@ -173,6 +182,7 @@ class BlockchainRuntime:
         self.events = events
         self.nonce_manager = nonce_manager
         self._time = BlockchainTime(w3)
+        self.eas_helper = eas_helper
 
         # Initialize rate limiter (C-3)
         self._rate_limiter = rate_limiter or TokenBucketRateLimiter(
@@ -189,6 +199,7 @@ class BlockchainRuntime:
         rpc_url: Optional[str] = None,
         rpc_rate_limit: float = DEFAULT_RPC_RATE_LIMIT,
         retry_config: Optional[RetryConfig] = None,
+        eas_helper: Optional["EASHelper"] = None,
     ) -> "BlockchainRuntime":
         """
         Create a BlockchainRuntime instance.
@@ -199,6 +210,7 @@ class BlockchainRuntime:
             rpc_url: Optional override for RPC URL
             rpc_rate_limit: RPC rate limit (requests per second, default: 10)
             retry_config: Retry configuration for RPC calls
+            eas_helper: Optional EAS helper for attestation verification
 
         Returns:
             Initialized BlockchainRuntime
@@ -254,6 +266,7 @@ class BlockchainRuntime:
             w3, account, config, kernel, escrow, events, nonce_manager,
             rate_limiter=rate_limiter,
             retry_config=retry_config,
+            eas_helper=eas_helper,
         )
 
     # =========================================================================
@@ -530,27 +543,63 @@ class BlockchainRuntime:
         attestation_uid: Optional[str] = None,
     ) -> None:
         """
-        Release escrow funds to the provider.
+        Release escrow funds to the provider by transitioning to SETTLED.
+
+        SECURITY FIX (SETTLEMENT-FLOW): Uses transition_state(SETTLED) instead of
+        direct escrow payout. Per ACTPKernel.sol, the settlement flow is:
+          transition_state(txId, SETTLED, proof) -> internally calls _releaseEscrow(txn)
+        Direct escrow.payout_to_provider() would revert with onlyKernel.
 
         Args:
-            escrow_id: Escrow ID
+            escrow_id: Transaction ID (escrow_id == tx_id in current model)
             attestation_uid: Optional attestation UID for verification
+
+        Raises:
+            TransactionError: If transaction not found or not in DELIVERED state
+            DisputeWindowActiveError: If dispute window still active
         """
-        # Get escrow info
-        escrow_info = await self.escrow.get_escrow(escrow_id)
-        if not escrow_info.active:
-            raise EscrowError(
-                f"Escrow {escrow_id} is not active",
+        tx_id = escrow_id  # In current model, escrow_id is the tx_id
+
+        # SECURITY FIX (MEDIUM-1): Fetch transaction and validate state
+        tx = await self.get_transaction(tx_id)
+        if tx is None:
+            raise TransactionError(f"Transaction not found: {tx_id}")
+
+        # Validate transaction is in DELIVERED state
+        if tx.state != "DELIVERED":
+            raise TransactionError(
+                f"Cannot release escrow: transaction {tx_id} is in state {tx.state}, "
+                f"expected DELIVERED. Escrow can only be released after delivery."
             )
 
-        # Find linked transaction by querying events
-        # For now, we'll need to pass the tx_id separately
-        # This is a limitation of the current interface
+        # SECURITY FIX (MEDIUM-1): Validate dispute window has elapsed
+        if tx.completed_at and tx.dispute_window:
+            current_time = int(time.time())
+            window_end = tx.completed_at + tx.dispute_window
+            if current_time < window_end:
+                remaining = window_end - current_time
+                raise DisputeWindowActiveError(
+                    remaining_seconds=remaining,
+                    escrow_id=tx_id,
+                )
 
-        # Release remaining funds to provider
-        remaining = escrow_info.remaining
-        if remaining > 0:
-            await self.escrow.payout_to_provider(escrow_id, remaining)
+        # EAS attestation verification if configured
+        if attestation_uid and self.eas_helper:
+            try:
+                await self.eas_helper.verify_and_record_for_release(tx_id, attestation_uid)
+                _logger.info(f"Attestation verified for release: {tx_id} with {attestation_uid}")
+            except Exception as e:
+                raise TransactionError(
+                    f"EAS attestation verification failed for transaction {tx_id}: {e}"
+                )
+        elif attestation_uid:
+            _logger.info(f"Settling transaction {tx_id} with attestation {attestation_uid} (no EAS verification)")
+        else:
+            _logger.info(f"Settling transaction {tx_id} without attestation verification")
+
+        # SECURITY FIX (SETTLEMENT-FLOW): Use transition_state(SETTLED)
+        # This internally calls _releaseEscrow in the kernel contract
+        await self.transition_state(tx_id, State.SETTLED)
 
     async def get_escrow_balance(self, escrow_id: str) -> str:
         """

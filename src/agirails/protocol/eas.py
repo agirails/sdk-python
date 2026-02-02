@@ -41,6 +41,10 @@ except ImportError:
 
 from agirails.config.networks import NetworkConfig, get_network
 from agirails.types.transaction import TransactionReceipt
+from agirails.utils.used_attestation_tracker import (
+    IUsedAttestationTracker,
+    InMemoryUsedAttestationTracker,
+)
 
 
 # EAS contract ABI (minimal for attestations)
@@ -161,8 +165,15 @@ SCHEMA_REGISTRY_ABI = [
     },
 ]
 
-# ACTP Delivery Schema (AIP-4)
-DELIVERY_SCHEMA = "bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp"
+# ACTP Delivery Schema (AIP-6) - Current mainnet standard
+# Schema: bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt
+DELIVERY_SCHEMA_AIP6 = "bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt"
+
+# Legacy AIP-4 schema (for backwards compatibility)
+DELIVERY_SCHEMA_AIP4 = "bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp"
+
+# Default to AIP-6 for new registrations
+DELIVERY_SCHEMA = DELIVERY_SCHEMA_AIP6
 
 # Zero bytes32 for reference UIDs
 ZERO_BYTES32 = "0x" + "0" * 64
@@ -243,26 +254,54 @@ class DeliveryAttestationData:
     """
     Decoded delivery attestation data.
 
+    Supports both AIP-6 (current) and AIP-4 (legacy) schema formats.
+
+    AIP-6 fields: transaction_id, result_cid, result_hash, delivered_at
+    AIP-4 fields: transaction_id, output_hash, provider, timestamp
+
     Attributes:
-        transaction_id: ACTP transaction ID
-        output_hash: Hash of the delivered output
-        provider: Provider address
-        timestamp: Delivery timestamp
+        transaction_id: ACTP transaction ID (both formats)
+        result_cid: IPFS CID of result (AIP-6 only)
+        result_hash: Hash of the result (AIP-6) or output (AIP-4)
+        delivered_at: Delivery timestamp (AIP-6) or legacy timestamp
+        provider: Provider address (AIP-4 only, None for AIP-6)
+        schema_version: "aip6" or "aip4"
     """
 
     transaction_id: str
-    output_hash: str
-    provider: str
-    timestamp: int
+    result_hash: str  # AIP-6: resultHash, AIP-4: outputHash
+    delivered_at: int  # AIP-6: deliveredAt, AIP-4: timestamp
+    result_cid: Optional[str] = None  # AIP-6 only
+    provider: Optional[str] = None  # AIP-4 only
+    schema_version: str = "aip6"
+
+    # Backwards compatibility aliases
+    @property
+    def output_hash(self) -> str:
+        """Alias for result_hash (AIP-4 compatibility)."""
+        return self.result_hash
+
+    @property
+    def timestamp(self) -> int:
+        """Alias for delivered_at (AIP-4 compatibility)."""
+        return self.delivered_at
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        base = {
             "transactionId": self.transaction_id,
-            "outputHash": self.output_hash,
-            "provider": self.provider,
-            "timestamp": self.timestamp,
+            "resultHash": self.result_hash,
+            "deliveredAt": self.delivered_at,
+            "schemaVersion": self.schema_version,
         }
+        if self.result_cid:
+            base["resultCID"] = self.result_cid
+        if self.provider:
+            base["provider"] = self.provider
+        # Legacy aliases
+        base["outputHash"] = self.result_hash
+        base["timestamp"] = self.delivered_at
+        return base
 
 
 @dataclass
@@ -305,6 +344,7 @@ class EASHelper:
         w3: Web3 instance
         chain_id: Chain ID
         delivery_schema_uid: Pre-registered delivery schema UID
+        attestation_tracker: Optional tracker for replay attack prevention (C-1 fix)
 
     Example:
         >>> eas = await EASHelper.create(private_key, network="base-sepolia")
@@ -323,6 +363,7 @@ class EASHelper:
         w3: AsyncWeb3,
         chain_id: int,
         delivery_schema_uid: str = "",
+        attestation_tracker: Optional[IUsedAttestationTracker] = None,
     ) -> None:
         self._eas = eas_contract
         self._schema_registry = schema_registry
@@ -330,6 +371,13 @@ class EASHelper:
         self._w3 = w3
         self._chain_id = chain_id
         self._delivery_schema_uid = delivery_schema_uid
+        # SECURITY FIX (C-1): Track used attestations to prevent replay attacks
+        self._attestation_tracker = attestation_tracker or InMemoryUsedAttestationTracker()
+
+    @property
+    def attestation_tracker(self) -> IUsedAttestationTracker:
+        """Get the attestation tracker for replay protection."""
+        return self._attestation_tracker
 
     @classmethod
     async def create(
@@ -337,6 +385,7 @@ class EASHelper:
         private_key: str,
         network: Union[str, NetworkConfig] = "base-sepolia",
         rpc_url: Optional[str] = None,
+        attestation_tracker: Optional[IUsedAttestationTracker] = None,
     ) -> "EASHelper":
         """
         Create EASHelper with connection to blockchain.
@@ -345,6 +394,7 @@ class EASHelper:
             private_key: Ethereum private key
             network: Network name or config
             rpc_url: Optional custom RPC URL
+            attestation_tracker: Optional tracker for replay attack prevention
 
         Returns:
             Configured EASHelper instance
@@ -387,6 +437,7 @@ class EASHelper:
             w3=w3,
             chain_id=config.chain_id,
             delivery_schema_uid=config.eas.delivery_schema_uid,
+            attestation_tracker=attestation_tracker,
         )
 
     @property
@@ -399,15 +450,38 @@ class EASHelper:
         """Get delivery schema UID."""
         return self._delivery_schema_uid
 
-    def _encode_delivery_data(
+    def _encode_delivery_data_aip6(
+        self,
+        transaction_id: str,
+        result_cid: str,
+        result_hash: str,
+        delivered_at: int,
+    ) -> bytes:
+        """
+        Encode delivery attestation data in AIP-6 format (mainnet standard).
+
+        Schema: bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt
+        """
+        tx_id_bytes = bytes.fromhex(transaction_id.replace("0x", "")).ljust(32, b"\x00")
+        result_hash_bytes = bytes.fromhex(result_hash.replace("0x", "")).ljust(32, b"\x00")
+
+        return encode(
+            ["bytes32", "string", "bytes32", "uint256"],
+            [tx_id_bytes, result_cid, result_hash_bytes, delivered_at],
+        )
+
+    def _encode_delivery_data_aip4(
         self,
         transaction_id: str,
         output_hash: str,
         provider: str,
         timestamp: int,
     ) -> bytes:
-        """Encode delivery attestation data."""
-        # Convert hex strings to bytes32
+        """
+        Encode delivery attestation data in AIP-4 format (legacy).
+
+        Schema: bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp
+        """
         tx_id_bytes = bytes.fromhex(transaction_id.replace("0x", "")).ljust(32, b"\x00")
         output_bytes = bytes.fromhex(output_hash.replace("0x", "")).ljust(32, b"\x00")
         provider_addr = self._w3.to_checksum_address(provider)
@@ -417,17 +491,82 @@ class EASHelper:
             [tx_id_bytes, output_bytes, provider_addr, timestamp],
         )
 
+    def _encode_delivery_data(
+        self,
+        transaction_id: str,
+        result_cid: str,
+        result_hash: str,
+        delivered_at: int,
+    ) -> bytes:
+        """
+        Encode delivery attestation data (defaults to AIP-6 format).
+
+        For legacy AIP-4 format, use _encode_delivery_data_aip4() directly.
+        """
+        return self._encode_delivery_data_aip6(
+            transaction_id, result_cid, result_hash, delivered_at
+        )
+
     def _decode_delivery_data(self, data: bytes) -> DeliveryAttestationData:
-        """Decode delivery attestation data."""
+        """
+        Decode delivery attestation data.
+
+        Tries AIP-6 format first, then falls back to AIP-4 for backwards compatibility.
+
+        AIP-6: bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt
+        AIP-4: bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp
+        """
         from eth_abi import decode
 
-        decoded = decode(["bytes32", "bytes32", "address", "uint64"], data)
-        return DeliveryAttestationData(
-            transaction_id="0x" + decoded[0].hex(),
-            output_hash="0x" + decoded[1].hex(),
-            provider=decoded[2],
-            timestamp=decoded[3],
-        )
+        # Try AIP-6 format first (current mainnet standard)
+        try:
+            decoded = decode(
+                ["bytes32", "string", "bytes32", "uint256"],
+                data,
+            )
+            tx_id = "0x" + decoded[0].hex()
+            result_cid = decoded[1]
+            result_hash = "0x" + decoded[2].hex()
+            delivered_at = int(decoded[3])
+
+            # Validate decoded values
+            if not tx_id or len(tx_id) != 66:
+                raise ValueError("Invalid txId")
+            if not isinstance(result_cid, str) or len(result_cid) > 2048:
+                raise ValueError("Invalid resultCID")
+            if not result_hash or len(result_hash) != 66:
+                raise ValueError("Invalid resultHash")
+
+            return DeliveryAttestationData(
+                transaction_id=tx_id,
+                result_cid=result_cid,
+                result_hash=result_hash,
+                delivered_at=delivered_at,
+                schema_version="aip6",
+            )
+        except Exception:
+            pass
+
+        # Fallback to AIP-4 format (legacy)
+        try:
+            decoded = decode(
+                ["bytes32", "bytes32", "address", "uint64"],
+                data,
+            )
+            return DeliveryAttestationData(
+                transaction_id="0x" + decoded[0].hex(),
+                result_hash="0x" + decoded[1].hex(),  # outputHash -> result_hash
+                delivered_at=int(decoded[3]),  # timestamp -> delivered_at
+                provider=decoded[2],
+                schema_version="aip4",
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Failed to decode attestation data. "
+                f"Expected AIP-6 (txId, resultCID, resultHash, deliveredAt) or "
+                f"AIP-4 (transactionId, outputHash, provider, timestamp) format. "
+                f"Error: {e}"
+            )
 
     async def _build_transaction(
         self,
@@ -499,21 +638,21 @@ class EASHelper:
     async def create_delivery_attestation(
         self,
         transaction_id: str,
-        output_hash: str,
-        provider: str,
+        result_cid: str,
+        result_hash: str,
         recipient: Optional[str] = None,
         expiration_time: int = 0,
         ref_uid: str = ZERO_BYTES32,
         revocable: bool = True,
     ) -> str:
         """
-        Create a delivery attestation on EAS.
+        Create a delivery attestation on EAS (AIP-6 format).
 
         Args:
-            transaction_id: ACTP transaction ID
-            output_hash: Hash of the delivered output
-            provider: Provider address
-            recipient: Attestation recipient (defaults to provider)
+            transaction_id: ACTP transaction ID (bytes32)
+            result_cid: IPFS CID of the delivered result
+            result_hash: Hash of the delivered result (bytes32)
+            recipient: Attestation recipient (defaults to attester)
             expiration_time: When attestation expires (0 = never)
             ref_uid: Reference attestation UID
             revocable: Whether attestation can be revoked
@@ -530,16 +669,16 @@ class EASHelper:
                 "Register a schema first or provide in network config."
             )
 
-        # Default recipient to provider
-        recipient = recipient or provider
+        # Default recipient to attester
+        recipient = recipient or self._account.address
 
-        # Encode attestation data
-        timestamp = int(time.time())
-        data = self._encode_delivery_data(
+        # Encode attestation data (AIP-6 format)
+        delivered_at = int(time.time())
+        data = self._encode_delivery_data_aip6(
             transaction_id=transaction_id,
-            output_hash=output_hash,
-            provider=provider,
-            timestamp=timestamp,
+            result_cid=result_cid,
+            result_hash=result_hash,
+            delivered_at=delivered_at,
         )
 
         # Build attestation request
@@ -569,6 +708,72 @@ class EASHelper:
                 return "0x" + attested_event["topics"][1].hex()
 
         # Fallback: read from return value (if available)
+        raise ValueError("Failed to extract attestation UID from transaction")
+
+    async def create_delivery_attestation_aip4(
+        self,
+        transaction_id: str,
+        output_hash: str,
+        provider: str,
+        recipient: Optional[str] = None,
+        expiration_time: int = 0,
+        ref_uid: str = ZERO_BYTES32,
+        revocable: bool = True,
+    ) -> str:
+        """
+        Create a delivery attestation on EAS (legacy AIP-4 format).
+
+        Use create_delivery_attestation() for new attestations (AIP-6 format).
+
+        Args:
+            transaction_id: ACTP transaction ID
+            output_hash: Hash of the delivered output
+            provider: Provider address
+            recipient: Attestation recipient (defaults to provider)
+            expiration_time: When attestation expires (0 = never)
+            ref_uid: Reference attestation UID
+            revocable: Whether attestation can be revoked
+
+        Returns:
+            Attestation UID
+        """
+        if not self._delivery_schema_uid:
+            raise ValueError(
+                "Delivery schema UID not configured. "
+                "Register a schema first or provide in network config."
+            )
+
+        recipient = recipient or provider
+        timestamp = int(time.time())
+
+        data = self._encode_delivery_data_aip4(
+            transaction_id=transaction_id,
+            output_hash=output_hash,
+            provider=provider,
+            timestamp=timestamp,
+        )
+
+        request = (
+            bytes.fromhex(self._delivery_schema_uid.replace("0x", "")),
+            (
+                self._w3.to_checksum_address(recipient),
+                expiration_time,
+                revocable,
+                bytes.fromhex(ref_uid.replace("0x", "")),
+                data,
+                0,
+            ),
+        )
+
+        function = self._eas.functions.attest(request)
+        tx = await self._build_transaction(function)
+        receipt = await self._send_transaction(tx)
+
+        if receipt.logs:
+            attested_event = receipt.logs[0]
+            if "topics" in attested_event and len(attested_event["topics"]) > 1:
+                return "0x" + attested_event["topics"][1].hex()
+
         raise ValueError("Failed to extract attestation UID from transaction")
 
     async def get_attestation(self, uid: str) -> Attestation:
@@ -727,6 +932,133 @@ class EASHelper:
         self._delivery_schema_uid = uid
         return uid
 
+    async def verify_delivery_attestation(
+        self,
+        tx_id: str,
+        attestation_uid: str,
+    ) -> bool:
+        """
+        Verify that an attestation is valid for a given transaction.
+
+        SECURITY: ACTPKernel V1 accepts any bytes32 as attestationUID without validation.
+        This means a malicious provider could submit attestation from Transaction A
+        for Transaction B. This method provides SDK-side protection by verifying:
+
+        1. Attestation exists and is not revoked
+        2. Attestation uses the canonical delivery schema UID
+        3. Attestation's txId matches the expected transaction ID
+        4. Attestation has not expired
+        5. Attestation has not been used for another transaction (replay protection)
+
+        Args:
+            tx_id: Expected transaction ID (bytes32)
+            attestation_uid: Attestation UID to verify (bytes32)
+
+        Returns:
+            True if attestation is valid for this transaction
+
+        Raises:
+            ValueError: If attestation is invalid, revoked, expired, schema mismatch, or txId mismatch
+        """
+        import re
+
+        # 1. Validate input formats
+        bytes32_pattern = re.compile(r"^0x[a-fA-F0-9]{64}$")
+        if not tx_id or not bytes32_pattern.match(tx_id):
+            raise ValueError(f"Invalid tx_id format (expected bytes32): {tx_id}")
+        if not attestation_uid or not bytes32_pattern.match(attestation_uid):
+            raise ValueError(
+                f"Invalid attestation_uid format (expected bytes32): {attestation_uid}"
+            )
+
+        # 2. Fetch attestation from EAS contract
+        attestation = await self.get_attestation(attestation_uid)
+
+        # 3. Check if attestation exists (uid should match)
+        if attestation.uid.lower() != attestation_uid.lower():
+            raise ValueError(f"Attestation not found: {attestation_uid}")
+
+        # 4. Check schema UID matches canonical delivery schema (B2 blocker fix)
+        if self._delivery_schema_uid:
+            if attestation.schema.lower() != self._delivery_schema_uid.lower():
+                raise ValueError(
+                    f"Schema UID mismatch: expected canonical delivery schema "
+                    f"{self._delivery_schema_uid}, got {attestation.schema}. "
+                    f"Attestation may be from a different schema!"
+                )
+
+        # 5. Check revocation
+        if attestation.is_revoked:
+            raise ValueError(
+                f"Attestation has been revoked: {attestation_uid} "
+                f"(revoked at timestamp {attestation.revocation_time})"
+            )
+
+        # 6. Check expiration
+        if attestation.is_expired:
+            raise ValueError(
+                f"Attestation has expired: {attestation_uid} "
+                f"(expired at {attestation.expiration_time})"
+            )
+
+        # 7. Decode attestation data to extract txId
+        try:
+            delivery_data = self._decode_delivery_data(attestation.data)
+            attested_tx_id = delivery_data.transaction_id
+        except Exception as e:
+            raise ValueError(
+                f"Attestation data format mismatch: cannot decode attestation {attestation_uid}. "
+                f"Expected delivery proof schema format. Original error: {e}"
+            )
+
+        # 8. Verify attestation txId matches expected transaction ID
+        if attested_tx_id.lower() != tx_id.lower():
+            raise ValueError(
+                f"Attestation txId mismatch: expected {tx_id}, got {attested_tx_id}. "
+                f"Provider may be attempting to use attestation from different transaction!"
+            )
+
+        # 9. SECURITY FIX (C-1): Check if attestation has been used for a different transaction
+        if not self._attestation_tracker.is_valid_for_transaction(attestation_uid, tx_id):
+            used_for = self._attestation_tracker.get_usage_for_attestation(attestation_uid)
+            raise ValueError(
+                f"Attestation replay attack detected: attestation {attestation_uid} "
+                f"was already used for transaction {used_for}. "
+                f"Cannot reuse for transaction {tx_id}."
+            )
+
+        # 10. Record this attestation as used for this transaction
+        recorded = await self._attestation_tracker.record_usage(attestation_uid, tx_id)
+        if not recorded:
+            used_for = self._attestation_tracker.get_usage_for_attestation(attestation_uid)
+            raise ValueError(
+                f"Attestation replay attack detected: attestation {attestation_uid} "
+                f"was already used for transaction {used_for}. Cannot reuse for {tx_id}."
+            )
+
+        # All checks passed
+        return True
+
+    async def verify_and_record_for_release(
+        self,
+        tx_id: str,
+        attestation_uid: str,
+    ) -> None:
+        """
+        Verify attestation for escrow release with mandatory replay protection.
+
+        SECURITY FIX (C-4): This method MUST be called before releaseEscrow()
+        to prevent attestation replay attacks.
+
+        Args:
+            tx_id: Expected transaction ID (bytes32)
+            attestation_uid: Attestation UID to verify (bytes32)
+
+        Raises:
+            ValueError: If verification fails or replay attack detected
+        """
+        await self.verify_delivery_attestation(tx_id, attestation_uid)
+
 
 __all__ = [
     "EASHelper",
@@ -734,6 +1066,8 @@ __all__ = [
     "DeliveryAttestationData",
     "Schema",
     "DELIVERY_SCHEMA",
+    "DELIVERY_SCHEMA_AIP6",
+    "DELIVERY_SCHEMA_AIP4",
     "ZERO_BYTES32",
     "HAS_WEB3",
 ]

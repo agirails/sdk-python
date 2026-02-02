@@ -252,7 +252,8 @@ class TestStateHelper:
 
         transitions = StateHelper.valid_transitions("COMMITTED")
         assert "IN_PROGRESS" in transitions
-        assert "DELIVERED" in transitions
+        # AUDIT FIX: COMMITTED cannot skip to DELIVERED - must go through IN_PROGRESS
+        assert "DELIVERED" not in transitions
         assert "CANCELLED" in transitions
 
         # Also test with State enum
@@ -261,7 +262,9 @@ class TestStateHelper:
 
     def test_can_transition(self):
         """Check if transition is valid."""
-        assert StateHelper.can_transition("COMMITTED", "DELIVERED") is True
+        # AUDIT FIX: COMMITTED -> DELIVERED is no longer valid
+        assert StateHelper.can_transition("COMMITTED", "DELIVERED") is False
+        assert StateHelper.can_transition("COMMITTED", "IN_PROGRESS") is True
         assert StateHelper.can_transition("COMMITTED", "SETTLED") is False
         assert StateHelper.can_transition("DELIVERED", "SETTLED") is True
 

@@ -210,7 +210,9 @@ class TestStateHelperExtended:
     def test_valid_transitions_with_state_enum(self):
         """Test valid_transitions with State enum."""
         result = StateHelper.valid_transitions(State.COMMITTED)
-        assert "IN_PROGRESS" in result or "DELIVERED" in result
+        # AUDIT FIX: COMMITTED can only go to IN_PROGRESS or CANCELLED
+        assert "IN_PROGRESS" in result
+        assert "DELIVERED" not in result  # AUDIT FIX: Must go through IN_PROGRESS
 
     def test_can_transition_invalid_from_state(self):
         """Return False for invalid from_state string."""
@@ -224,7 +226,12 @@ class TestStateHelperExtended:
 
     def test_can_transition_both_state_enums(self):
         """Test can_transition with both State enums."""
+        # AUDIT FIX: COMMITTED -> DELIVERED is no longer valid
         result = StateHelper.can_transition(State.COMMITTED, State.DELIVERED)
+        assert result is False  # AUDIT FIX: Must go through IN_PROGRESS
+
+        # Test valid transition instead
+        result = StateHelper.can_transition(State.COMMITTED, State.IN_PROGRESS)
         assert result is True
 
         result = StateHelper.can_transition(State.SETTLED, State.COMMITTED)
@@ -232,7 +239,12 @@ class TestStateHelperExtended:
 
     def test_can_transition_string_to_enum(self):
         """Test can_transition with string from and State enum to."""
+        # AUDIT FIX: COMMITTED -> DELIVERED is no longer valid
         result = StateHelper.can_transition("COMMITTED", State.DELIVERED)
+        assert result is False  # AUDIT FIX: Must go through IN_PROGRESS
+
+        # Test valid transition instead
+        result = StateHelper.can_transition("COMMITTED", State.IN_PROGRESS)
         assert result is True
 
 

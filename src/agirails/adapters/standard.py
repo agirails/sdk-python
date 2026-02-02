@@ -252,6 +252,9 @@ class StandardAdapter(BaseAdapter):
         This releases the locked funds to the provider, transitioning
         the transaction to SETTLED state.
 
+        SECURITY: If attestation_uid is provided and EAS helper is available,
+        verifies the attestation before releasing funds (replay attack protection).
+
         Args:
             escrow_id: Escrow ID to release
             attestation_uid: Optional EAS attestation UID
@@ -260,7 +263,22 @@ class StandardAdapter(BaseAdapter):
             EscrowNotFoundError: If escrow doesn't exist
             DisputeWindowActiveError: If dispute window is still active
             InvalidStateTransitionError: If transaction is not in DELIVERED state
+            ValueError: If attestation verification fails
         """
+        # Check if runtime has EAS helper (BlockchainRuntime)
+        runtime_has_eas = hasattr(self._runtime, "eas_helper") and self._runtime.eas_helper
+
+        # If runtime doesn't handle EAS but adapter has helper, verify here
+        if attestation_uid and not runtime_has_eas and self._eas_helper:
+            # Import here to avoid circular imports
+            from agirails.protocol.eas import EASHelper
+
+            if isinstance(self._eas_helper, EASHelper):
+                await self._eas_helper.verify_and_record_for_release(
+                    escrow_id,  # tx_id is same as escrow_id in current model
+                    attestation_uid,
+                )
+
         await self._runtime.release_escrow(
             escrow_id=escrow_id,
             attestation_uid=attestation_uid or "",

@@ -96,6 +96,9 @@ _DEFAULT_GAS_LIMITS = {
     "release_escrow": 300_000,  # Increased for safety
     "anchor_attestation": 200_000,  # Increased for safety
     "release_milestone": 250_000,  # Increased for safety
+    # PARITY: Dispute operations (matches TS SDK gas floors)
+    "raise_dispute": 200_000,  # Large proof data handling
+    "resolve_dispute": 350_000,  # Complex multi-party settlement
 }
 
 # Build actual gas limits with environment overrides
@@ -564,6 +567,170 @@ class ACTPKernel:
 
         receipt = await self._sign_and_send(tx)
         return self._to_receipt(receipt)
+
+    # =========================================================================
+    # Dispute Management (PARITY: matches TS SDK ACTPKernel)
+    # =========================================================================
+
+    async def raise_dispute(
+        self,
+        transaction_id: str,
+        reason: str,
+        evidence: str,
+        gas_limit: Optional[int] = None,
+    ) -> TransactionReceipt:
+        """
+        Raise a dispute on a delivered transaction.
+
+        Reference: Yellow Paper §3.4 (Dispute Management)
+
+        PARITY: Matches TS SDK raiseDispute() behavior.
+
+        Args:
+            transaction_id: The transaction ID (bytes32 hex string)
+            reason: Dispute reason (human-readable)
+            evidence: Evidence hash (typically IPFS CID)
+            gas_limit: Optional gas limit override
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            TransactionError: If the dispute fails (e.g., wrong state)
+
+        Example:
+            >>> await kernel.raise_dispute(
+            ...     tx_id,
+            ...     reason="Service not delivered as described",
+            ...     evidence="QmHash...",  # IPFS CID
+            ... )
+        """
+        from eth_abi import encode
+
+        tx_id_bytes = self._to_bytes32(transaction_id)
+
+        # Encode dispute proof with reason and evidence (IPFS hash)
+        proof_data = encode(["string", "string"], [reason, evidence])
+
+        tx = await self.contract.functions.transitionState(
+            tx_id_bytes,
+            TransactionState.DISPUTED.value,
+            proof_data,
+        ).build_transaction(
+            await self._build_tx_params(
+                gas_limit=gas_limit or GAS_LIMITS["raise_dispute"],
+            )
+        )
+
+        receipt = await self._sign_and_send(tx)
+        return self._to_receipt(receipt)
+
+    async def resolve_dispute(
+        self,
+        transaction_id: str,
+        requester_amount: int,
+        provider_amount: int,
+        mediator_amount: int = 0,
+        mediator: str = ZERO_ADDRESS,
+        gas_limit: Optional[int] = None,
+    ) -> TransactionReceipt:
+        """
+        Resolve a dispute with payment split.
+
+        Reference: Yellow Paper §3.4
+
+        PARITY: Matches TS SDK resolveDispute() behavior.
+        Disputes are settled via transitionState(SETTLED, proof) per §3.2.
+        The kernel contract decodes the proof and handles escrow disbursement.
+
+        Args:
+            transaction_id: The transaction ID (bytes32 hex string)
+            requester_amount: Amount to refund to requester (wei)
+            provider_amount: Amount to pay to provider (wei)
+            mediator_amount: Amount to pay to mediator (wei, default 0)
+            mediator: Mediator address (only if mediator_amount > 0)
+            gas_limit: Optional gas limit override
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            ValidationError: If amounts are invalid
+            TransactionError: If the resolution fails
+
+        Example:
+            >>> # Full refund to requester
+            >>> await kernel.resolve_dispute(tx_id, 1000000, 0)
+            >>>
+            >>> # Split 70% provider, 30% requester
+            >>> await kernel.resolve_dispute(tx_id, 300000, 700000)
+            >>>
+            >>> # With mediator fee
+            >>> await kernel.resolve_dispute(
+            ...     tx_id,
+            ...     requester_amount=300000,
+            ...     provider_amount=650000,
+            ...     mediator_amount=50000,
+            ...     mediator="0x..."
+            ... )
+        """
+        from eth_abi import encode
+
+        # Validate amounts
+        if requester_amount < 0 or provider_amount < 0 or mediator_amount < 0:
+            raise ValidationError("Dispute resolution amounts cannot be negative")
+
+        # Validate mediator address if mediator amount > 0
+        if mediator_amount > 0 and mediator == ZERO_ADDRESS:
+            raise ValidationError(
+                "Mediator address required when mediator_amount > 0"
+            )
+
+        tx_id_bytes = self._to_bytes32(transaction_id)
+
+        # AUDIT FIX: Encode in correct order per contract expectation
+        # Contract expects: abi.decode(proof, (uint256, uint256, address, uint256))
+        # = [requesterAmount, providerAmount, mediator, mediatorAmount]
+        proof_data = encode(
+            ["uint256", "uint256", "address", "uint256"],
+            [requester_amount, provider_amount, mediator, mediator_amount],
+        )
+
+        tx = await self.contract.functions.transitionState(
+            tx_id_bytes,
+            TransactionState.SETTLED.value,
+            proof_data,
+        ).build_transaction(
+            await self._build_tx_params(
+                gas_limit=gas_limit or GAS_LIMITS["resolve_dispute"],
+            )
+        )
+
+        receipt = await self._sign_and_send(tx)
+        return self._to_receipt(receipt)
+
+    async def settle_dispute(
+        self,
+        transaction_id: str,
+        requester_amount: int,
+        provider_amount: int,
+        mediator_amount: int = 0,
+        mediator: str = ZERO_ADDRESS,
+        gas_limit: Optional[int] = None,
+    ) -> TransactionReceipt:
+        """
+        Settle a disputed transaction (alias for resolve_dispute).
+
+        PARITY: Matches TS SDK settleDispute() alias.
+        """
+        return await self.resolve_dispute(
+            transaction_id=transaction_id,
+            requester_amount=requester_amount,
+            provider_amount=provider_amount,
+            mediator_amount=mediator_amount,
+            mediator=mediator,
+            gas_limit=gas_limit,
+        )
 
     # =========================================================================
     # Read Operations

@@ -73,9 +73,11 @@ class TestValidTransitions:
     """Tests for state transition validation."""
 
     def test_valid_happy_path(self):
-        """Test valid happy path transitions."""
+        """Test valid happy path transitions (AUDIT FIX: must go through IN_PROGRESS)."""
         assert is_valid_transition(TransactionState.INITIATED, TransactionState.COMMITTED)
-        assert is_valid_transition(TransactionState.COMMITTED, TransactionState.DELIVERED)
+        # AUDIT FIX: COMMITTED -> DELIVERED is no longer valid, must go through IN_PROGRESS
+        assert is_valid_transition(TransactionState.COMMITTED, TransactionState.IN_PROGRESS)
+        assert is_valid_transition(TransactionState.IN_PROGRESS, TransactionState.DELIVERED)
         assert is_valid_transition(TransactionState.DELIVERED, TransactionState.SETTLED)
 
     def test_valid_dispute_path(self):

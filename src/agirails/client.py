@@ -206,13 +206,18 @@ class ACTPClient:
 
         # Create runtime based on mode
         runtime: IACTPRuntime
+        eas_helper = None
+
         if config.runtime is not None:
             # Use provided runtime
             runtime = config.runtime
+            # Check if runtime has eas_helper
+            if hasattr(config.runtime, "eas_helper"):
+                eas_helper = config.runtime.eas_helper
         elif config.mode == "mock":
             runtime = await cls._create_mock_runtime(config)
         elif config.mode in ("testnet", "mainnet"):
-            runtime = await cls._create_blockchain_runtime(config)
+            runtime, eas_helper = await cls._create_blockchain_runtime(config)
         else:
             raise ValidationError(
                 message=f"Invalid mode: {config.mode}",
@@ -225,12 +230,6 @@ class ACTPClient:
             address=requester,
             state_directory=config.state_directory,
         )
-
-        # Create EAS helper if needed
-        eas_helper = None
-        if config.eas_config:
-            # TODO: Create EAS helper in Phase 4
-            pass
 
         return cls(runtime, requester, info, eas_helper)
 
@@ -255,8 +254,15 @@ class ACTPClient:
         return runtime
 
     @classmethod
-    async def _create_blockchain_runtime(cls, config: ACTPClientConfig) -> IACTPRuntime:
-        """Create blockchain runtime for testnet/mainnet."""
+    async def _create_blockchain_runtime(
+        cls, config: ACTPClientConfig
+    ) -> tuple["IACTPRuntime", Optional[object]]:
+        """
+        Create blockchain runtime for testnet/mainnet.
+
+        Returns:
+            Tuple of (runtime, eas_helper)
+        """
         from agirails.runtime.blockchain_runtime import BlockchainRuntime
 
         # Validate private key
@@ -269,14 +275,39 @@ class ACTPClient:
         # Map mode to network name
         network_name = "base-sepolia" if config.mode == "testnet" else "base"
 
-        # Create blockchain runtime
+        # Create EAS helper if config provided or attestation required
+        eas_helper = None
+        if config.eas_config or config.require_attestation:
+            try:
+                from agirails.protocol.eas import EASHelper
+                from agirails.utils.used_attestation_tracker import (
+                    create_used_attestation_tracker,
+                )
+
+                # Create attestation tracker (persistent if state_directory provided)
+                tracker = create_used_attestation_tracker(
+                    str(config.state_directory) if config.state_directory else None
+                )
+
+                eas_helper = await EASHelper.create(
+                    private_key=config.private_key,
+                    network=network_name,
+                    rpc_url=config.rpc_url,
+                    attestation_tracker=tracker,
+                )
+            except ImportError:
+                # web3 not installed - skip EAS
+                pass
+
+        # Create blockchain runtime with EAS helper
         runtime = await BlockchainRuntime.create(
             private_key=config.private_key,
             network=network_name,
             rpc_url=config.rpc_url,
+            eas_helper=eas_helper,
         )
 
-        return runtime
+        return runtime, eas_helper
 
     @property
     def basic(self) -> BasicAdapter:

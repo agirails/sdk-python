@@ -49,6 +49,12 @@ from agirails.utils.helpers import USDC, ServiceHash, ServiceMetadata
 from agirails.utils.security import LRUCache
 from agirails.utils.semaphore import Semaphore
 
+# For ABI encoding dispute window proof
+try:
+    from eth_abi import encode as abi_encode
+except ImportError:
+    abi_encode = None  # Will raise error when used
+
 
 class AgentStatus(str, Enum):
     """Agent lifecycle status."""
@@ -718,7 +724,10 @@ class Agent:
         return None
 
     def _create_job_from_transaction(self, tx: Any, service_name: str) -> Job:
-        """Create Job from transaction."""
+        """Create Job from transaction.
+
+        PARITY: Matches TS SDK extractMetadata() - includes disputeWindow for DELIVERED proof.
+        """
         return Job(
             id=tx.id,
             service=service_name,
@@ -729,6 +738,9 @@ class Agent:
             metadata={
                 "tx_id": tx.id,
                 "service_description": getattr(tx, "service_description", None),
+                # PARITY: Include disputeWindow for DELIVERED proof encoding
+                "disputeWindow": getattr(tx, "dispute_window", 172800),
+                "createdAt": getattr(tx, "created_at", None),
             },
         )
 
@@ -851,10 +863,30 @@ class Agent:
             },
         )
 
-        # Transition to DELIVERED
+        # Transition to DELIVERED with dispute window proof
+        # AUDIT FIX: Must encode disputeWindow as uint256 proof for DELIVERED transition
         if self._client is not None:
             try:
-                await self._client.standard.transition_state(job.id, "DELIVERED")
+                # Get dispute window from metadata, fallback to 2 days (172800s) per Options.ts default
+                dispute_window_seconds = job.metadata.get("disputeWindow", 172800)
+
+                # ABI encode dispute window as uint256
+                if abi_encode is not None:
+                    dispute_window_proof = "0x" + abi_encode(["uint256"], [dispute_window_seconds]).hex()
+                else:
+                    # Fallback: manual encoding for uint256 (32 bytes, big-endian)
+                    dispute_window_proof = "0x" + dispute_window_seconds.to_bytes(32, "big").hex()
+
+                _logger.debug(
+                    "Encoding dispute window proof",
+                    extra={
+                        "job_id": job.id,
+                        "dispute_window": dispute_window_seconds,
+                        "proof": dispute_window_proof[:20] + "...",
+                    },
+                )
+
+                await self._client.standard.transition_state(job.id, "DELIVERED", dispute_window_proof)
             except Exception as e:
                 _logger.warning(
                     "Failed to transition job to DELIVERED",
