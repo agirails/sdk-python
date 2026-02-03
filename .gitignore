@@ -87,3 +87,9 @@ Thumbs.db
 .env.local
 .env.*.local
 secrets.json
+
+# Local config files
+.ralph/
+.serena/
+CLAUDE.md
+uv.lock
