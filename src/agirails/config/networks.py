@@ -67,6 +67,9 @@ class NetworkConfig:
     contracts: ContractAddresses
     eas: EASConfig
     gas_settings: GasSettings
+    # SECURITY: Maximum transaction amount in USDC (human-readable, e.g., 100 = $100)
+    # Limits exposure on unaudited mainnet contracts. None = no limit (testnet).
+    max_transaction_amount: Optional[int] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -126,13 +129,8 @@ BASE_SEPOLIA = NetworkConfig(
 # ============================================================================
 # Base Mainnet Configuration
 # ============================================================================
-# WARNING: Mainnet contracts are NOT YET DEPLOYED.
-# Using 'base-mainnet' will throw an error until contracts are deployed.
-# Use 'base-sepolia' for testnet development.
+# Deployed 2026-02-03
 # ============================================================================
-
-ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
-ZERO_BYTES32 = "0x" + "0" * 64
 
 BASE_MAINNET = NetworkConfig(
     name="Base Mainnet",
@@ -140,20 +138,24 @@ BASE_MAINNET = NetworkConfig(
     rpc_url=BASE_MAINNET_RPC_URL,
     block_explorer="https://basescan.org",
     contracts=ContractAddresses(
-        actp_kernel=ZERO_ADDRESS,  # NOT DEPLOYED
-        escrow_vault=ZERO_ADDRESS,  # NOT DEPLOYED
+        actp_kernel="0xeaE4D6925510284dbC45C8C64bb8104a079D4c60",
+        escrow_vault="0xb7bCadF7F26f0761995d95105DFb2346F81AF02D",
         usdc="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # Official USDC on Base
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry=None,  # NOT DEPLOYED
+        agent_registry="0xbf9Aa0FC291A06A4dFA943c3E0Ad41E7aE20DF02",
     ),
     eas=EASConfig(
-        delivery_schema_uid=ZERO_BYTES32  # NOT DEPLOYED
+        delivery_schema_uid="0x166501e7476e2fcf9214c4c5144533c2957d56fe59d639effc1719a0658d9c9a"
     ),
     gas_settings=GasSettings(
         max_fee_per_gas=500_000_000,  # 0.5 gwei
         max_priority_fee_per_gas=100_000_000,  # 0.1 gwei
     ),
+    # SECURITY: $1,000 max transaction limit until contracts are audited.
+    # This limits exposure in case of undiscovered vulnerabilities.
+    # Will be removed/increased after formal security audit.
+    max_transaction_amount=1000,
 )
 
 
@@ -204,6 +206,9 @@ def is_valid_network(network: str) -> bool:
         True if network is supported
     """
     return network in NETWORKS
+
+
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 
 def validate_network_config(config: NetworkConfig) -> None:
