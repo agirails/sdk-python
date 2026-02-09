@@ -99,7 +99,7 @@ class NetworkConfig:
 # ============================================================================
 # Base Sepolia Testnet Configuration
 # ============================================================================
-# Redeployed 2025-12-10 by Arha (new deployer wallet 0x42a2f11555b9363fb7ebdcdc76d7cb26e01dcb00)
+# Redeployed 2026-02-06 with agentId support, AgentRegistry v2 2026-02-09
 # ============================================================================
 
 BASE_SEPOLIA = NetworkConfig(
@@ -108,12 +108,12 @@ BASE_SEPOLIA = NetworkConfig(
     rpc_url=BASE_SEPOLIA_RPC_URL,
     block_explorer="https://sepolia.basescan.org",
     contracts=ContractAddresses(
-        actp_kernel="0xD199070F8e9FB9a127F6Fe730Bc13300B4b3d962",
-        escrow_vault="0x948b9Ea081C4Cec1E112Af2e539224c531d4d585",
+        actp_kernel="0x469CBADbACFFE096270594F0a31f0EEC53753411",
+        escrow_vault="0x57f888261b629bB380dfb983f5DA6c70Ff2D49E5",
         usdc="0x444b4e1A65949AB2ac75979D5d0166Eb7A248Ccb",  # MockUSDC
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry="0xFed6914Aa70c0a53E9c7Cc4d2Ae159e4748fb09D",  # AIP-7
+        agent_registry="0xDd6D66924B43419F484aE981F174b803487AF25A",  # AIP-7 v2
     ),
     eas=EASConfig(
         # Deployed 2025-11-23 - AIP-4 delivery proof schema
@@ -129,7 +129,7 @@ BASE_SEPOLIA = NetworkConfig(
 # ============================================================================
 # Base Mainnet Configuration
 # ============================================================================
-# Deployed 2026-02-03
+# Redeployed 2026-02-09 with agentId + AgentRegistry v2
 # ============================================================================
 
 BASE_MAINNET = NetworkConfig(
@@ -138,12 +138,12 @@ BASE_MAINNET = NetworkConfig(
     rpc_url=BASE_MAINNET_RPC_URL,
     block_explorer="https://basescan.org",
     contracts=ContractAddresses(
-        actp_kernel="0xeaE4D6925510284dbC45C8C64bb8104a079D4c60",
-        escrow_vault="0xb7bCadF7F26f0761995d95105DFb2346F81AF02D",
+        actp_kernel="0x132B9eB321dBB57c828B083844287171BDC92d29",
+        escrow_vault="0x6aAF45882c4b0dD34130ecC790bb5Ec6be7fFb99",
         usdc="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # Official USDC on Base
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry="0xbf9Aa0FC291A06A4dFA943c3E0Ad41E7aE20DF02",
+        agent_registry="0x6fB222CF3DDdf37Bcb248EE7BBBA42Fb41901de8",
     ),
     eas=EASConfig(
         delivery_schema_uid="0x166501e7476e2fcf9214c4c5144533c2957d56fe59d639effc1719a0658d9c9a"
