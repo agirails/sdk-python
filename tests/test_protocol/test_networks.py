@@ -87,8 +87,10 @@ class TestNetworkConfig:
         assert BASE_MAINNET.name == "Base Mainnet"
         assert BASE_MAINNET.chain_id == 8453
         assert "basescan.org" in BASE_MAINNET.block_explorer
-        # Mainnet contracts are not deployed yet
-        assert BASE_MAINNET.contracts.actp_kernel == "0x0000000000000000000000000000000000000000"
+        # Mainnet contracts deployed 2026-02-09
+        assert BASE_MAINNET.contracts.actp_kernel == "0x132B9eB321dBB57c828B083844287171BDC92d29"
+        assert BASE_MAINNET.contracts.escrow_vault == "0x6aAF45882c4b0dD34130ecC790bb5Ec6be7fFb99"
+        assert BASE_MAINNET.contracts.agent_registry == "0x6fB222CF3DDdf37Bcb248EE7BBBA42Fb41901de8"
 
     def test_to_dict(self) -> None:
         """Test NetworkConfig.to_dict() method."""
@@ -140,12 +142,12 @@ class TestGetNetwork:
         assert "Unknown network" in str(exc_info.value)
         assert "unknown-network" in str(exc_info.value)
 
-    def test_get_mainnet_raises_error_not_deployed(self) -> None:
-        """Test that getting mainnet raises error because contracts not deployed."""
-        with pytest.raises(ValidationError) as exc_info:
-            get_network("base-mainnet")
-
-        assert "not yet deployed" in str(exc_info.value).lower() or "zero" in str(exc_info.value).lower()
+    def test_get_mainnet_returns_config(self) -> None:
+        """Test that getting mainnet returns valid config (contracts deployed 2026-02-09)."""
+        config = get_network("base-mainnet")
+        assert config.name == "Base Mainnet"
+        assert config.chain_id == 8453
+        assert config.contracts.actp_kernel != "0x0000000000000000000000000000000000000000"
 
 
 class TestIsValidNetwork:
@@ -171,13 +173,10 @@ class TestValidateNetworkConfig:
         # Should not raise
         validate_network_config(BASE_SEPOLIA)
 
-    def test_validate_mainnet_fails_not_deployed(self) -> None:
-        """Test that Base Mainnet validation fails because not deployed."""
-        with pytest.raises(ValidationError) as exc_info:
-            validate_network_config(BASE_MAINNET)
-
-        error_message = str(exc_info.value)
-        assert "zero" in error_message.lower() or "not yet deployed" in error_message.lower()
+    def test_validate_mainnet_passes(self) -> None:
+        """Test that Base Mainnet validation passes (contracts deployed 2026-02-09)."""
+        # Should not raise — mainnet contracts are deployed
+        validate_network_config(BASE_MAINNET)
 
     def test_validate_custom_config_with_zero_addresses(self) -> None:
         """Test validation with custom config having zero addresses."""

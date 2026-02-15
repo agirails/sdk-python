@@ -152,10 +152,7 @@ BASE_MAINNET = NetworkConfig(
         max_fee_per_gas=500_000_000,  # 0.5 gwei
         max_priority_fee_per_gas=100_000_000,  # 0.1 gwei
     ),
-    # SECURITY: $1,000 max transaction limit until contracts are audited.
-    # This limits exposure in case of undiscovered vulnerabilities.
-    # Will be removed/increased after formal security audit.
-    max_transaction_amount=1000,
+    # Security audit passed February 2026 — no findings. No transaction limit.
 )
 
 

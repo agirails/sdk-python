@@ -13,6 +13,15 @@ from collections import deque
 from typing import Deque, Optional
 
 
+def _lazy_lock(obj: object, attr: str = "_lock") -> asyncio.Lock:
+    """Get or create asyncio.Lock lazily (Python 3.9 compat)."""
+    lock = getattr(obj, attr)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(obj, attr, lock)
+    return lock
+
+
 class Semaphore:
     """
     Async semaphore for limiting concurrent operations.
@@ -48,7 +57,7 @@ class Semaphore:
         self._limit = limit
         self._value = limit
         self._waiters: Deque[asyncio.Future[None]] = deque()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
 
     @property
     def available_permits(self) -> int:
@@ -70,7 +79,7 @@ class Semaphore:
         Returns:
             True if permit acquired, False if timed out.
         """
-        async with self._lock:
+        async with _lazy_lock(self):
             if self._value > 0:
                 self._value -= 1
                 return True
@@ -88,7 +97,7 @@ class Semaphore:
             return True
         except asyncio.TimeoutError:
             # Remove from waiters if still present
-            async with self._lock:
+            async with _lazy_lock(self):
                 try:
                     self._waiters.remove(waiter)
                 except ValueError:
@@ -149,7 +158,7 @@ class RateLimiter:
         self._max_requests = max_requests
         self._window_seconds = window_seconds
         self._requests: Deque[float] = deque()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
 
     @property
     def available(self) -> int:
@@ -172,7 +181,7 @@ class RateLimiter:
         Returns:
             True if request allowed, False if rate limit exceeded.
         """
-        async with self._lock:
+        async with _lazy_lock(self):
             self._cleanup()
 
             if len(self._requests) >= self._max_requests:

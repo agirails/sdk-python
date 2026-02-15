@@ -113,7 +113,13 @@ class CircuitBreaker:
         """
         self.config = config or CircuitBreakerConfig()
         self._state = CircuitBreakerState()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create asyncio.Lock (Python 3.9 compat: Lock() needs event loop)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     @property
     def state(self) -> CircuitState:
@@ -175,7 +181,7 @@ class CircuitBreaker:
         In HALF_OPEN state, counts successes toward recovery.
         Once success_threshold is reached, transitions to CLOSED.
         """
-        async with self._lock:
+        async with self._get_lock():
             if self._state.state == CircuitState.HALF_OPEN:
                 self._state.successes += 1
 
@@ -193,7 +199,7 @@ class CircuitBreaker:
         Tracks failures within the window. Opens circuit if threshold reached.
         In HALF_OPEN state, immediately reopens circuit on failure.
         """
-        async with self._lock:
+        async with self._get_lock():
             current_time_ms = time.time() * 1000
             self._state.failure_times.append(current_time_ms)
             self._state.last_failure_time = time.time()
@@ -242,7 +248,7 @@ class CircuitBreaker:
             return await fn()
 
         # Check if we should transition from OPEN to HALF_OPEN
-        async with self._lock:
+        async with self._get_lock():
             await self._check_reset_timeout()
 
         if self.is_open:

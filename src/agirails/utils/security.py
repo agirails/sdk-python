@@ -1002,7 +1002,7 @@ class TokenBucketRateLimiter:
         # Token bucket state
         self._tokens = float(self._burst_size)
         self._last_update = time.monotonic()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
 
     @property
     def max_rate(self) -> float:
@@ -1029,6 +1029,8 @@ class TokenBucketRateLimiter:
         """
         start_time = time.monotonic()
 
+        if self._lock is None:
+            self._lock = asyncio.Lock()
         async with self._lock:
             while True:
                 # Refill tokens based on elapsed time

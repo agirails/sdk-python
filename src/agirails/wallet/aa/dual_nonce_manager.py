@@ -104,8 +104,14 @@ class DualNonceManager:
         self._w3 = w3
         self._sender_address = Web3.to_checksum_address(sender_address)
         self._actp_kernel_address = Web3.to_checksum_address(actp_kernel_address)
-        self._mutex = asyncio.Lock()
+        self._mutex: Optional[asyncio.Lock] = None
         self._cached_actp_nonce: Optional[int] = None
+
+    def _get_mutex(self) -> asyncio.Lock:
+        """Lazily create asyncio.Lock (Python 3.9 compat)."""
+        if self._mutex is None:
+            self._mutex = asyncio.Lock()
+        return self._mutex
 
     async def enqueue(
         self,
@@ -124,7 +130,7 @@ class DualNonceManager:
         Returns:
             The result from the callback.
         """
-        async with self._mutex:
+        async with self._get_mutex():
             try:
                 # Read nonces
                 entry_point_nonce = await self._read_entry_point_nonce()

@@ -127,10 +127,10 @@ class TestHashingPerformance:
         assert result.startswith("0x")
 
     def test_keccak256_bytes(self, benchmark: BenchmarkFixture) -> None:
-        """Benchmark keccak256 hashing of raw bytes."""
+        """Benchmark keccak256 hashing of raw bytes (hex-encoded)."""
         from agirails.types.message import compute_result_hash
 
-        data = secrets.token_bytes(1024)  # 1KB of random bytes
+        data = secrets.token_bytes(1024).hex()  # 1KB of random bytes as hex string
 
         result = benchmark(compute_result_hash, data)
 
@@ -270,7 +270,7 @@ class TestBuilderPerformance:
         result = benchmark(build_proof)
 
         assert result is not None
-        assert result.transaction_id == sample_delivery_proof_params["transaction_id"]
+        assert result.tx_id == sample_delivery_proof_params["transaction_id"]
 
     def test_delivery_proof_builder_message(
         self, benchmark: BenchmarkFixture, sample_delivery_proof_params: Dict[str, Any]
@@ -325,20 +325,21 @@ class TestMockRuntimePerformance:
     """Benchmarks for MockRuntime operations."""
 
     @pytest.fixture
-    def mock_runtime(self) -> Any:
+    def mock_runtime(self, tmp_path: Any) -> Any:
         """Create MockRuntime for benchmarking."""
         from agirails.runtime.mock_runtime import MockRuntime
 
-        return MockRuntime(
-            address="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            initial_balance=1000000000,  # 1000 USDC
-        )
+        return MockRuntime(state_directory=str(tmp_path))
 
     def test_create_transaction(
         self, benchmark: BenchmarkFixture, mock_runtime: Any
     ) -> None:
         """Benchmark transaction creation in MockRuntime."""
+        import asyncio
+
         from agirails.runtime.base import CreateTransactionParams
+
+        loop = asyncio.new_event_loop()
 
         params = CreateTransactionParams(
             provider="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
@@ -348,8 +349,12 @@ class TestMockRuntimePerformance:
             dispute_window=3600,
         )
 
-        result = benchmark(mock_runtime.create_transaction, params)
+        def create() -> str:
+            return loop.run_until_complete(mock_runtime.create_transaction(params))
 
+        result = benchmark(create)
+
+        loop.close()
         assert result.startswith("0x")
         assert len(result) == 66
 
@@ -357,7 +362,11 @@ class TestMockRuntimePerformance:
         self, benchmark: BenchmarkFixture, mock_runtime: Any
     ) -> None:
         """Benchmark transaction retrieval."""
+        import asyncio
+
         from agirails.runtime.base import CreateTransactionParams
+
+        loop = asyncio.new_event_loop()
 
         # Create a transaction first
         params = CreateTransactionParams(
@@ -367,10 +376,14 @@ class TestMockRuntimePerformance:
             deadline=int(time.time()) + 3600,
             dispute_window=3600,
         )
-        tx_id = mock_runtime.create_transaction(params)
+        tx_id = loop.run_until_complete(mock_runtime.create_transaction(params))
 
-        result = benchmark(mock_runtime.get_transaction, tx_id)
+        def get() -> Any:
+            return loop.run_until_complete(mock_runtime.get_transaction(tx_id))
 
+        result = benchmark(get)
+
+        loop.close()
         assert result is not None
         assert result.id == tx_id
 
@@ -378,26 +391,18 @@ class TestMockRuntimePerformance:
         self, benchmark: BenchmarkFixture, mock_runtime: Any
     ) -> None:
         """Benchmark state transition."""
+        import asyncio
+
         from agirails.runtime.base import CreateTransactionParams
         from agirails.runtime.types import State
 
-        # Create and commit a transaction
-        params = CreateTransactionParams(
-            provider="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-            requester="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            amount="1000000",
-            deadline=int(time.time()) + 3600,
-            dispute_window=3600,
+        loop = asyncio.new_event_loop()
+
+        # Fund the mock runtime with enough tokens
+        loop.run_until_complete(
+            mock_runtime.mint_tokens("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", 1000000000)
         )
-        tx_id = mock_runtime.create_transaction(params)
-        mock_runtime.link_escrow(tx_id, "1000000")
 
-        def do_transition() -> None:
-            mock_runtime.transition_state(tx_id, State.IN_PROGRESS)
-            mock_runtime.transition_state(tx_id, State.COMMITTED)  # Reset
-
-        # This benchmark may have side effects, so we just measure one transition
-        # and create a fresh transaction each time
         @benchmark
         def measure() -> None:
             p = CreateTransactionParams(
@@ -407,9 +412,9 @@ class TestMockRuntimePerformance:
                 deadline=int(time.time()) + 3600,
                 dispute_window=3600,
             )
-            tid = mock_runtime.create_transaction(p)
-            mock_runtime.link_escrow(tid, "1000000")
-            mock_runtime.transition_state(tid, State.IN_PROGRESS)
+            tid = loop.run_until_complete(mock_runtime.create_transaction(p))
+            loop.run_until_complete(mock_runtime.link_escrow(tid, "1000000"))
+            loop.run_until_complete(mock_runtime.transition_state(tid, State.IN_PROGRESS))
 
 
 # =============================================================================
@@ -440,7 +445,7 @@ class TestSecurityPerformance:
 
         result = benchmark(validate_path, user_path, base_path)
 
-        assert "/document.json" in result
+        assert "document.json" in str(result)
 
     def test_validate_service_name(self, benchmark: BenchmarkFixture) -> None:
         """Benchmark service name validation."""
@@ -450,7 +455,8 @@ class TestSecurityPerformance:
 
         result = benchmark(validate_service_name, name)
 
-        assert result is True
+        # validate_service_name returns the sanitized name string, not a boolean
+        assert result == name
 
     def test_is_valid_address(self, benchmark: BenchmarkFixture) -> None:
         """Benchmark Ethereum address validation."""
@@ -487,15 +493,19 @@ class TestRateLimiterPerformance:
 
     def test_token_bucket_acquire(self, benchmark: BenchmarkFixture) -> None:
         """Benchmark token bucket acquire operation."""
+        import asyncio
+
         from agirails.utils.security import TokenBucketRateLimiter
 
         limiter = TokenBucketRateLimiter(max_rate=1000.0, burst_size=100)
+        loop = asyncio.new_event_loop()
 
-        def try_acquire() -> bool:
-            return limiter.try_acquire()
+        def do_acquire() -> bool:
+            return loop.run_until_complete(limiter.acquire())
 
-        result = benchmark(try_acquire)
+        result = benchmark(do_acquire)
 
+        loop.close()
         # Should be able to acquire with high rate limit
         assert result is True
 

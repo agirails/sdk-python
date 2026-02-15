@@ -31,6 +31,15 @@ from typing import Dict, Optional, Set
 from web3 import AsyncWeb3
 
 
+def _lazy_lock(obj: object, attr: str = "_lock") -> asyncio.Lock:
+    """Get or create asyncio.Lock lazily (Python 3.9 compat)."""
+    lock = getattr(obj, attr)
+    if lock is None:
+        lock = asyncio.Lock()
+        object.__setattr__(obj, attr, lock)
+    return lock
+
+
 @dataclass
 class NonceState:
     """
@@ -78,7 +87,7 @@ class NonceManager:
         self.w3 = w3
         self.address = w3.to_checksum_address(address)
         self._state = NonceState()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
         self._auto_sync = auto_sync
         self._initialized = False
 
@@ -97,7 +106,7 @@ class NonceManager:
             >>> # Use nonce in transaction
             >>> tx = {"nonce": nonce, ...}
         """
-        async with self._lock:
+        async with _lazy_lock(self):
             # Initialize on first call or if sync requested
             if not self._initialized or sync:
                 await self._sync_with_chain()
@@ -117,7 +126,7 @@ class NonceManager:
         Returns:
             The next nonce that would be allocated
         """
-        async with self._lock:
+        async with _lazy_lock(self):
             if not self._initialized:
                 await self._sync_with_chain()
                 self._initialized = True
@@ -171,7 +180,7 @@ class NonceManager:
         Example:
             >>> on_chain_nonce = await nonce_manager.sync()
         """
-        async with self._lock:
+        async with _lazy_lock(self):
             await self._sync_with_chain()
             return self._state.current_nonce
 
@@ -184,7 +193,7 @@ class NonceManager:
         Returns:
             The current on-chain nonce
         """
-        async with self._lock:
+        async with _lazy_lock(self):
             self._state = NonceState()
             await self._sync_with_chain()
             self._initialized = True
@@ -275,7 +284,7 @@ class NonceManagerPool:
         """
         self.w3 = w3
         self._managers: Dict[str, NonceManager] = {}
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
 
     async def get_nonce(self, address: str, sync: bool = False) -> int:
         """
@@ -347,7 +356,7 @@ class NonceManagerPool:
         """Get or create a NonceManager for an address."""
         address = self.w3.to_checksum_address(address)
 
-        async with self._lock:
+        async with _lazy_lock(self):
             if address not in self._managers:
                 self._managers[address] = NonceManager(self.w3, address)
 
