@@ -13,6 +13,9 @@ Usage:
     $ actp watch <tx_id>           # Agent-first: Stream state changes
     $ actp batch <file>            # Agent-first: Execute multiple commands
     $ actp simulate pay <to> <amt> # Agent-first: Dry-run validation
+    $ actp publish                 # Publish AGIRAILS.md to IPFS
+    $ actp diff                    # Compare local vs on-chain config
+    $ actp pull                    # Pull on-chain config to local
 """
 
 from __future__ import annotations
@@ -115,6 +118,11 @@ from agirails.cli.commands import time as time_cmd
 from agirails.cli.commands import watch as watch_cmd
 from agirails.cli.commands import batch as batch_cmd
 from agirails.cli.commands import simulate as simulate_cmd
+from agirails.cli.commands import deploy_env as deploy_env_cmd
+from agirails.cli.commands import deploy_check as deploy_check_cmd
+from agirails.cli.commands import publish as publish_cmd
+from agirails.cli.commands import diff as diff_cmd
+from agirails.cli.commands import pull as pull_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -127,6 +135,21 @@ app.add_typer(time_cmd.time_app, name="time")
 app.command(name="watch")(watch_cmd.watch)
 app.command(name="batch")(batch_cmd.batch)
 app.add_typer(simulate_cmd.simulate_app, name="simulate")
+
+# Publish/Diff/Pull commands
+app.command(name="publish")(publish_cmd.publish)
+app.command(name="diff")(diff_cmd.diff)
+app.command(name="pull")(pull_cmd.pull)
+
+# Deploy subcommand group
+deploy_app = typer.Typer(
+    name="deploy",
+    help="Deployment commands (env export, security check)",
+    no_args_is_help=True,
+)
+deploy_app.command("env")(deploy_env_cmd.deploy_env)
+deploy_app.command("check")(deploy_check_cmd.deploy_check)
+app.add_typer(deploy_app, name="deploy")
 
 
 def run() -> None:

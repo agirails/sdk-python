@@ -25,8 +25,10 @@ from agirails.adapters.base import (
     DEFAULT_DEADLINE_SECONDS,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
 )
+from agirails.adapters.types import AdapterMetadata, UnifiedPayParams
+from agirails.errors import ValidationError
 from agirails.runtime.base import CreateTransactionParams
-from agirails.utils.helpers import ServiceHash, ServiceMetadata
+from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
 
 if TYPE_CHECKING:
     from agirails.runtime.base import IACTPRuntime
@@ -108,7 +110,30 @@ class BasicAdapter(BaseAdapter):
         >>> print(f"Transaction: {result.tx_id}")
     """
 
-    async def pay(self, params: Union[BasicPayParams, dict]) -> BasicPayResult:
+    @property
+    def metadata(self) -> AdapterMetadata:
+        """Adapter metadata — priority 50 (base level)."""
+        return AdapterMetadata(
+            id="basic",
+            priority=50,
+            uses_escrow=True,
+            supports_disputes=True,
+            release_required=True,
+        )
+
+    def can_handle(self, params: UnifiedPayParams) -> bool:
+        """BasicAdapter handles Ethereum addresses (not URLs)."""
+        return Address.is_valid(params.to)
+
+    def validate(self, params: UnifiedPayParams) -> None:
+        """Validate unified params for BasicAdapter."""
+        if not Address.is_valid(params.to):
+            raise ValidationError(
+                message="BasicAdapter requires a valid Ethereum address",
+                details={"field": "to", "value": params.to},
+            )
+
+    async def pay(self, params: Union[BasicPayParams, UnifiedPayParams, dict]) -> BasicPayResult:
         """
         Create and fund a transaction in one call.
 
@@ -136,9 +161,16 @@ class BasicAdapter(BaseAdapter):
             ...     "deadline": "24h"  # 24 hours from now
             ... })
         """
-        # Convert dict to dataclass if needed
+        # Convert from dict or UnifiedPayParams
         if isinstance(params, dict):
             params = BasicPayParams(**params)
+        elif isinstance(params, UnifiedPayParams):
+            params = BasicPayParams(
+                to=params.to,
+                amount=params.amount,
+                deadline=params.deadline,
+                description=params.description,
+            )
 
         # Validate provider address
         provider = self.validate_address(params.to, "to")

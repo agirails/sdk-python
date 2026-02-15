@@ -19,9 +19,10 @@ from agirails.adapters.base import (
     BaseAdapter,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
 )
+from agirails.adapters.types import AdapterMetadata, UnifiedPayParams
 from agirails.runtime.base import CreateTransactionParams
 from agirails.runtime.types import State
-from agirails.utils.helpers import ServiceHash, ServiceMetadata
+from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
 
 if TYPE_CHECKING:
     from agirails.runtime.base import IACTPRuntime
@@ -106,6 +107,67 @@ class StandardAdapter(BaseAdapter):
         >>> # Step 4: Release funds
         >>> await client.standard.release_escrow(escrow_id)
     """
+
+    @property
+    def metadata(self) -> AdapterMetadata:
+        """Adapter metadata — priority 60 (higher than basic)."""
+        return AdapterMetadata(
+            id="standard",
+            priority=60,
+            uses_escrow=True,
+            supports_disputes=True,
+            release_required=True,
+        )
+
+    def can_handle(self, params: UnifiedPayParams) -> bool:
+        """StandardAdapter handles Ethereum addresses (not URLs)."""
+        return Address.is_valid(params.to)
+
+    def validate(self, params: UnifiedPayParams) -> None:
+        """Validate unified params for StandardAdapter."""
+        from agirails.errors import ValidationError
+
+        if not Address.is_valid(params.to):
+            raise ValidationError(
+                message="StandardAdapter requires a valid Ethereum address",
+                details={"field": "to", "value": params.to},
+            )
+
+    async def pay(self, params: Union[UnifiedPayParams, dict]) -> Any:
+        """
+        Execute payment through StandardAdapter (IAdapter compliance).
+
+        Maps UnifiedPayParams to create_transaction + link_escrow.
+        Returns with state=COMMITTED (caller must follow ACTP lifecycle).
+
+        Args:
+            params: UnifiedPayParams or dict.
+
+        Returns:
+            Dict with txId, escrowId, state, amount, deadline.
+        """
+        if isinstance(params, dict):
+            params = UnifiedPayParams(**params)
+
+        std_params = StandardTransactionParams(
+            provider=params.to,
+            amount=params.amount,
+            deadline=params.deadline,
+            description=params.description,
+            service_hash=params.service_hash,
+        )
+
+        tx_id = await self.create_transaction(std_params)
+        escrow_id = await self.link_escrow(tx_id)
+
+        tx = await self._runtime.get_transaction(tx_id)
+        return {
+            "tx_id": tx_id,
+            "escrow_id": escrow_id,
+            "state": tx.get("state", "COMMITTED") if isinstance(tx, dict) else getattr(tx, "state", "COMMITTED"),
+            "amount": tx.get("amount", str(params.amount)) if isinstance(tx, dict) else getattr(tx, "amount", str(params.amount)),
+            "deadline": tx.get("deadline", 0) if isinstance(tx, dict) else getattr(tx, "deadline", 0),
+        }
 
     async def create_transaction(
         self, params: Union[StandardTransactionParams, dict]

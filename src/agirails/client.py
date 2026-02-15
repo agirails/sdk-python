@@ -30,8 +30,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
+from agirails.adapters.adapter_registry import AdapterRegistry
+from agirails.adapters.adapter_router import AdapterRouter
 from agirails.adapters.basic import BasicAdapter
 from agirails.adapters.standard import StandardAdapter
+from agirails.adapters.types import UnifiedPayParams
 from agirails.errors import ValidationError
 from agirails.utils.helpers import Address
 
@@ -104,6 +107,7 @@ class ACTPClient:
         requester_address: str,
         info: ACTPClientInfo,
         eas_helper: Optional[object] = None,
+        wallet_provider: Optional[object] = None,
     ) -> None:
         """
         Initialize ACTPClient.
@@ -115,15 +119,55 @@ class ACTPClient:
             requester_address: Requester's address
             info: Client information
             eas_helper: Optional EAS helper
+            wallet_provider: Optional wallet provider (AutoWalletProvider or
+                EOAWalletProvider). When set with pay_actp_batched support,
+                client.pay() routes EVM addresses to BasicAdapter for batched
+                UserOps instead of StandardAdapter.
         """
         self._runtime = runtime
         self._requester_address = requester_address.lower()
         self._info = info
         self._eas_helper = eas_helper
+        self._wallet_provider = wallet_provider
 
         # Initialize adapters
         self._basic = BasicAdapter(runtime, requester_address, eas_helper)
         self._standard = StandardAdapter(runtime, requester_address, eas_helper)
+
+        # Initialize registry and router
+        self._registry = AdapterRegistry()
+        self._registry.register(self._basic)
+        self._registry.register(self._standard)
+        self._router = AdapterRouter(self._registry)
+
+        # Try to register optional adapters (x402, erc8004)
+        self._try_register_optional_adapters()
+
+    def _try_register_optional_adapters(self) -> None:
+        """Auto-register optional components if dependencies are available.
+
+        NOTE: X402Adapter is NOT auto-registered because it requires a wallet
+        provider's transfer function. Use register_adapter() to add it manually
+        when a wallet provider is configured.
+
+        ERC-8004 bridge IS auto-registered (read-only, no wallet needed).
+        """
+        # ERC-8004 bridge for agent ID resolution (read-only)
+        try:
+            from agirails.erc8004.bridge import ERC8004Bridge
+
+            bridge = ERC8004Bridge()
+            self._router.set_erc8004_bridge(bridge)
+        except (ImportError, Exception):
+            pass
+
+    def register_adapter(self, adapter: Any) -> None:
+        """Register a custom adapter with the router.
+
+        Args:
+            adapter: Adapter implementing IAdapter protocol.
+        """
+        self._registry.register(adapter)
 
     @classmethod
     async def create(
@@ -332,6 +376,53 @@ class ACTPClient:
             >>> escrow_id = await client.standard.link_escrow(tx_id)
         """
         return self._standard
+
+    @property
+    def router(self) -> AdapterRouter:
+        """Get the adapter router for custom adapter selection."""
+        return self._router
+
+    async def pay(self, params: Union[UnifiedPayParams, dict]) -> Any:
+        """
+        Unified pay method — routes through AdapterRouter.
+
+        Accepts Ethereum addresses, HTTP endpoints (x402), or ERC-8004 agent IDs.
+        Selects the best adapter based on recipient type and metadata hints.
+
+        Smart Wallet routing fix: when walletProvider with batched support is
+        available AND the target is an Ethereum address, routes to BasicAdapter
+        (which has payACTPBatched) instead of StandardAdapter (which would cause
+        "Requester mismatch" on-chain).
+
+        Args:
+            params: UnifiedPayParams or dict with to, amount, etc.
+
+        Returns:
+            Payment result from the selected adapter.
+
+        Raises:
+            ValidationError: If params are invalid.
+            RuntimeError: If no suitable adapter found.
+        """
+        if isinstance(params, dict):
+            params = UnifiedPayParams(**params)
+
+        selection = await self._router.select_and_resolve(params)
+        resolved = selection.resolved_params
+        adapter = selection.adapter
+
+        # Smart Wallet routing fix (1:1 with TypeScript SDK):
+        # ONLY when a walletProvider with batched support is active AND
+        # the target is an Ethereum address, override to BasicAdapter.
+        # Otherwise respect the router's adapter selection.
+        has_batched = (
+            self._wallet_provider is not None
+            and hasattr(self._wallet_provider, 'pay_actp_batched')
+        )
+        if has_batched and self._basic.can_handle(resolved):
+            return await self._basic.pay(resolved)
+
+        return await adapter.pay(resolved)
 
     @property
     def advanced(self) -> IACTPRuntime:

@@ -24,12 +24,12 @@ from agirails.cli.utils.output import (
     format_address,
     OutputFormat,
 )
-from agirails.cli.utils.validation import validate_address, validate_amount
-from agirails.adapters.basic import BasicPayParams
+from agirails.adapters.types import UnifiedPayParams
+from agirails.cli.utils.validation import validate_amount
 
 
 def pay(
-    provider: str = typer.Argument(..., help="Provider address (0x...)"),
+    provider: str = typer.Argument(..., help="Provider address (0x...), HTTP endpoint, or agent ID"),
     amount: str = typer.Argument(..., help="Amount in USDC (e.g., 10.00)"),
     deadline: Optional[str] = typer.Option(
         None,
@@ -45,9 +45,8 @@ def pay(
     """Create a payment transaction to a provider."""
     opts = get_global_options()
 
-    # Validate inputs
+    # Validate amount (provider can be address, URL, or agent ID — router decides)
     try:
-        provider = validate_address(provider, "provider")
         amount = validate_amount(amount)
     except typer.BadParameter as e:
         if opts.output_format == OutputFormat.JSON:
@@ -72,34 +71,50 @@ def pay(
                 directory=opts.directory,
             )
 
-            # Create payment params
-            params = BasicPayParams(
+            # Create unified payment params (router selects adapter)
+            # Deadline is passed as-is: the adapter's parse_deadline()
+            # handles both relative formats ("24h", "7d") and unix timestamps.
+            params = UnifiedPayParams(
                 to=provider,
                 amount=amount,
                 deadline=deadline,
                 description=description,
             )
 
-            # Execute payment
-            result = await client.basic.pay(params)
+            # Execute payment through router
+            raw = await client.pay(params)
+
+            # Normalize result (adapters may return dataclass or dict)
+            if isinstance(raw, dict):
+                r_tx_id = raw.get("tx_id", "")
+                r_escrow_id = raw.get("escrow_id", "")
+                r_state = raw.get("state", "")
+                r_amount = raw.get("amount", "")
+                r_deadline = raw.get("deadline", 0)
+            else:
+                r_tx_id = getattr(raw, "tx_id", "")
+                r_escrow_id = getattr(raw, "escrow_id", "")
+                r_state = getattr(raw, "state", "")
+                r_amount = getattr(raw, "amount", "")
+                r_deadline = getattr(raw, "deadline", 0)
 
             if opts.output_format == OutputFormat.JSON:
                 print_json({
                     "success": True,
-                    "txId": result.tx_id,
-                    "escrowId": result.escrow_id,
-                    "state": result.state,
-                    "amount": result.amount,
-                    "deadline": result.deadline,
+                    "txId": r_tx_id,
+                    "escrowId": r_escrow_id,
+                    "state": r_state,
+                    "amount": r_amount,
+                    "deadline": r_deadline,
                 })
             elif opts.output_format == OutputFormat.QUIET:
-                typer.echo(result.tx_id)
+                typer.echo(r_tx_id)
             else:
                 print_success("Payment created", {
-                    "Transaction ID": result.tx_id,
-                    "Escrow ID": result.escrow_id,
-                    "State": result.state,
-                    "Amount": format_usdc(result.amount),
+                    "Transaction ID": r_tx_id,
+                    "Escrow ID": r_escrow_id,
+                    "State": r_state,
+                    "Amount": format_usdc(r_amount),
                     "Provider": format_address(provider),
                 })
 
