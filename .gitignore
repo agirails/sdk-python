@@ -92,4 +92,5 @@ secrets.json
 .ralph/
 .serena/
 CLAUDE.md
+SCRATCHPAD.md
 uv.lock
