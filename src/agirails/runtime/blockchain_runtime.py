@@ -34,6 +34,7 @@ from agirails.config.networks import NetworkConfig, get_network
 if TYPE_CHECKING:
     from agirails.protocol.eas import EASHelper
 from agirails.errors import EscrowError, TransactionError, ValidationError
+from agirails.errors.network import TransientRPCError
 from agirails.protocol.escrow import CreateEscrowParams, EscrowVault, generate_escrow_id
 from agirails.protocol.events import EventFilter, EventMonitor
 from agirails.protocol.kernel import ACTPKernel, CreateTransactionParams as KernelParams
@@ -256,11 +257,11 @@ class BlockchainRuntime:
         # Create account from private key
         account = w3.eth.account.from_key(private_key)
 
-        # Initialize protocol wrappers
-        kernel = ACTPKernel.from_config(w3, account, config)
-        escrow = EscrowVault.from_config(w3, account, config)
-        events = EventMonitor.from_config(w3, config)
+        # Initialize protocol wrappers with shared nonce manager
         nonce_manager = NonceManager(w3, account.address)
+        kernel = ACTPKernel.from_config(w3, account, config, nonce_manager=nonce_manager)
+        escrow = EscrowVault.from_config(w3, account, config, nonce_manager=nonce_manager)
+        events = EventMonitor.from_config(w3, config)
 
         return cls(
             w3, account, config, kernel, escrow, events, nonce_manager,
@@ -480,16 +481,48 @@ class BlockchainRuntime:
         """
         Get a transaction by ID.
 
-        Returns MockTransaction for interface compatibility.
+        Retries on transient RPC errors. Returns None only if the
+        transaction genuinely does not exist on-chain.
 
         Args:
             tx_id: Transaction ID
 
         Returns:
-            Transaction as MockTransaction or None
+            Transaction as MockTransaction, or None if not found
+
+        Raises:
+            TransientRPCError: If RPC is unreachable after all retries
+            TransactionError: For non-transient on-chain errors
         """
-        try:
-            tx_view = await self.kernel.get_transaction(tx_id)
+        async def _fetch() -> MockTransaction:
+            try:
+                tx_view = await self.kernel.get_transaction(tx_id)
+            except Exception as exc:
+                # Distinguish transient from permanent errors
+                exc_name = type(exc).__name__
+                err_msg = str(exc).lower()
+                transient_indicators = (
+                    "ClientConnectorError", "ClientError",
+                    "TimeoutError", "ProviderConnectionError",
+                    "RequestException",
+                )
+                if exc_name in transient_indicators or "timeout" in err_msg:
+                    raise TransientRPCError(
+                        f"Transient RPC error fetching transaction {tx_id}: {exc}",
+                        cause=exc,
+                    ) from exc
+                # "Tx missing" is a transient read-after-write issue on public RPCs
+                if "tx missing" in err_msg:
+                    raise TransientRPCError(
+                        f"Transaction {tx_id} not yet visible (read-after-write lag)",
+                        cause=exc,
+                    ) from exc
+                # Permanent errors re-raised as-is
+                raise
+
+            # Zero-address requester means contract returned an empty struct (tx not found)
+            if tx_view.requester == "0x0000000000000000000000000000000000000000":
+                return None
 
             # Convert to MockTransaction for interface compatibility
             return MockTransaction(
@@ -506,11 +539,15 @@ class BlockchainRuntime:
                 service_description=tx_view.service_hash,
                 delivery_proof="",  # PARITY: TS BlockchainRuntime returns '' (empty), not attestation_uid
             )
-        except Exception as e:
-            # Log error for debugging but return None for compatibility
-            import logging
-            logging.getLogger(__name__).debug(f"get_transaction failed: {e}")
-            return None
+
+        try:
+            return await self._rate_limited_call(
+                _fetch,
+                retryable_exceptions=(TransientRPCError,),
+            )
+        except TransientRPCError:
+            _logger.warning(f"get_transaction({tx_id}) failed after retries")
+            raise
 
     async def get_all_transactions(self) -> List[MockTransaction]:
         """

@@ -95,6 +95,39 @@ class TransactionRevertedError(ACTPError):
         self.block_number = block_number
 
 
+class TransientRPCError(NetworkError):
+    """
+    Raised for transient RPC/network failures that are safe to retry.
+
+    Distinguishes retry-able failures (connection drops, rate limits,
+    timeouts) from permanent failures (contract reverts, invalid state).
+
+    BlockchainRuntime._rate_limited_call() retries on this class only.
+
+    Example:
+        >>> raise TransientRPCError("Rate limit exceeded", cause=original_error)
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        endpoint: Optional[str] = None,
+        cause: Optional[Exception] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        details = details or {}
+        if cause is not None:
+            details["cause"] = type(cause).__name__
+        super().__init__(
+            message,
+            endpoint=endpoint,
+            details=details,
+        )
+        self.code = "TRANSIENT_RPC_ERROR"
+        self.cause = cause
+
+
 class SignatureVerificationError(ACTPError):
     """
     Raised when a cryptographic signature verification fails.

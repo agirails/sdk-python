@@ -317,7 +317,7 @@ class ACTPClient:
             )
 
         # Map mode to network name
-        network_name = "base-sepolia" if config.mode == "testnet" else "base"
+        network_name = "base-sepolia" if config.mode == "testnet" else "base-mainnet"
 
         # Create EAS helper if config provided or attestation required
         eas_helper = None

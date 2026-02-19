@@ -43,6 +43,8 @@ from web3.types import TxReceipt
 
 from agirails.config.networks import NetworkConfig
 from agirails.errors import TransactionError, ValidationError
+from agirails.protocol.base import ContractBase
+from agirails.protocol.nonce import NonceManager
 from agirails.types.transaction import TransactionReceipt
 
 
@@ -58,9 +60,6 @@ GAS_LIMITS = {
     "refund_to_requester": 150_000,
     "approve_usdc": 100_000,
 }
-
-# Security Note (M-3): Default timeout for transaction receipts (5 minutes)
-DEFAULT_TX_WAIT_TIMEOUT = 300.0
 
 
 # ============================================================================
@@ -175,7 +174,7 @@ class CreateEscrowParams:
 # ============================================================================
 
 
-class EscrowVault:
+class EscrowVault(ContractBase):
     """
     EscrowVault contract wrapper for fund management.
 
@@ -197,6 +196,8 @@ class EscrowVault:
         account: LocalAccount,
         w3: AsyncWeb3,
         chain_id: int,
+        *,
+        nonce_manager: Optional[NonceManager] = None,
     ) -> None:
         """
         Initialize EscrowVault wrapper.
@@ -207,12 +208,10 @@ class EscrowVault:
             account: The account for signing transactions
             w3: The AsyncWeb3 instance
             chain_id: The chain ID of the network
+            nonce_manager: Optional shared NonceManager for nonce tracking
         """
-        self.contract = contract
+        super().__init__(contract, account, w3, chain_id, nonce_manager=nonce_manager)
         self.usdc_contract = usdc_contract
-        self.account = account
-        self.w3 = w3
-        self.chain_id = chain_id
 
     @classmethod
     def from_config(
@@ -220,6 +219,8 @@ class EscrowVault:
         w3: AsyncWeb3,
         account: LocalAccount,
         config: NetworkConfig,
+        *,
+        nonce_manager: Optional[NonceManager] = None,
     ) -> "EscrowVault":
         """
         Create EscrowVault from network configuration.
@@ -228,6 +229,7 @@ class EscrowVault:
             w3: The AsyncWeb3 instance
             account: The account for signing transactions
             config: Network configuration with contract addresses
+            nonce_manager: Optional shared NonceManager for nonce tracking
 
         Returns:
             Initialized EscrowVault instance
@@ -249,7 +251,10 @@ class EscrowVault:
             abi=usdc_abi,
         )
 
-        return cls(escrow_contract, usdc_contract, account, w3, config.chain_id)
+        return cls(
+            escrow_contract, usdc_contract, account, w3, config.chain_id,
+            nonce_manager=nonce_manager,
+        )
 
     @staticmethod
     def _load_abi(filename: str) -> List[Dict[str, Any]]:
@@ -585,108 +590,6 @@ class EscrowVault:
         """Get the ACTPKernel address linked to the vault."""
         return await self.contract.functions.kernel().call()
 
-    # =========================================================================
-    # Helper Methods
-    # =========================================================================
-
-    async def _build_tx_params(
-        self,
-        gas_limit: int,
-        max_fee_per_gas: Optional[int] = None,
-        max_priority_fee_per_gas: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """Build transaction parameters."""
-        # Use "pending" to get nonce including unconfirmed transactions
-        nonce = await self.w3.eth.get_transaction_count(self.account.address, "pending")
-
-        # Get gas prices if not provided
-        if max_fee_per_gas is None or max_priority_fee_per_gas is None:
-            block = await self.w3.eth.get_block("latest")
-            base_fee = block.get("baseFeePerGas", 1_000_000_000)  # 1 gwei fallback
-
-            if max_priority_fee_per_gas is None:
-                max_priority_fee_per_gas = 1_000_000_000  # 1 gwei
-
-            if max_fee_per_gas is None:
-                # 2x base fee + priority fee
-                max_fee_per_gas = (base_fee * 2) + max_priority_fee_per_gas
-
-        return {
-            "from": self.account.address,
-            "nonce": nonce,
-            "gas": gas_limit,
-            "maxFeePerGas": max_fee_per_gas,
-            "maxPriorityFeePerGas": max_priority_fee_per_gas,
-            "chainId": self.chain_id,
-        }
-
-    async def _sign_and_send(
-        self,
-        tx: Dict[str, Any],
-        timeout: float = DEFAULT_TX_WAIT_TIMEOUT,
-    ) -> TxReceipt:
-        """
-        Sign and send a transaction, waiting for receipt.
-
-        Security Note (M-3): Uses timeout to prevent indefinite hangs.
-
-        Args:
-            tx: Transaction dictionary
-            timeout: Max seconds to wait for receipt (default: 300s)
-
-        Returns:
-            Transaction receipt
-
-        Raises:
-            TransactionError: If transaction fails or times out
-        """
-        signed_tx = self.w3.eth.account.sign_transaction(tx, self.account.key)
-        tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-
-        try:
-            receipt = await asyncio.wait_for(
-                self.w3.eth.wait_for_transaction_receipt(tx_hash),
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError:
-            raise TransactionError(
-                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
-                "Check network congestion and gas settings.",
-                tx_id=tx_hash.hex(),
-            )
-
-        if receipt["status"] != 1:
-            raise TransactionError(
-                f"Transaction failed: {tx_hash.hex()}",
-                tx_id=tx_hash.hex(),
-            )
-
-        return receipt
-
-    def _to_bytes32(self, value: str) -> bytes:
-        """Convert hex string to bytes32."""
-        if value.startswith("0x"):
-            value = value[2:]
-
-        # Pad to 32 bytes if needed
-        value = value.zfill(64)
-        return bytes.fromhex(value)
-
-    def _to_receipt(self, receipt: TxReceipt) -> TransactionReceipt:
-        """Convert web3 receipt to TransactionReceipt."""
-        return TransactionReceipt(
-            transaction_hash=receipt["transactionHash"].hex()
-            if isinstance(receipt["transactionHash"], bytes)
-            else receipt["transactionHash"],
-            block_number=receipt["blockNumber"],
-            block_hash=receipt["blockHash"].hex()
-            if isinstance(receipt["blockHash"], bytes)
-            else receipt["blockHash"],
-            gas_used=receipt["gasUsed"],
-            effective_gas_price=receipt.get("effectiveGasPrice", 0),
-            status=receipt["status"],
-            logs=[dict(log) for log in receipt.get("logs", [])],
-        )
 
 
 def generate_escrow_id(

@@ -37,6 +37,7 @@ from agirails.errors.validation import (
 )
 from agirails.errors.network import (
     NetworkError,
+    TransientRPCError,
     TransactionRevertedError,
     SignatureVerificationError,
 )
@@ -89,6 +90,7 @@ __all__ = [
     "InvalidAmountError",
     # Network
     "NetworkError",
+    "TransientRPCError",
     "TransactionRevertedError",
     "SignatureVerificationError",
     # Storage
