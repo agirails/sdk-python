@@ -88,21 +88,8 @@ class PullResult:
 # On-chain reader interface (protocol-agnostic)
 # ============================================================================
 
-
-class OnChainConfigReader:
-    """Interface for reading on-chain agent config state.
-
-    This is a thin abstraction so sync_operations doesn't depend
-    directly on web3 or AgentRegistry internals.
-    """
-
-    def __init__(self, config_hash: str, config_cid: str) -> None:
-        self.config_hash = config_hash
-        self.config_cid = config_cid
-
-    @property
-    def has_config(self) -> bool:
-        return self.config_hash != ZERO_HASH and self.config_cid != ""
+# Backward-compat alias — canonical definition moved to on_chain_state.py
+from agirails.config.on_chain_state import OnChainConfigState as OnChainConfigReader  # noqa: E402
 
 
 # ============================================================================

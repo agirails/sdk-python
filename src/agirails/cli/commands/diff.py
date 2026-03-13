@@ -23,85 +23,11 @@ from agirails.cli.utils.output import (
     print_success,
     print_warning,
 )
+from agirails.config.on_chain_state import OnChainConfigState, ZERO_HASH, get_on_chain_config_state
 from agirails.config.sync_operations import (
     DiffStatus,
-    OnChainConfigReader,
-    ZERO_HASH,
     diff_config,
 )
-
-
-def _get_on_chain_reader(
-    address: str,
-    network: str,
-    rpc_url: Optional[str] = None,
-) -> OnChainConfigReader:
-    """Read on-chain config hash and CID for an agent.
-
-    Args:
-        address: Agent Ethereum address.
-        network: Network name.
-        rpc_url: Optional custom RPC URL.
-
-    Returns:
-        OnChainConfigReader with hash and CID.
-    """
-    try:
-        from agirails.config.networks import get_network
-
-        net_config = get_network(network)
-        if not net_config.contracts.agent_registry:
-            return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
-
-        # Use a simple web3 call to read configHash and configCID
-        # For now, return zero if web3 isn't available
-        try:
-            from web3 import Web3
-
-            rpc = rpc_url or net_config.rpc_url
-            w3 = Web3(Web3.HTTPProvider(rpc))
-
-            # Minimal ABI for reading config
-            abi = [
-                {
-                    "type": "function",
-                    "name": "getConfigHash",
-                    "inputs": [{"name": "agentAddress", "type": "address"}],
-                    "outputs": [{"name": "", "type": "bytes32"}],
-                    "stateMutability": "view",
-                },
-                {
-                    "type": "function",
-                    "name": "getConfigCID",
-                    "inputs": [{"name": "agentAddress", "type": "address"}],
-                    "outputs": [{"name": "", "type": "string"}],
-                    "stateMutability": "view",
-                },
-            ]
-
-            contract = w3.eth.contract(
-                address=w3.to_checksum_address(net_config.contracts.agent_registry),
-                abi=abi,
-            )
-
-            config_hash_bytes = contract.functions.getConfigHash(
-                w3.to_checksum_address(address)
-            ).call()
-            config_hash = "0x" + config_hash_bytes.hex()
-
-            config_cid = contract.functions.getConfigCID(
-                w3.to_checksum_address(address)
-            ).call()
-
-            return OnChainConfigReader(config_hash=config_hash, config_cid=config_cid)
-
-        except ImportError:
-            return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
-        except Exception:
-            return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
-
-    except Exception:
-        return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
 
 
 _STATUS_LABELS = {
@@ -174,7 +100,7 @@ def diff(
         raise typer.Exit(1)
 
     # Read on-chain state
-    on_chain = _get_on_chain_reader(agent_address, network, rpc_url)
+    on_chain = get_on_chain_config_state(agent_address, network, rpc_url)
 
     # Run diff
     result = diff_config(md_path, on_chain)

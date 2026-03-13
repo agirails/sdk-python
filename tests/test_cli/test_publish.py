@@ -145,7 +145,7 @@ class TestPublishCommand:
 class TestDiffCommand:
     """Tests for ``actp diff``."""
 
-    @patch("agirails.cli.commands.diff._get_on_chain_reader")
+    @patch("agirails.cli.commands.diff.get_on_chain_config_state")
     def test_diff_in_sync(
         self, mock_reader: MagicMock, tmp_path: Path
     ) -> None:
@@ -172,7 +172,7 @@ class TestDiffCommand:
         assert result.exit_code == 0
         assert "sync" in result.output.lower() or "In sync" in result.output
 
-    @patch("agirails.cli.commands.diff._get_on_chain_reader")
+    @patch("agirails.cli.commands.diff.get_on_chain_config_state")
     def test_diff_local_ahead(
         self, mock_reader: MagicMock, tmp_path: Path
     ) -> None:
@@ -195,7 +195,7 @@ class TestDiffCommand:
 
         assert result.exit_code == 0
 
-    @patch("agirails.cli.commands.diff._get_on_chain_reader")
+    @patch("agirails.cli.commands.diff.get_on_chain_config_state")
     def test_diff_json_output(
         self, mock_reader: MagicMock, tmp_path: Path
     ) -> None:
@@ -223,7 +223,7 @@ class TestDiffCommand:
         assert data["inSync"] is True
         assert data["localHash"] == hash_result.config_hash
 
-    @patch("agirails.cli.commands.diff._get_on_chain_reader")
+    @patch("agirails.cli.commands.diff.get_on_chain_config_state")
     def test_diff_diverged(
         self, mock_reader: MagicMock, tmp_path: Path
     ) -> None:
@@ -279,7 +279,7 @@ class TestPullCommand:
     """Tests for ``actp pull``."""
 
     @patch("agirails.config.sync_operations.fetch_from_ipfs")
-    @patch("agirails.cli.commands.pull._get_on_chain_reader")
+    @patch("agirails.cli.commands.pull.get_on_chain_config_state")
     def test_pull_writes_file(
         self,
         mock_reader: MagicMock,
@@ -312,7 +312,7 @@ class TestPullCommand:
         assert "config_hash:" in content
         assert "config_cid:" in content
 
-    @patch("agirails.cli.commands.pull._get_on_chain_reader")
+    @patch("agirails.cli.commands.pull.get_on_chain_config_state")
     def test_pull_no_on_chain_config(
         self, mock_reader: MagicMock, tmp_path: Path
     ) -> None:
@@ -337,7 +337,7 @@ class TestPullCommand:
         assert "No config published" in result.output or "no-remote" in result.output.lower()
 
     @patch("agirails.config.sync_operations.fetch_from_ipfs")
-    @patch("agirails.cli.commands.pull._get_on_chain_reader")
+    @patch("agirails.cli.commands.pull.get_on_chain_config_state")
     def test_pull_integrity_failure(
         self,
         mock_reader: MagicMock,
@@ -366,7 +366,7 @@ class TestPullCommand:
         # File should NOT be written due to integrity failure
         assert not md_path.exists() or "Integrity check failed" in result.output
 
-    @patch("agirails.cli.commands.pull._get_on_chain_reader")
+    @patch("agirails.cli.commands.pull.get_on_chain_config_state")
     def test_pull_json_output(
         self, mock_reader: MagicMock, tmp_path: Path
     ) -> None:

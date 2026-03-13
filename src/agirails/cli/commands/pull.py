@@ -23,72 +23,8 @@ from agirails.cli.utils.output import (
     print_success,
     print_warning,
 )
-from agirails.config.sync_operations import (
-    OnChainConfigReader,
-    ZERO_HASH,
-    pull_config,
-)
-
-
-def _get_on_chain_reader(
-    address: str,
-    network: str,
-    rpc_url: Optional[str] = None,
-) -> OnChainConfigReader:
-    """Read on-chain config hash and CID for an agent."""
-    try:
-        from agirails.config.networks import get_network
-
-        net_config = get_network(network)
-        if not net_config.contracts.agent_registry:
-            return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
-
-        try:
-            from web3 import Web3
-
-            rpc = rpc_url or net_config.rpc_url
-            w3 = Web3(Web3.HTTPProvider(rpc))
-
-            abi = [
-                {
-                    "type": "function",
-                    "name": "getConfigHash",
-                    "inputs": [{"name": "agentAddress", "type": "address"}],
-                    "outputs": [{"name": "", "type": "bytes32"}],
-                    "stateMutability": "view",
-                },
-                {
-                    "type": "function",
-                    "name": "getConfigCID",
-                    "inputs": [{"name": "agentAddress", "type": "address"}],
-                    "outputs": [{"name": "", "type": "string"}],
-                    "stateMutability": "view",
-                },
-            ]
-
-            contract = w3.eth.contract(
-                address=w3.to_checksum_address(net_config.contracts.agent_registry),
-                abi=abi,
-            )
-
-            config_hash_bytes = contract.functions.getConfigHash(
-                w3.to_checksum_address(address)
-            ).call()
-            config_hash = "0x" + config_hash_bytes.hex()
-
-            config_cid = contract.functions.getConfigCID(
-                w3.to_checksum_address(address)
-            ).call()
-
-            return OnChainConfigReader(config_hash=config_hash, config_cid=config_cid)
-
-        except ImportError:
-            return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
-        except Exception:
-            return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
-
-    except Exception:
-        return OnChainConfigReader(config_hash=ZERO_HASH, config_cid="")
+from agirails.config.on_chain_state import OnChainConfigState, ZERO_HASH, get_on_chain_config_state
+from agirails.config.sync_operations import pull_config
 
 
 def pull(
@@ -153,7 +89,7 @@ def pull(
         raise typer.Exit(1)
 
     # Read on-chain state
-    on_chain = _get_on_chain_reader(agent_address, network, rpc_url)
+    on_chain = get_on_chain_config_state(agent_address, network, rpc_url)
 
     # Confirm overwrite if not forcing and local file exists
     if not force and Path(md_path).exists() and on_chain.has_config:

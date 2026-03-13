@@ -123,6 +123,8 @@ from agirails.cli.commands import deploy_check as deploy_check_cmd
 from agirails.cli.commands import publish as publish_cmd
 from agirails.cli.commands import diff as diff_cmd
 from agirails.cli.commands import pull as pull_cmd
+from agirails.cli.commands import find as find_cmd
+from agirails.cli.commands import health as health_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -140,6 +142,12 @@ app.add_typer(simulate_cmd.simulate_app, name="simulate")
 app.command(name="publish")(publish_cmd.publish)
 app.command(name="diff")(diff_cmd.diff)
 app.command(name="pull")(pull_cmd.pull)
+
+# Discovery
+app.command(name="find")(find_cmd.find)
+
+# Health check
+app.command(name="health")(health_cmd.health)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(

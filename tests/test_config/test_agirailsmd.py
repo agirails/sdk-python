@@ -225,7 +225,10 @@ class TestStripPublishMetadata:
         assert "config_cid" in PUBLISH_METADATA_KEYS
         assert "arweave_tx" in PUBLISH_METADATA_KEYS
         assert "template_source" in PUBLISH_METADATA_KEYS
-        assert len(PUBLISH_METADATA_KEYS) == 5
+        assert "wallet" in PUBLISH_METADATA_KEYS
+        assert "agent_id" in PUBLISH_METADATA_KEYS
+        assert "did" in PUBLISH_METADATA_KEYS
+        assert len(PUBLISH_METADATA_KEYS) == 8
 
 
 # ============================================================================

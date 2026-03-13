@@ -18,6 +18,46 @@ from agirails.errors import ValidationError
 
 
 # ============================================================================
+# Account Abstraction (ERC-4337) Configuration
+# ============================================================================
+
+# Canonical addresses (same on all EVM chains)
+ENTRYPOINT_V06 = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"
+SMART_WALLET_FACTORY = "0xBA5ED110eFDBa3D005bfC882d75358ACBbB85842"
+
+
+def _resolve_coinbase_rpc_url(network_path: str, override_env: str, *, fallback_key: str = "2txciN85t41erCjveqgNnXYyHRcoo5xP") -> str:
+    """Resolve Coinbase bundler/paymaster RPC URL.
+
+    Priority: env override → CDP_API_KEY → hardcoded fallback key.
+    Env var naming matches TS SDK networks.ts (CDP_API_KEY, NOT CDP_CLIENT_KEY).
+    """
+    override = os.environ.get(override_env, "").strip()
+    if override:
+        return override
+    cdp_key = os.environ.get("CDP_API_KEY", "").strip() or fallback_key
+    return f"https://api.developer.coinbase.com/rpc/v1/{network_path}/{cdp_key}"
+
+
+def _resolve_pimlico_rpc_url(chain_id: int) -> str:
+    """Resolve Pimlico bundler/paymaster RPC URL. Empty string if no API key."""
+    api_key = os.environ.get("PIMLICO_API_KEY", "").strip()
+    if not api_key:
+        return ""
+    return f"https://api.pimlico.io/v2/{chain_id}/rpc?apikey={api_key}"
+
+
+@dataclass(frozen=True)
+class AAConfig:
+    """Account Abstraction (ERC-4337) configuration for a network."""
+
+    entry_point: str
+    smart_wallet_factory: str
+    bundler_urls: Dict[str, str]
+    paymaster_urls: Dict[str, str]
+
+
+# ============================================================================
 # RPC URL Configuration
 # ============================================================================
 # Environment variables take priority over hardcoded defaults.
@@ -70,6 +110,8 @@ class NetworkConfig:
     # SECURITY: Maximum transaction amount in USDC (human-readable, e.g., 100 = $100)
     # Limits exposure on unaudited mainnet contracts. None = no limit (testnet).
     max_transaction_amount: Optional[int] = None
+    # Account Abstraction config (None for mock network)
+    aa: Optional[AAConfig] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -123,6 +165,18 @@ BASE_SEPOLIA = NetworkConfig(
         max_fee_per_gas=2_000_000_000,  # 2 gwei
         max_priority_fee_per_gas=1_000_000_000,  # 1 gwei
     ),
+    aa=AAConfig(
+        entry_point=ENTRYPOINT_V06,
+        smart_wallet_factory=SMART_WALLET_FACTORY,
+        bundler_urls={
+            "coinbase": _resolve_coinbase_rpc_url("base-sepolia", "CDP_BUNDLER_URL"),
+            "pimlico": _resolve_pimlico_rpc_url(84532),
+        },
+        paymaster_urls={
+            "coinbase": _resolve_coinbase_rpc_url("base-sepolia", "CDP_PAYMASTER_URL"),
+            "pimlico": _resolve_pimlico_rpc_url(84532),
+        },
+    ),
 )
 
 
@@ -153,6 +207,18 @@ BASE_MAINNET = NetworkConfig(
         max_priority_fee_per_gas=100_000_000,  # 0.1 gwei
     ),
     # Security audit passed February 2026 — no findings. No transaction limit.
+    aa=AAConfig(
+        entry_point=ENTRYPOINT_V06,
+        smart_wallet_factory=SMART_WALLET_FACTORY,
+        bundler_urls={
+            "coinbase": _resolve_coinbase_rpc_url("base", "CDP_BUNDLER_URL"),
+            "pimlico": _resolve_pimlico_rpc_url(8453),
+        },
+        paymaster_urls={
+            "coinbase": _resolve_coinbase_rpc_url("base", "CDP_PAYMASTER_URL"),
+            "pimlico": _resolve_pimlico_rpc_url(8453),
+        },
+    ),
 )
 
 
