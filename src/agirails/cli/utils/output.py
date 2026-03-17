@@ -102,15 +102,18 @@ def print_success(message: str, data: Optional[Dict[str, Any]] = None) -> None:
 
 
 def print_error(message: str, details: Optional[str] = None) -> None:
-    """Print error message to stderr."""
-    if HAS_RICH and _err_console:
-        _err_console.print(f"[red]\u2717 Error:[/red] {message}")
-        if details:
-            _err_console.print(f"  [dim]{details}[/dim]")
-    else:
-        print(f"\u2717 Error: {message}", file=sys.stderr)
-        if details:
-            print(f"  {details}", file=sys.stderr)
+    """Print error message.
+
+    Writes to stdout (not stderr) via typer.echo so that Click's CliRunner
+    always captures the output. Rich's module-level Console objects hold stale
+    references to the real sys.stderr, bypassing CliRunner's capture entirely.
+    Matches TS SDK convention where CLI errors also go to stdout.
+    """
+    import typer
+
+    typer.echo(f"\u2717 Error: {message}")
+    if details:
+        typer.echo(f"  {details}")
 
 
 def print_warning(message: str) -> None:
