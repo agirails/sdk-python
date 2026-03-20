@@ -58,10 +58,12 @@ class UpsertAgentParams:
     wallet: str
     config_cid: str  # configCid in TS
     config_hash: str  # configHash in TS
-    signature: str  # EIP-712 wallet signature
+    signature: str  # EIP-191 wallet signature
     message: str  # the signed message
+    timestamp: int  # Unix seconds — part of signed message, server rejects >5min
+    network: str = ""  # Network name (e.g. "base-sepolia") — bound in signed message
 
-    def to_camel_case_dict(self) -> Dict[str, str]:
+    def to_camel_case_dict(self) -> Dict[str, Any]:
         """Serialize to camelCase keys matching TS API contract."""
         return {
             "slug": self.slug,
@@ -71,6 +73,8 @@ class UpsertAgentParams:
             "configHash": self.config_hash,
             "signature": self.signature,
             "message": self.message,
+            "timestamp": self.timestamp,
+            **({"network": self.network} if self.network else {}),
         }
 
 
@@ -78,6 +82,7 @@ class UpsertAgentParams:
 class ClaimAgentParams:
     """Parameters for claim_agent."""
 
+    agent_id: str
     wallet: str
     challenge: str
     signature: str
@@ -213,6 +218,7 @@ async def claim_agent(params: ClaimAgentParams) -> Dict[str, Any]:
     """
     url = f"{AGIRAILS_APP_BASE_URL}/api/v1/agents/claim"
     return await _post(url, {
+        "agentId": params.agent_id,
         "wallet": params.wallet,
         "challenge": params.challenge,
         "signature": params.signature,

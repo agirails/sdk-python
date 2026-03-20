@@ -125,6 +125,8 @@ from agirails.cli.commands import diff as diff_cmd
 from agirails.cli.commands import pull as pull_cmd
 from agirails.cli.commands import find as find_cmd
 from agirails.cli.commands import health as health_cmd
+from agirails.cli.commands import claim as claim_cmd
+from agirails.cli.commands import autopublish as autopublish_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -148,6 +150,10 @@ app.command(name="find")(find_cmd.find)
 
 # Health check
 app.command(name="health")(health_cmd.health)
+
+# Claim + Autopublish
+app.command(name="claim")(claim_cmd.claim)
+app.command(name="autopublish")(autopublish_cmd.autopublish)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(

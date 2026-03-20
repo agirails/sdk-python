@@ -29,6 +29,7 @@ class TestUpsertAgentParams:
             config_hash="0xhash",
             signature="0xsig",
             message="msg",
+            timestamp=1700000000,
         )
         d = params.to_camel_case_dict()
         assert d["agentId"] == "123"
@@ -90,6 +91,7 @@ class TestUpsertAgent:
             config_hash="0xhash",
             signature="0xsig",
             message="msg",
+            timestamp=1700000000,
         )
         result = await upsert_agent(params)
         assert result["success"] is True
@@ -107,6 +109,7 @@ class TestUpsertAgent:
         params = UpsertAgentParams(
             slug="agent", agent_id="123", wallet="0x123",
             config_cid="cid", config_hash="hash", signature="sig", message="msg",
+            timestamp=1700000000,
         )
         with pytest.raises(AgirailsAppError):
             await upsert_agent(params)
@@ -134,17 +137,22 @@ class TestClaimAgent:
     async def test_claim_success(self, mock_post: AsyncMock) -> None:
         mock_post.return_value = {"claimed": True}
         params = ClaimAgentParams(
-            wallet="0xWallet", challenge="abc123", signature="0xsig"
+            agent_id="12345", wallet="0xWallet", challenge="abc123", signature="0xsig"
         )
         result = await claim_agent(params)
         assert result["claimed"] is True
+
+        # Verify agentId in POST body
+        body = mock_post.call_args[0][1]
+        assert body["agentId"] == "12345"
+        assert body["wallet"] == "0xWallet"
 
     @pytest.mark.asyncio
     @patch("agirails.api.agirails_app._post", new_callable=AsyncMock)
     async def test_claim_error(self, mock_post: AsyncMock) -> None:
         mock_post.side_effect = AgirailsAppError("claim failed", 403)
         params = ClaimAgentParams(
-            wallet="0xWallet", challenge="abc", signature="0xsig"
+            agent_id="12345", wallet="0xWallet", challenge="abc", signature="0xsig"
         )
         with pytest.raises(AgirailsAppError):
             await claim_agent(params)
