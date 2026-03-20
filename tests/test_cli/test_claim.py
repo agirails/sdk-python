@@ -55,13 +55,13 @@ class TestClaimCommand:
             new_callable=AsyncMock,
             return_value={"claimed": True, "slug": "my-agent"},
         ):
-            result = runner.invoke(app, ["--json", "claim", "99999", "--network", "base-sepolia"])
+            result = runner.invoke(app, ["claim", "99999", "--network", "base-sepolia", "--json"])
             assert result.exit_code == 0
             assert '"status": "claimed"' in result.output
             assert '"agentId": "99999"' in result.output
 
     def test_error_when_all_with_json(self) -> None:
         """Should output JSON error when --all is used with --json."""
-        result = runner.invoke(app, ["--json", "claim", "--all"])
+        result = runner.invoke(app, ["claim", "--all", "--json"])
         assert result.exit_code == 1
         assert "not yet implemented" in result.output

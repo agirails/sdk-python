@@ -52,9 +52,15 @@ def autopublish(
         "-n",
         help="Network for publish (base-sepolia, base-mainnet)",
     ),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Minimal output"),
 ) -> None:
     """Watch AGIRAILS.md for changes and auto-publish."""
     opts = get_global_options()
+    if json_output:
+        opts.json_output = True
+    if quiet:
+        opts.quiet = True
 
     # Enforce minimum debounce
     if debounce < MIN_DEBOUNCE_MS:

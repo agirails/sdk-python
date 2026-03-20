@@ -36,9 +36,15 @@ def claim(
         "-n",
         help="Network (base-sepolia, base-mainnet)",
     ),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Minimal output"),
 ) -> None:
     """Claim ownership of an agent registered on-chain."""
     opts = get_global_options()
+    if json_output:
+        opts.json_output = True
+    if quiet:
+        opts.quiet = True
 
     # Guard: --all not yet implemented
     if all_agents:
