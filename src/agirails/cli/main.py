@@ -127,6 +127,8 @@ from agirails.cli.commands import find as find_cmd
 from agirails.cli.commands import health as health_cmd
 from agirails.cli.commands import claim as claim_cmd
 from agirails.cli.commands import autopublish as autopublish_cmd
+from agirails.cli.commands import test as test_cmd
+from agirails.cli.commands import register as register_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -154,6 +156,10 @@ app.command(name="health")(health_cmd.health)
 # Claim + Autopublish
 app.command(name="claim")(claim_cmd.claim)
 app.command(name="autopublish")(autopublish_cmd.autopublish)
+
+# Test + Register (legacy)
+app.command(name="test")(test_cmd.test)
+app.command(name="register")(register_cmd.register)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(
