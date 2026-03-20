@@ -14,6 +14,7 @@ This is a 1:1 port of sdk-js/src/wallet/AutoWalletProvider.ts.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
@@ -107,7 +108,8 @@ class BatchedPayParams:
     dispute_window: int
     service_hash: str
     agent_id: str
-    contracts: Any  # ContractAddresses from transaction_batcher
+    requester_agent_id: str = "0"  # AIP-14: Requester's ERC-8004 agent ID
+    contracts: Any = None  # ContractAddresses from transaction_batcher
 
 
 @dataclass
@@ -236,8 +238,10 @@ class AutoWalletProvider:
             signer_address, config.w3
         )
 
-        # Check if wallet is already deployed
-        code = config.w3.eth.get_code(Web3.to_checksum_address(smart_wallet_address))
+        # Check if wallet is already deployed (H-3 fix: offload sync RPC to thread)
+        code = await asyncio.to_thread(
+            config.w3.eth.get_code, Web3.to_checksum_address(smart_wallet_address)
+        )
         is_deployed = code != b"" and code != b"\x00"
 
         logger.info(
@@ -336,6 +340,7 @@ class AutoWalletProvider:
                     dispute_window=params.dispute_window,
                     service_hash=params.service_hash,
                     agent_id=params.agent_id,
+                    requester_agent_id=getattr(params, "requester_agent_id", "0") or "0",
                     actp_nonce=nonces.actp_nonce,
                     contracts=params.contracts,
                 )
@@ -408,8 +413,8 @@ class AutoWalletProvider:
             signer_address=self._signer_address,
         )
 
-        # 2. Get fee data
-        fee_data = self._w3.eth.fee_history(1, "latest", [50])
+        # 2. Get fee data (H-3 fix: offload sync RPC to thread)
+        fee_data = await asyncio.to_thread(self._w3.eth.fee_history, 1, "latest", [50])
         base_fee = fee_data["baseFeePerGas"][-1]
         priority_fee = fee_data["reward"][0][0] if fee_data.get("reward") else 1_000_000_000
         user_op.max_fee_per_gas = base_fee * 2 + priority_fee

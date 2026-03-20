@@ -32,9 +32,16 @@ from web3 import AsyncWeb3
 
 
 def _lazy_lock(obj: object, attr: str = "_lock") -> asyncio.Lock:
-    """Get or create asyncio.Lock lazily (Python 3.9 compat)."""
+    """Get or create asyncio.Lock lazily (Python 3.9 compat).
+
+    P-8 fix: recreate if event loop changed (multiple asyncio.run() calls).
+    """
     lock = getattr(obj, attr)
-    if lock is None:
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+    if lock is None or (current_loop is not None and getattr(lock, '_loop', None) is not current_loop):
         lock = asyncio.Lock()
         object.__setattr__(obj, attr, lock)
     return lock
@@ -133,7 +140,7 @@ class NonceManager:
 
             return self._state.current_nonce
 
-    def confirm_nonce(self, nonce: int) -> None:
+    async def confirm_nonce(self, nonce: int) -> None:
         """
         Mark a nonce as confirmed (transaction included in block).
 
@@ -143,12 +150,13 @@ class NonceManager:
         Example:
             >>> nonce = await nonce_manager.get_nonce()
             >>> # ... send transaction ...
-            >>> nonce_manager.confirm_nonce(nonce)
+            >>> await nonce_manager.confirm_nonce(nonce)
         """
-        self._state.pending_nonces.discard(nonce)
-        self._state.confirmed_nonces.add(nonce)
+        async with _lazy_lock(self):
+            self._state.pending_nonces.discard(nonce)
+            self._state.confirmed_nonces.add(nonce)
 
-    def release_nonce(self, nonce: int) -> None:
+    async def release_nonce(self, nonce: int) -> None:
         """
         Release an allocated nonce (transaction failed/cancelled).
 
@@ -162,13 +170,14 @@ class NonceManager:
             >>> try:
             ...     # ... send transaction ...
             ... except Exception:
-            ...     nonce_manager.release_nonce(nonce)
+            ...     await nonce_manager.release_nonce(nonce)
         """
-        self._state.pending_nonces.discard(nonce)
+        async with _lazy_lock(self):
+            self._state.pending_nonces.discard(nonce)
 
-        # If this was the most recently allocated nonce, we can reuse it
-        if nonce == self._state.current_nonce - 1:
-            self._state.current_nonce = nonce
+            # If this was the most recently allocated nonce, we can reuse it
+            if nonce == self._state.current_nonce - 1:
+                self._state.current_nonce = nonce
 
     async def sync(self) -> int:
         """
@@ -239,7 +248,7 @@ class NonceManager:
             # All nonces below on-chain nonce are confirmed
             confirmed = {n for n in self._state.pending_nonces if n < on_chain_nonce}
             for nonce in confirmed:
-                self.confirm_nonce(nonce)
+                await self.confirm_nonce(nonce)
 
             if len(self._state.pending_nonces) == 0:
                 return True
@@ -300,7 +309,7 @@ class NonceManagerPool:
         manager = await self._get_or_create_manager(address)
         return await manager.get_nonce(sync=sync)
 
-    def confirm_nonce(self, address: str, nonce: int) -> None:
+    async def confirm_nonce(self, address: str, nonce: int) -> None:
         """
         Confirm a nonce for an address.
 
@@ -310,9 +319,9 @@ class NonceManagerPool:
         """
         address = self.w3.to_checksum_address(address)
         if address in self._managers:
-            self._managers[address].confirm_nonce(nonce)
+            await self._managers[address].confirm_nonce(nonce)
 
-    def release_nonce(self, address: str, nonce: int) -> None:
+    async def release_nonce(self, address: str, nonce: int) -> None:
         """
         Release a nonce for an address.
 
@@ -322,7 +331,7 @@ class NonceManagerPool:
         """
         address = self.w3.to_checksum_address(address)
         if address in self._managers:
-            self._managers[address].release_nonce(nonce)
+            await self._managers[address].release_nonce(nonce)
 
     async def sync(self, address: str) -> int:
         """

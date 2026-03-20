@@ -459,11 +459,16 @@ class MockRuntime(IMockRuntime):
         state = await self._state_manager.load()
         return state.transactions.get(tx_id)
 
-    async def get_all_transactions(self) -> List[MockTransaction]:
-        """Get all transactions."""
+    async def get_all_transactions(
+        self,
+        from_block: int | None = None,
+        limit: int = 100,
+    ) -> List[MockTransaction]:
+        """Get all transactions (from_block ignored in mock — in-memory)."""
         await self._ensure_initialized()
         state = await self._state_manager.load()
-        return list(state.transactions.values())
+        txs = list(state.transactions.values())
+        return txs[-limit:] if len(txs) > limit else txs
 
     async def get_transactions_by_provider(
         self,

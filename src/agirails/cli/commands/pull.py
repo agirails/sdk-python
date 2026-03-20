@@ -23,7 +23,7 @@ from agirails.cli.utils.output import (
     print_success,
     print_warning,
 )
-from agirails.config.on_chain_state import OnChainConfigState, ZERO_HASH, get_on_chain_config_state
+from agirails.config.on_chain_state import OnChainConfigState, OnChainStateError, ZERO_HASH, get_on_chain_config_state
 from agirails.config.sync_operations import pull_config
 
 
@@ -89,7 +89,11 @@ def pull(
         raise typer.Exit(1)
 
     # Read on-chain state
-    on_chain = get_on_chain_config_state(agent_address, network, rpc_url)
+    try:
+        on_chain = get_on_chain_config_state(agent_address, network, rpc_url)
+    except OnChainStateError as e:
+        print_error("On-chain read failed", str(e))
+        raise typer.Exit(1)
 
     # Confirm overwrite if not forcing and local file exists
     if not force and Path(md_path).exists() and on_chain.has_config:

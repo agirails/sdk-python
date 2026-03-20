@@ -1029,7 +1029,12 @@ class TokenBucketRateLimiter:
         """
         start_time = time.monotonic()
 
-        if self._lock is None:
+        # P-8 fix: recreate lock if event loop changed (e.g. multiple asyncio.run() calls)
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if self._lock is None or (current_loop is not None and getattr(self._lock, '_loop', None) is not current_loop):
             self._lock = asyncio.Lock()
         async with self._lock:
             while True:

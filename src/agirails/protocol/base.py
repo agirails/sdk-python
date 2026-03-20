@@ -52,6 +52,24 @@ class ContractBase:
         self.chain_id = chain_id
         self._nonce_manager = nonce_manager
 
+    async def _estimate_gas(
+        self,
+        contract_fn: Any,
+        default_limit: int,
+        buffer: float = 1.15,
+    ) -> int:
+        """P-2 fix: dynamic gas estimation with fallback to hardcoded limits.
+
+        Calls estimateGas() on the contract function, applies a buffer,
+        and ensures at least the default_limit floor.
+        Falls back to default_limit on any error.
+        """
+        try:
+            estimated = await contract_fn.estimate_gas({"from": self.account.address})
+            return max(int(estimated * buffer), default_limit)
+        except Exception:
+            return default_limit
+
     async def _build_tx_params(
         self,
         gas_limit: int,
@@ -115,7 +133,7 @@ class ContractBase:
         except Exception:
             # Broadcast failed — release nonce so it can be reused
             if self._nonce_manager is not None and nonce is not None:
-                self._nonce_manager.release_nonce(nonce)
+                await self._nonce_manager.release_nonce(nonce)
             raise
 
         # Transaction was broadcast — nonce is consumed regardless of outcome
@@ -127,24 +145,55 @@ class ContractBase:
         except asyncio.TimeoutError:
             # TX is in mempool — nonce is consumed
             if self._nonce_manager is not None and nonce is not None:
-                self._nonce_manager.confirm_nonce(nonce)
+                await self._nonce_manager.confirm_nonce(nonce)
             raise TransactionError(
-                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
+                f"Transaction 0x{tx_hash.hex()} timed out after {timeout}s. "
                 "Check network congestion and gas settings.",
-                tx_id=tx_hash.hex(),
+                tx_id="0x" + tx_hash.hex(),
             )
 
         # Confirm nonce whether tx succeeded or reverted (nonce was used on-chain)
         if self._nonce_manager is not None and nonce is not None:
-            self._nonce_manager.confirm_nonce(nonce)
+            await self._nonce_manager.confirm_nonce(nonce)
 
         if receipt["status"] != 1:
-            raise TransactionError(
-                f"Transaction failed: {tx_hash.hex()}",
-                tx_id=tx_hash.hex(),
-            )
+            reason = await self._extract_revert_reason(tx, receipt)
+            msg = f"Transaction reverted: 0x{tx_hash.hex()}"
+            if reason:
+                msg += f" — {reason}"
+            raise TransactionError(msg, tx_id="0x" + tx_hash.hex())
 
         return receipt
+
+    async def _extract_revert_reason(
+        self, tx: Dict[str, Any], receipt: TxReceipt
+    ) -> str:
+        """Replay a reverted tx via eth_call to extract the revert reason string.
+
+        Returns the decoded reason or empty string if extraction fails.
+        """
+        try:
+            call_tx = {
+                "from": tx.get("from", self.account.address),
+                "to": tx.get("to"),
+                "data": tx.get("data", tx.get("input", "")),
+                "value": tx.get("value", 0),
+            }
+            block = receipt.get("blockNumber", "latest")
+            await self.w3.eth.call(call_tx, block)
+            return ""  # call succeeded — shouldn't happen but no reason to extract
+        except Exception as e:
+            msg = str(e)
+            # web3.py wraps revert reasons in ContractLogicError or similar
+            # Common patterns: "execution reverted: Reason", "revert: Reason"
+            for prefix in ("execution reverted: ", "revert: "):
+                idx = msg.find(prefix)
+                if idx != -1:
+                    return msg[idx + len(prefix) :].strip()
+            # If the message itself is short and useful, return it
+            if len(msg) < 200:
+                return msg
+            return ""
 
     def _to_bytes32(self, value: str) -> bytes:
         """Convert hex string to bytes32."""
@@ -157,11 +206,11 @@ class ContractBase:
     def _to_receipt(self, receipt: TxReceipt) -> TransactionReceipt:
         """Convert web3 receipt to TransactionReceipt."""
         return TransactionReceipt(
-            transaction_hash=receipt["transactionHash"].hex()
+            transaction_hash="0x" + receipt["transactionHash"].hex()
             if isinstance(receipt["transactionHash"], bytes)
             else receipt["transactionHash"],
             block_number=receipt["blockNumber"],
-            block_hash=receipt["blockHash"].hex()
+            block_hash="0x" + receipt["blockHash"].hex()
             if isinstance(receipt["blockHash"], bytes)
             else receipt["blockHash"],
             gas_used=receipt["gasUsed"],

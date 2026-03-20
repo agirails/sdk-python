@@ -249,10 +249,10 @@ async def resolve_private_key(
         try:
             private_key = Account.decrypt(decoded, password)
             account = Account.from_key(private_key)
-        except Exception as err:
-            # Sanitize: do not leak keystore content in error messages
+        except Exception:
+            # P-11 fix: sanitize error — some eth_account versions leak key material in exceptions
             raise RuntimeError(
-                f"Failed to decrypt ACTP_KEYSTORE_BASE64: {err}"
+                "Failed to decrypt ACTP_KEYSTORE_BASE64. Check password and keystore format."
             ) from None
 
         key_hex = account.key.hex() if isinstance(account.key, bytes) else str(account.key)
@@ -307,9 +307,10 @@ async def resolve_private_key(
     try:
         private_key = Account.decrypt(keystore_data, password)
         account = Account.from_key(private_key)
-    except Exception as err:
+    except Exception:
+        # P-11 fix: sanitize error — some eth_account versions leak key material in exceptions
         raise RuntimeError(
-            f"Failed to decrypt keystore at {keystore_path}: {err}"
+            f"Failed to decrypt keystore at {keystore_path}. Check password and keystore format."
         ) from None
 
     key_hex = account.key.hex() if isinstance(account.key, bytes) else str(account.key)

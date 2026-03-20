@@ -335,7 +335,7 @@ class TestMockStateManagerVersionCompatibility:
             "events": [],
             "blockchain": {"blockNumber": 0, "timestamp": 1700000000, "blockTime": 2},
         }
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             json.dump(state_data, f)
 
@@ -356,7 +356,7 @@ class TestMockStateManagerVersionCompatibility:
             "events": [],
             "blockchain": {},
         }
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             json.dump(state_data, f)
 
@@ -379,7 +379,7 @@ class TestMockStateManagerErrorHandling:
     @pytest.mark.asyncio
     async def test_load_corrupted_json(self, manager):
         """Corrupted JSON should raise error."""
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             f.write("{ invalid json }")
 
@@ -394,7 +394,7 @@ class TestMockStateManagerErrorHandling:
             "version": "2.0.0",
             # Missing all other fields, but from_dict has defaults
         }
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             json.dump(state_data, f)
 

@@ -52,8 +52,8 @@ def mock_account():
 def mock_nonce_manager():
     nm = MagicMock(spec=NonceManager)
     nm.get_nonce = AsyncMock(return_value=42)
-    nm.confirm_nonce = MagicMock()
-    nm.release_nonce = MagicMock()
+    nm.confirm_nonce = AsyncMock()
+    nm.release_nonce = AsyncMock()
     return nm
 
 

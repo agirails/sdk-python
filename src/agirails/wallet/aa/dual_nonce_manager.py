@@ -105,12 +105,19 @@ class DualNonceManager:
         self._sender_address = Web3.to_checksum_address(sender_address)
         self._actp_kernel_address = Web3.to_checksum_address(actp_kernel_address)
         self._mutex: Optional[asyncio.Lock] = None
+        self._mutex_loop: Optional[asyncio.AbstractEventLoop] = None
         self._cached_actp_nonce: Optional[int] = None
 
     def _get_mutex(self) -> asyncio.Lock:
-        """Lazily create asyncio.Lock (Python 3.9 compat)."""
-        if self._mutex is None:
+        """Lazily create asyncio.Lock with event loop detection (P-8 pattern)."""
+        current_loop: Optional[asyncio.AbstractEventLoop] = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        if self._mutex is None or (current_loop is not None and current_loop is not self._mutex_loop):
             self._mutex = asyncio.Lock()
+            self._mutex_loop = current_loop
         return self._mutex
 
     async def enqueue(

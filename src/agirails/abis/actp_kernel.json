@@ -397,6 +397,16 @@
         "name": "serviceHash",
         "type": "bytes32",
         "internalType": "bytes32"
+      },
+      {
+        "name": "agentId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "requesterAgentId",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -553,6 +563,26 @@
             "name": "platformFeeBpsLocked",
             "type": "uint16",
             "internalType": "uint16"
+          },
+          {
+            "name": "agentId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "requesterAgentId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "disputeInitiator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "disputeBond",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -1067,10 +1097,10 @@
         "internalType": "address"
       },
       {
-        "name": "disputeId",
-        "type": "bytes32",
+        "name": "bondAmount",
+        "type": "uint256",
         "indexed": false,
-        "internalType": "bytes32"
+        "internalType": "uint256"
       },
       {
         "name": "timestamp",
@@ -1098,10 +1128,22 @@
         "internalType": "bytes32"
       },
       {
-        "name": "resolution",
-        "type": "uint8",
+        "name": "initiator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "providerAtFault",
+        "type": "bool",
         "indexed": false,
-        "internalType": "uint8"
+        "internalType": "bool"
+      },
+      {
+        "name": "bondAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       },
       {
         "name": "timestamp",
@@ -1591,6 +1633,12 @@
       },
       {
         "name": "timestamp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "agentId",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

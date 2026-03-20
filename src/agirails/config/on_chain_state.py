@@ -9,10 +9,21 @@ Extracts duplicated _get_on_chain_reader() from diff.py and pull.py into a share
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 ZERO_HASH = "0x" + "0" * 64
+
+
+class OnChainStateError(Exception):
+    """Raised when on-chain state cannot be read due to RPC/network errors.
+
+    Callers should catch this and distinguish it from "not registered"
+    (which returns default state with ZERO_HASH / registered_at=0).
+    """
 
 
 @dataclass
@@ -105,12 +116,21 @@ def get_on_chain_config_state(
             return OnChainConfigState(config_hash=config_hash, config_cid=config_cid)
 
         except ImportError:
+            # web3 not installed — return defaults (no on-chain access)
             return OnChainConfigState(config_hash=ZERO_HASH, config_cid="")
-        except Exception:
-            return OnChainConfigState(config_hash=ZERO_HASH, config_cid="")
+        except Exception as e:
+            raise OnChainStateError(
+                f"Failed to read config state from {network}: {e}"
+            ) from e
 
-    except Exception:
+    except ImportError:
         return OnChainConfigState(config_hash=ZERO_HASH, config_cid="")
+    except OnChainStateError:
+        raise
+    except Exception as e:
+        raise OnChainStateError(
+            f"Failed to initialize on-chain reader for {network}: {e}"
+        ) from e
 
 
 # Full getAgent() struct ABI — matches TS getOnChainAgentState() in ACTPClient.ts
@@ -196,16 +216,25 @@ def get_on_chain_agent_state(
 
         except ImportError:
             return OnChainAgentState(registered_at=0, config_hash=ZERO_HASH, listed=False)
-        except Exception:
-            return OnChainAgentState(registered_at=0, config_hash=ZERO_HASH, listed=False)
+        except Exception as e:
+            raise OnChainStateError(
+                f"Failed to read agent state from {network}: {e}"
+            ) from e
 
-    except Exception:
+    except ImportError:
         return OnChainAgentState(registered_at=0, config_hash=ZERO_HASH, listed=False)
+    except OnChainStateError:
+        raise
+    except Exception as e:
+        raise OnChainStateError(
+            f"Failed to initialize on-chain reader for {network}: {e}"
+        ) from e
 
 
 __all__ = [
     "OnChainConfigState",
     "OnChainAgentState",
+    "OnChainStateError",
     "get_on_chain_config_state",
     "get_on_chain_agent_state",
     "ZERO_HASH",

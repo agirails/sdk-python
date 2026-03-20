@@ -671,7 +671,7 @@ class EventMonitor:
             event_type=EventType.TRANSACTION_CREATED,
             contract_address=log["address"],
             block_number=log["blockNumber"],
-            transaction_hash=log["transactionHash"].hex()
+            transaction_hash="0x" + log["transactionHash"].hex()
             if isinstance(log["transactionHash"], bytes)
             else log["transactionHash"],
             log_index=log["logIndex"],
@@ -694,7 +694,7 @@ class EventMonitor:
             event_type=EventType.STATE_TRANSITIONED,
             contract_address=log["address"],
             block_number=log["blockNumber"],
-            transaction_hash=log["transactionHash"].hex()
+            transaction_hash="0x" + log["transactionHash"].hex()
             if isinstance(log["transactionHash"], bytes)
             else log["transactionHash"],
             log_index=log["logIndex"],
@@ -712,7 +712,7 @@ class EventMonitor:
             event_type=EventType.ESCROW_CREATED,
             contract_address=log["address"],
             block_number=log["blockNumber"],
-            transaction_hash=log["transactionHash"].hex()
+            transaction_hash="0x" + log["transactionHash"].hex()
             if isinstance(log["transactionHash"], bytes)
             else log["transactionHash"],
             log_index=log["logIndex"],
@@ -730,7 +730,7 @@ class EventMonitor:
             event_type=EventType.ESCROW_PAYOUT,
             contract_address=log["address"],
             block_number=log["blockNumber"],
-            transaction_hash=log["transactionHash"].hex()
+            transaction_hash="0x" + log["transactionHash"].hex()
             if isinstance(log["transactionHash"], bytes)
             else log["transactionHash"],
             log_index=log["logIndex"],

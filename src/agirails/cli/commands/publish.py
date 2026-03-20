@@ -31,7 +31,7 @@ from agirails.config.agirailsmd import (
     parse_agirails_md,
     serialize_agirails_md,
 )
-from agirails.config.on_chain_state import OnChainAgentState, get_on_chain_agent_state
+from agirails.config.on_chain_state import OnChainAgentState, OnChainStateError, get_on_chain_agent_state
 from agirails.config.pending_publish import (
     PendingPublishData,
     ServiceDescriptorData,
@@ -83,6 +83,58 @@ def detect_lazy_publish_scenario(
 # ============================================================================
 # Testnet Activation
 # ============================================================================
+
+
+async def _resolve_sign_and_upsert(
+    *,
+    slug: str,
+    agent_id: str,
+    wallet: str,
+    config_cid: str,
+    config_hash: str,
+    network: str,
+) -> bool:
+    """Resolve private key, sign upsert message, and call agirails.app API.
+
+    Combines resolve_private_key + sign + upsert_agent in a single event loop
+    to avoid multiple asyncio.run() calls with stale locks (P-10 / P-8).
+
+    Returns True if upsert succeeded, False if skipped (no key).
+    """
+    import time as _time
+
+    from agirails.api.agirails_app import UpsertAgentParams, upsert_agent
+    from agirails.wallet.keystore import ResolvePrivateKeyOptions, resolve_private_key
+
+    priv_key = await resolve_private_key(
+        options=ResolvePrivateKeyOptions(network=network)
+    )
+    if not priv_key:
+        return False
+
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    publish_ts = int(_time.time())
+    # C-2 fix: include network in signed message to prevent cross-network replay
+    message = f"agirails-publish:{slug}:{config_hash}:{network}:{publish_ts}"
+    acct = Account.from_key(priv_key)
+    sig = acct.sign_message(encode_defunct(text=message)).signature.hex()
+
+    await upsert_agent(
+        UpsertAgentParams(
+            slug=slug,
+            agent_id=agent_id,
+            wallet=wallet,
+            config_cid=config_cid,
+            config_hash=config_hash,
+            signature=f"0x{sig}" if not sig.startswith("0x") else sig,
+            message=message,
+            timestamp=publish_ts,
+            network=network,
+        )
+    )
+    return True
 
 
 async def _activate_on_testnet(
@@ -155,7 +207,11 @@ async def _activate_on_testnet(
     logger.info("Smart Wallet: %s", wallet_address)
 
     # Check on-chain state
-    on_chain = get_on_chain_agent_state(wallet_address, network)
+    try:
+        on_chain = get_on_chain_agent_state(wallet_address, network)
+    except OnChainStateError as e:
+        logger.warning("On-chain state read failed: %s", e)
+        return {"tx_hash": None, "wallet_address": wallet_address, "agent_id": None}
 
     # Build a synthetic pending for scenario detection
     scenario = detect_lazy_publish_scenario(
@@ -441,44 +497,20 @@ def publish(
 
         if slug and effective_agent_id and effective_wallet:
             try:
-                from agirails.api.agirails_app import UpsertAgentParams, upsert_agent
-                from agirails.wallet.keystore import (
-                    ResolvePrivateKeyOptions,
-                    resolve_private_key,
-                )
-
-                priv_key = asyncio.run(
-                    resolve_private_key(
-                        options=ResolvePrivateKeyOptions(network=network)
+                synced = asyncio.run(
+                    _resolve_sign_and_upsert(
+                        slug=slug,
+                        agent_id=effective_agent_id,
+                        wallet=effective_wallet,
+                        config_cid=result.cid,
+                        config_hash=result.config_hash,
+                        network=network,
                     )
                 )
-                if priv_key:
-                    from eth_account import Account
-                    from eth_account.messages import encode_defunct
-
-                    message = f"agirails-publish:{slug}:{result.config_hash}"
-                    acct = Account.from_key(priv_key)
-                    sig = acct.sign_message(
-                        encode_defunct(text=message)
-                    ).signature.hex()
-
-                    asyncio.run(
-                        upsert_agent(
-                            UpsertAgentParams(
-                                slug=slug,
-                                agent_id=effective_agent_id,
-                                wallet=effective_wallet,
-                                config_cid=result.cid,
-                                config_hash=result.config_hash,
-                                signature=f"0x{sig}" if not sig.startswith("0x") else sig,
-                                message=message,
-                            )
-                        )
+                if synced and opts.output_format not in (OutputFormat.JSON, OutputFormat.QUIET):
+                    print_success(
+                        f"Profile live at: agirails.app/a/{slug}"
                     )
-                    if opts.output_format not in (OutputFormat.JSON, OutputFormat.QUIET):
-                        print_success(
-                            f"Profile live at: agirails.app/a/{slug}"
-                        )
             except Exception as e:
                 # Non-blocking: agent is already on-chain
                 print_warning(f"agirails.app sync failed: {e}")

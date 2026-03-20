@@ -141,18 +141,29 @@ class CreateEscrowParams:
     amount: int
     escrow_id: Optional[str] = None
 
+    @staticmethod
+    def _is_valid_address(addr: str) -> bool:
+        """Check if string is a valid Ethereum address (0x + 40 hex chars)."""
+        if not addr or len(addr) != 42 or not addr.startswith("0x"):
+            return False
+        try:
+            int(addr, 16)
+            return True
+        except ValueError:
+            return False
+
     def __post_init__(self) -> None:
         """Validate parameters and generate escrow ID if needed."""
-        if not self.requester or not self.requester.startswith("0x"):
+        if not self._is_valid_address(self.requester or ""):
             raise ValidationError(
-                "Requester must be a valid Ethereum address",
+                "Requester must be a valid Ethereum address (0x + 40 hex chars)",
                 field="requester",
                 value=self.requester,
             )
 
-        if not self.provider or not self.provider.startswith("0x"):
+        if not self._is_valid_address(self.provider or ""):
             raise ValidationError(
-                "Provider must be a valid Ethereum address",
+                "Provider must be a valid Ethereum address (0x + 40 hex chars)",
                 field="provider",
                 value=self.provider,
             )

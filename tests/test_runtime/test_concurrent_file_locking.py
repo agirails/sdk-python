@@ -319,7 +319,7 @@ class TestStateCorruptionRecovery:
     @pytest.mark.asyncio
     async def test_recover_from_corrupted_json(self, manager):
         """Should raise appropriate error for corrupted JSON."""
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             f.write("{ this is not valid JSON }")
 
@@ -331,7 +331,7 @@ class TestStateCorruptionRecovery:
     @pytest.mark.asyncio
     async def test_recover_from_truncated_file(self, manager):
         """Should detect and report truncated file."""
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             f.write('{"version": "2.0.0", "transactions":')  # Truncated
 
@@ -341,7 +341,7 @@ class TestStateCorruptionRecovery:
     @pytest.mark.asyncio
     async def test_recover_from_empty_file(self, manager):
         """Should handle empty file gracefully."""
-        manager._ensure_directory()
+        await manager._ensure_directory()
         manager.state_file_path.touch()  # Create empty file
 
         with pytest.raises(MockStateCorruptedError):
@@ -350,7 +350,7 @@ class TestStateCorruptionRecovery:
     @pytest.mark.asyncio
     async def test_recover_from_incompatible_version(self, manager):
         """Should raise error for incompatible version."""
-        manager._ensure_directory()
+        await manager._ensure_directory()
         state_data = {
             "version": "99.0.0",  # Future incompatible version
             "transactions": {},
@@ -400,7 +400,7 @@ class TestStateCorruptionRecovery:
     async def test_recover_after_reset(self, manager):
         """Reset should restore to clean state."""
         # Create corrupted file
-        manager._ensure_directory()
+        await manager._ensure_directory()
         with open(manager.state_file_path, "w") as f:
             f.write("corrupted data")
 

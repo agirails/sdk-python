@@ -394,6 +394,7 @@ class BlockchainRuntime:
                 deadline=params.deadline,
                 dispute_window=params.dispute_window,
                 service_hash=service_hash,
+                agent_id=params.agent_id,
             )
         )
 
@@ -549,30 +550,56 @@ class BlockchainRuntime:
             _logger.warning(f"get_transaction({tx_id}) failed after retries")
             raise
 
-    async def get_all_transactions(self) -> List[MockTransaction]:
+    async def get_all_transactions(
+        self,
+        from_block: int | None = None,
+        limit: int = 100,
+    ) -> List[MockTransaction]:
         """
-        Get all transactions.
+        Get transactions from on-chain events.
 
-        Note: This queries events which may be expensive for many transactions.
-        Use get_transactions_by_address for filtered queries.
+        Warning: This scans historical events which can be expensive.
+        Use a reasonable from_block to avoid scanning from genesis.
+
+        Args:
+            from_block: Starting block for event scan. Defaults to latest - 50_000
+                        (~2 days on Base). Pass 0 to scan from genesis (slow).
+            limit: Maximum number of transactions to return.
 
         Returns:
-            List of all transactions
+            List of transactions (most recent first, up to limit).
         """
-        # Get transaction created events
-        events = await self.events.get_events(
-            EventFilter(event_types=["TransactionCreated"]),
-            from_block=0,
+        if from_block is None:
+            try:
+                latest = await self.w3.eth.block_number
+                from_block = max(0, latest - 50_000)
+            except Exception:
+                from_block = 0
+
+        _logger.info(
+            "get_all_transactions scanning from block %d (limit=%d)", from_block, limit
         )
 
-        transactions = []
-        for event in events:
-            if hasattr(event, "transaction_id"):
-                tx = await self.get_transaction(event.transaction_id)
-                if tx:
-                    transactions.append(tx)
+        events = await self.events.get_events(
+            EventFilter(event_types=["TransactionCreated"]),
+            from_block=from_block,
+        )
 
-        return transactions
+        # Cap to limit (take most recent)
+        if len(events) > limit:
+            events = events[-limit:]
+
+        # Batch fetch in parallel instead of N+1 serial RPCs
+        async def _fetch(event: Any) -> MockTransaction | None:
+            if hasattr(event, "transaction_id"):
+                try:
+                    return await self.get_transaction(event.transaction_id)
+                except Exception:
+                    return None
+            return None
+
+        results = await asyncio.gather(*[_fetch(e) for e in events])
+        return [tx for tx in results if tx is not None]
 
     async def release_escrow(
         self,
@@ -611,7 +638,12 @@ class BlockchainRuntime:
 
         # SECURITY FIX (MEDIUM-1): Validate dispute window has elapsed
         if tx.completed_at and tx.dispute_window:
-            current_time = int(time.time())
+            # P-9 fix: use block.timestamp, not local wall clock (avoids clock skew)
+            try:
+                latest_block = await self.w3.eth.get_block("latest")
+                current_time = int(latest_block["timestamp"])
+            except Exception:
+                current_time = int(time.time())  # fallback if RPC fails
             window_end = tx.completed_at + tx.dispute_window
             if current_time < window_end:
                 remaining = window_end - current_time

@@ -124,6 +124,7 @@ class CreateTransactionParams:
         deadline: Transaction deadline (Unix timestamp)
         dispute_window: Dispute window in seconds (default: 48 hours)
         service_hash: Hash of service description (bytes32)
+        agent_id: ERC-8004 agent ID for provider (0 if not applicable)
     """
 
     provider: str
@@ -132,14 +133,34 @@ class CreateTransactionParams:
     requester: Optional[str] = None
     dispute_window: int = DEFAULT_DISPUTE_WINDOW
     service_hash: str = ZERO_BYTES32
+    agent_id: int = 0
+    requester_agent_id: int = 0  # AIP-14: Requester's ERC-8004 agent ID
+
+    @staticmethod
+    def _is_valid_address(addr: str) -> bool:
+        """Check if string is a valid Ethereum address (0x + 40 hex chars)."""
+        if not addr or len(addr) != 42 or not addr.startswith("0x"):
+            return False
+        try:
+            int(addr, 16)
+            return True
+        except ValueError:
+            return False
 
     def __post_init__(self) -> None:
         """Validate parameters after initialization."""
-        if not self.provider or not self.provider.startswith("0x"):
+        if not self._is_valid_address(self.provider or ""):
             raise ValidationError(
-                "Provider must be a valid Ethereum address",
+                "Provider must be a valid Ethereum address (0x + 40 hex chars)",
                 field="provider",
                 value=self.provider,
+            )
+
+        if self.requester and not self._is_valid_address(self.requester):
+            raise ValidationError(
+                "Requester must be a valid Ethereum address (0x + 40 hex chars)",
+                field="requester",
+                value=self.requester,
             )
 
         if self.amount <= 0:
@@ -180,6 +201,10 @@ class TransactionView:
     dispute_window: int
     metadata: str
     platform_fee_bps_locked: int
+    agent_id: int = 0
+    requester_agent_id: int = 0  # AIP-14
+    dispute_initiator: str = ""  # AIP-14
+    dispute_bond: int = 0  # AIP-14
 
     def to_transaction(self) -> Transaction:
         """Convert to Transaction type."""
@@ -202,7 +227,7 @@ class TransactionView:
     def from_tuple(cls, data: Tuple) -> "TransactionView":
         """Create from contract return tuple."""
         return cls(
-            transaction_id=data[0].hex() if isinstance(data[0], bytes) else data[0],
+            transaction_id="0x" + data[0].hex() if isinstance(data[0], bytes) else data[0],
             requester=data[1],
             provider=data[2],
             state=TransactionState(data[3]),
@@ -210,13 +235,17 @@ class TransactionView:
             created_at=data[5],
             updated_at=data[6],
             deadline=data[7],
-            service_hash=data[8].hex() if isinstance(data[8], bytes) else data[8],
+            service_hash="0x" + data[8].hex() if isinstance(data[8], bytes) else data[8],
             escrow_contract=data[9],
-            escrow_id=data[10].hex() if isinstance(data[10], bytes) else data[10],
-            attestation_uid=data[11].hex() if isinstance(data[11], bytes) else data[11],
+            escrow_id="0x" + data[10].hex() if isinstance(data[10], bytes) else data[10],
+            attestation_uid="0x" + data[11].hex() if isinstance(data[11], bytes) else data[11],
             dispute_window=data[12],
-            metadata=data[13].hex() if isinstance(data[13], bytes) else data[13],
+            metadata="0x" + data[13].hex() if isinstance(data[13], bytes) else data[13],
             platform_fee_bps_locked=data[14],
+            agent_id=data[15] if len(data) > 15 else 0,
+            requester_agent_id=data[16] if len(data) > 16 else 0,
+            dispute_initiator=data[17] if len(data) > 17 else "",
+            dispute_bond=data[18] if len(data) > 18 else 0,
         )
 
 
@@ -350,16 +379,23 @@ class ACTPKernel(ContractBase):
         service_hash = self._to_bytes32(params.service_hash)
 
         # Build transaction
-        tx = await self.contract.functions.createTransaction(
+        contract_fn = self.contract.functions.createTransaction(
             provider_checksum,
             requester_checksum,
             params.amount,
             params.deadline,
             params.dispute_window,
             service_hash,
-        ).build_transaction(
+            params.agent_id,
+            params.requester_agent_id,
+        )
+        # P-2 fix: dynamic gas estimation with hardcoded floor fallback
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["create_transaction"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["create_transaction"],
+                gas_limit=effective_gas,
                 max_fee_per_gas=max_fee_per_gas,
                 max_priority_fee_per_gas=max_priority_fee_per_gas,
             )
@@ -407,13 +443,17 @@ class ACTPKernel(ContractBase):
         """
         tx_id_bytes = self._to_bytes32(transaction_id)
 
-        tx = await self.contract.functions.transitionState(
+        contract_fn = self.contract.functions.transitionState(
             tx_id_bytes,
             new_state.value,
             proof,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["transition_state"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["transition_state"],
+                gas_limit=effective_gas,
             )
         )
 
@@ -451,13 +491,17 @@ class ACTPKernel(ContractBase):
         tx_id_bytes = self._to_bytes32(transaction_id)
         escrow_id_bytes = self._to_bytes32(escrow_id)
 
-        tx = await self.contract.functions.linkEscrow(
+        contract_fn = self.contract.functions.linkEscrow(
             tx_id_bytes,
             escrow_contract,
             escrow_id_bytes,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["link_escrow"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["link_escrow"],
+                gas_limit=effective_gas,
             )
         )
 
@@ -486,11 +530,15 @@ class ACTPKernel(ContractBase):
         """
         tx_id_bytes = self._to_bytes32(transaction_id)
 
-        tx = await self.contract.functions.releaseEscrow(
+        contract_fn = self.contract.functions.releaseEscrow(
             tx_id_bytes,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["release_escrow"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["release_escrow"],
+                gas_limit=effective_gas,
             )
         )
 
@@ -519,12 +567,16 @@ class ACTPKernel(ContractBase):
         """
         tx_id_bytes = self._to_bytes32(transaction_id)
 
-        tx = await self.contract.functions.releaseMilestone(
+        contract_fn = self.contract.functions.releaseMilestone(
             tx_id_bytes,
             amount,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["release_milestone"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["release_milestone"],
+                gas_limit=effective_gas,
             )
         )
 
@@ -558,12 +610,16 @@ class ACTPKernel(ContractBase):
         tx_id_bytes = self._to_bytes32(transaction_id)
         attestation_bytes = self._to_bytes32(attestation_uid)
 
-        tx = await self.contract.functions.anchorAttestation(
+        contract_fn = self.contract.functions.anchorAttestation(
             tx_id_bytes,
             attestation_bytes,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["anchor_attestation"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["anchor_attestation"],
+                gas_limit=effective_gas,
             )
         )
 
@@ -614,13 +670,17 @@ class ACTPKernel(ContractBase):
         # Encode dispute proof with reason and evidence (IPFS hash)
         proof_data = encode(["string", "string"], [reason, evidence])
 
-        tx = await self.contract.functions.transitionState(
+        contract_fn = self.contract.functions.transitionState(
             tx_id_bytes,
             TransactionState.DISPUTED.value,
             proof_data,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["raise_dispute"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["raise_dispute"],
+                gas_limit=effective_gas,
             )
         )
 
@@ -698,13 +758,17 @@ class ACTPKernel(ContractBase):
             [requester_amount, provider_amount, mediator, mediator_amount],
         )
 
-        tx = await self.contract.functions.transitionState(
+        contract_fn = self.contract.functions.transitionState(
             tx_id_bytes,
             TransactionState.SETTLED.value,
             proof_data,
-        ).build_transaction(
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["resolve_dispute"]
+        )
+        tx = await contract_fn.build_transaction(
             await self._build_tx_params(
-                gas_limit=gas_limit or GAS_LIMITS["resolve_dispute"],
+                gas_limit=effective_gas,
             )
         )
 

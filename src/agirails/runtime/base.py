@@ -38,6 +38,7 @@ class CreateTransactionParams:
     deadline: int
     dispute_window: int = 172800
     service_description: Optional[str] = None
+    agent_id: int = 0
 
 
 class TimeInterface(Protocol):
@@ -192,12 +193,20 @@ class IACTPRuntime(Protocol):
         """
         ...
 
-    async def get_all_transactions(self) -> List[MockTransaction]:
+    async def get_all_transactions(
+        self,
+        from_block: int | None = None,
+        limit: int = 100,
+    ) -> List[MockTransaction]:
         """
-        Get all transactions.
+        Get transactions.
+
+        Args:
+            from_block: Starting block (blockchain runtime only). None = recent.
+            limit: Maximum transactions to return.
 
         Returns:
-            List of all transactions.
+            List of transactions.
         """
         ...
 

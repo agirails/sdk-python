@@ -8,11 +8,36 @@ including atomic updates with file locking to prevent race conditions.
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Awaitable, Callable, Optional, TypeVar, Union
+
+# Platform-aware file locking: fcntl on Unix, msvcrt on Windows
+if sys.platform == "win32":
+    import msvcrt
+
+    def _flock_ex_nb(fd: int) -> None:
+        """Non-blocking exclusive lock (Windows)."""
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _flock_un(fd: int) -> None:
+        """Unlock (Windows)."""
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass  # already unlocked
+else:
+    import fcntl
+
+    def _flock_ex_nb(fd: int) -> None:
+        """Non-blocking exclusive lock (Unix)."""
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _flock_un(fd: int) -> None:
+        """Unlock (Unix)."""
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 from agirails.errors import (
     MockStateCorruptedError,
@@ -88,9 +113,12 @@ class MockStateManager:
         """Get the full path to the lock file."""
         return self._state_directory / f"{self._state_filename}.lock"
 
-    def _ensure_directory(self) -> None:
-        """Create state directory if it doesn't exist."""
-        self._state_directory.mkdir(parents=True, exist_ok=True)
+    async def _ensure_directory(self) -> None:
+        """Create state directory if it doesn't exist.
+
+        P-12 fix: use asyncio.to_thread to avoid blocking the event loop.
+        """
+        await asyncio.to_thread(self._state_directory.mkdir, parents=True, exist_ok=True)
 
     async def load(self) -> MockState:
         """
@@ -105,9 +133,10 @@ class MockStateManager:
             MockStateCorruptedError: If state file is corrupted.
             MockStateVersionError: If state version is incompatible.
         """
-        self._ensure_directory()
+        await self._ensure_directory()
 
-        if not self.state_file_path.exists():
+        # P-12 fix: use asyncio.to_thread for blocking stat call
+        if not await asyncio.to_thread(self.state_file_path.exists):
             return create_default_state()
 
         try:
@@ -145,7 +174,7 @@ class MockStateManager:
         Args:
             state: State to save.
         """
-        self._ensure_directory()
+        await self._ensure_directory()
 
         # Serialize state
         data = state.to_dict()
@@ -243,11 +272,11 @@ class MockStateManager:
         """
         Internal implementation of with_lock without timeout wrapper.
         """
-        self._ensure_directory()
+        await self._ensure_directory()
 
         # Create lock file if it doesn't exist
         lock_file_path = self.lock_file_path
-        if not lock_file_path.exists():
+        if not await asyncio.to_thread(lock_file_path.exists):
             lock_file_path.touch()
 
         lock_fd = None
@@ -273,7 +302,7 @@ class MockStateManager:
 
             finally:
                 # Release lock
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                _flock_un(lock_fd)
 
         finally:
             if lock_fd is not None:
@@ -295,7 +324,7 @@ class MockStateManager:
         while True:
             try:
                 # Try non-blocking lock
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _flock_ex_nb(fd)
                 return  # Lock acquired
             except BlockingIOError:
                 # Lock is held by another process

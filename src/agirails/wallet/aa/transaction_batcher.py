@@ -71,8 +71,9 @@ class ACTPBatchParams:
     dispute_window: int  # Seconds
     service_hash: str  # bytes32
     agent_id: str  # ERC-8004 agent ID ("0" if none)
-    actp_nonce: int  # Current ACTP nonce for the requester
-    contracts: ContractAddresses
+    requester_agent_id: str = "0"  # AIP-14: Requester's ERC-8004 agent ID
+    actp_nonce: int = 0  # Current ACTP nonce for the requester
+    contracts: ContractAddresses = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -103,9 +104,9 @@ class ActivationBatchParams:
 # ERC20.approve(address,uint256)
 _APPROVE_SELECTOR = Web3.keccak(text="approve(address,uint256)")[:4].hex()
 
-# ACTPKernel.createTransaction(address,address,uint256,uint256,uint256,bytes32,uint256)
+# ACTPKernel.createTransaction(address,address,uint256,uint256,uint256,bytes32,uint256,uint256)
 _CREATE_TX_SELECTOR = Web3.keccak(
-    text="createTransaction(address,address,uint256,uint256,uint256,bytes32,uint256)"
+    text="createTransaction(address,address,uint256,uint256,uint256,bytes32,uint256,uint256)"
 )[:4].hex()
 
 # ACTPKernel.linkEscrow(bytes32,address,bytes32)
@@ -175,7 +176,7 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
 
     Calls:
       1. USDC.approve(escrowVault, amount)
-      2. ACTPKernel.createTransaction(provider, requester, amount, deadline, disputeWindow, serviceHash, agentId)
+      2. ACTPKernel.createTransaction(provider, requester, amount, deadline, disputeWindow, serviceHash, agentId, requesterAgentId)
       3. ACTPKernel.linkEscrow(txId, escrowVault, escrowId)
 
     Args:
@@ -183,7 +184,13 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
 
     Returns:
         ACTPBatchResult with calls and txId.
+
+    Raises:
+        ValueError: If params.contracts is not set.
     """
+    # C-5 fix: guard against None contracts (default sentinel)
+    if params.contracts is None:
+        raise ValueError("ACTPBatchParams.contracts must be set")
     amount_int = int(params.amount)
 
     # Pre-compute txId
@@ -203,7 +210,7 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
 
     # Call 2: ACTPKernel.createTransaction(...)
     create_tx_data = "0x" + _CREATE_TX_SELECTOR + abi_encode(
-        ["address", "address", "uint256", "uint256", "uint256", "bytes32", "uint256"],
+        ["address", "address", "uint256", "uint256", "uint256", "bytes32", "uint256", "uint256"],
         [
             Web3.to_checksum_address(params.provider),
             Web3.to_checksum_address(params.requester),
@@ -212,6 +219,7 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
             params.dispute_window,
             bytes.fromhex(params.service_hash.replace("0x", "")),
             int(params.agent_id or "0"),
+            int(params.requester_agent_id or "0"),
         ],
     ).hex()
 

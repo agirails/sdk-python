@@ -544,14 +544,14 @@ class AgentRegistry:
             )
         except asyncio.TimeoutError:
             raise RuntimeError(
-                f"Transaction {tx_hash.hex()} timed out after {timeout}s. "
+                f"Transaction 0x{tx_hash.hex()} timed out after {timeout}s. "
                 "Check network congestion and gas settings."
             )
 
         return TransactionReceipt(
-            transaction_hash=receipt["transactionHash"].hex(),
+            transaction_hash="0x" + receipt["transactionHash"].hex(),
             block_number=receipt["blockNumber"],
-            block_hash=receipt["blockHash"].hex(),
+            block_hash="0x" + receipt["blockHash"].hex(),
             gas_used=receipt["gasUsed"],
             effective_gas_price=receipt.get("effectiveGasPrice", 0),
             status=receipt["status"],
