@@ -354,6 +354,7 @@ from agirails.storage import (
 
 # Negotiation Module (autonomous buyer-side negotiation)
 from agirails.negotiation import (
+    DEFAULT_WEIGHTS,
     PolicyEngine,
     BuyerPolicy,
     Constraints,
@@ -646,6 +647,7 @@ __all__ = [
     # Types - Circuit Breaker
     "CircuitBreakerConfig",
     # Negotiation Module
+    "DEFAULT_WEIGHTS",
     "PolicyEngine",
     "BuyerPolicy",
     "Constraints",

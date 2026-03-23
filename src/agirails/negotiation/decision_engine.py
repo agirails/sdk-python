@@ -175,7 +175,7 @@ class DecisionEngine:
         # otherwise fall through to tie-breakers (lower price, higher success_rate, original order).
         def _comparator(a: ScoredCandidate, b: ScoredCandidate) -> int:
             if abs(b.score - a.score) > 0.001:
-                return -1 if b.score > a.score else 1  # descending by score
+                return 1 if b.score > a.score else -1  # descending: b>a means a goes after b
 
             a_raw = eligible_by_slug[a.slug]
             b_raw = eligible_by_slug[b.slug]
