@@ -98,6 +98,7 @@ _DEFAULT_GAS_LIMITS = {
     # PARITY: Dispute operations (matches TS SDK gas floors)
     "raise_dispute": 200_000,  # Large proof data handling
     "resolve_dispute": 350_000,  # Complex multi-party settlement
+    "accept_quote": 200_000,  # Quote acceptance + amount update
 }
 
 # Build actual gas limits with environment overrides
@@ -460,7 +461,53 @@ class ACTPKernel(ContractBase):
         receipt = await self._sign_and_send(tx)
         return self._to_receipt(receipt)
 
-    # =========================================================================
+    async def accept_quote(
+        self,
+        transaction_id: str,
+        new_amount: int,
+        gas_limit: Optional[int] = None,
+    ) -> TransactionReceipt:
+        """
+        Accept a provider's quote and update transaction amount.
+
+        This is a dedicated on-chain function (NOT a transitionState wrapper).
+        It updates the transaction amount to the quoted amount and locks the
+        current platformFeeBps, but does NOT change the transaction state
+        (stays in QUOTED). After accept_quote, call link_escrow to move to COMMITTED.
+
+        Args:
+            transaction_id: The transaction ID (bytes32 hex string)
+            new_amount: New amount in USDC (6 decimals, e.g., 2000000 = 2 USDC)
+            gas_limit: Optional gas limit override
+
+        Returns:
+            Transaction receipt
+
+        Raises:
+            TransactionError: If the call fails (wrong state, wrong caller, etc.)
+
+        Example:
+            >>> await kernel.accept_quote(tx_id, 2000000)  # Accept quote for 2 USDC
+        """
+        tx_id_bytes = self._to_bytes32(transaction_id)
+
+        contract_fn = self.contract.functions.acceptQuote(
+            tx_id_bytes,
+            new_amount,
+        )
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn, GAS_LIMITS["accept_quote"]
+        )
+        tx = await contract_fn.build_transaction(
+            await self._build_tx_params(
+                gas_limit=effective_gas,
+            )
+        )
+
+        receipt = await self._sign_and_send(tx)
+        return self._to_receipt(receipt)
+
+        # =========================================================================
     # Escrow Management
     # =========================================================================
 

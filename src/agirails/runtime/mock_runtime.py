@@ -453,6 +453,77 @@ class MockRuntime(IMockRuntime):
 
         await self._state_manager.with_lock(transition)
 
+    async def accept_quote(self, tx_id: str, new_amount: str) -> None:
+        """
+        Accept a provider's quote, updating the transaction amount.
+
+        Mirrors on-chain acceptQuote() behavior:
+        - Requires QUOTED state
+        - Updates amount to new_amount
+        - Does NOT change state (stays QUOTED)
+        - Emits QuoteAccepted event
+
+        Args:
+            tx_id: Transaction ID.
+            new_amount: New amount in USDC wei.
+
+        Raises:
+            TransactionNotFoundError: If transaction doesn't exist.
+            InvalidStateTransitionError: If not in QUOTED state.
+            InvalidAmountError: If amount is invalid.
+            DeadlinePassedError: If deadline has passed.
+        """
+        await self._ensure_initialized()
+
+        async def accept(state: MockState) -> MockState:
+            tx = state.transactions.get(tx_id)
+            if tx is None:
+                raise TransactionNotFoundError(tx_id)
+
+            # Must be in QUOTED state
+            if tx.state != State.QUOTED:
+                raise InvalidStateTransitionError(
+                    tx.state.value,
+                    State.QUOTED.value,
+                    tx_id=tx_id,
+                )
+
+            # Validate amount
+            try:
+                amount_int = int(new_amount)
+            except ValueError:
+                raise InvalidAmountError(new_amount, reason="Invalid number format")
+
+            if amount_int <= 0:
+                raise InvalidAmountError(new_amount, reason="Amount must be positive")
+
+            # Check deadline
+            current_time = state.blockchain.timestamp
+            if current_time > tx.deadline:
+                raise DeadlinePassedError(tx.deadline, current_time)
+
+            old_amount = tx.amount
+
+            # Update amount (state stays QUOTED)
+            tx.amount = new_amount
+            tx.updated_at = current_time
+
+            # Emit QuoteAccepted event
+            self._emit_event(
+                state,
+                "QuoteAccepted",
+                tx_id,
+                {
+                    "oldAmount": old_amount,
+                    "newAmount": new_amount,
+                },
+            )
+
+            await self._state_manager.save(state)
+            return state
+
+        await self._state_manager.with_lock(accept)
+
     async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
         """Get a transaction by ID."""
         await self._ensure_initialized()

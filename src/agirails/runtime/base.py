@@ -181,6 +181,23 @@ class IACTPRuntime(Protocol):
         """
         ...
 
+    async def accept_quote(self, tx_id: str, new_amount: str) -> None:
+        """
+        Accept a provider's quote, updating the transaction amount.
+
+        Does NOT change state (stays QUOTED). After accept_quote, call link_escrow.
+
+        Args:
+            tx_id: Transaction ID.
+            new_amount: New amount in USDC wei (string for BigNumber precision).
+
+        Raises:
+            TransactionNotFoundError: If transaction doesn't exist.
+            InvalidStateTransitionError: If not in QUOTED state.
+            DeadlinePassedError: If deadline has passed.
+        """
+        ...
+
     async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
         """
         Get a transaction by ID.

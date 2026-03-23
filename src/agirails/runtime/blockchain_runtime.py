@@ -478,6 +478,20 @@ class BlockchainRuntime:
 
         await self.kernel.transition_state(tx_id, state, proof_bytes)
 
+    async def accept_quote(self, tx_id: str, new_amount: str) -> None:
+        """
+        Accept a provider's quote, updating the transaction amount.
+
+        Calls the dedicated acceptQuote() function on ACTPKernel.
+        Does NOT change state (stays QUOTED).
+
+        Args:
+            tx_id: Transaction ID
+            new_amount: New amount in USDC wei
+        """
+        amount_int = int(new_amount) if isinstance(new_amount, str) else new_amount
+        await self.kernel.accept_quote(tx_id, amount_int)
+
     async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
         """
         Get a transaction by ID.

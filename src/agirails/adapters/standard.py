@@ -229,6 +229,27 @@ class StandardAdapter(BaseAdapter):
 
         return tx_id
 
+    async def accept_quote(
+        self,
+        tx_id: str,
+        new_amount: Union[str, int, float],
+    ) -> None:
+        """
+        Accept a provider's quote, updating the transaction amount.
+
+        Does NOT change state (stays QUOTED). After accept_quote, call link_escrow.
+
+        Args:
+            tx_id: Transaction ID
+            new_amount: New amount in user-friendly format ("100", 100.50, "100 USDC")
+
+        Raises:
+            TransactionNotFoundError: If transaction doesn't exist.
+            InvalidStateTransitionError: If not in QUOTED state.
+        """
+        amount_wei = self.parse_amount(new_amount)
+        await self._runtime.accept_quote(tx_id=tx_id, new_amount=amount_wei)
+
     async def link_escrow(self, tx_id: str, amount: Optional[Union[str, int, float]] = None) -> str:
         """
         Link escrow to transaction (locks funds).
