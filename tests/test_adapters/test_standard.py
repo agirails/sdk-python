@@ -123,6 +123,74 @@ class TestStandardLinkEscrow:
         assert before - after == 100
 
 
+
+class TestStandardAcceptQuote:
+    """Tests for StandardAdapter.accept_quote() method."""
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock",
+            requester_address="0x" + "a" * 40,
+        )
+
+    @pytest.fixture
+    def provider_address(self):
+        return "0x" + "b" * 40
+
+    async def _create_quoted_tx(self, client, provider_address):
+        tx_id = await client.standard.create_transaction({
+            "provider": provider_address,
+            "amount": 100,
+        })
+        await client._runtime.transition_state(tx_id, "QUOTED")
+        return tx_id
+
+    @pytest.mark.asyncio
+    async def test_accept_quote_user_friendly_amount(self, client, provider_address):
+        """accept_quote() should parse user-friendly amount and stay QUOTED."""
+        tx_id = await self._create_quoted_tx(client, provider_address)
+
+        await client.standard.accept_quote(tx_id, "150")  # 150 USDC
+
+        tx = await client.standard.get_transaction(tx_id)
+        assert tx.state == "QUOTED"
+        assert tx.amount == "150000000"  # parse_amount converts to wei
+
+    @pytest.mark.asyncio
+    async def test_accept_quote_numeric_amount(self, client, provider_address):
+        """accept_quote() should accept numeric input."""
+        tx_id = await self._create_quoted_tx(client, provider_address)
+
+        await client.standard.accept_quote(tx_id, 200)
+
+        tx = await client.standard.get_transaction(tx_id)
+        assert tx.amount == "200000000"
+
+    @pytest.mark.asyncio
+    async def test_accept_quote_rejects_initiated(self, client, provider_address):
+        """accept_quote() should reject from INITIATED state."""
+        tx_id = await client.standard.create_transaction({
+            "provider": provider_address,
+            "amount": 100,
+        })
+
+        with pytest.raises(Exception):
+            await client.standard.accept_quote(tx_id, "150")
+
+    @pytest.mark.asyncio
+    async def test_accept_quote_full_flow(self, client, provider_address):
+        """Full flow: create -> quote -> accept_quote -> link_escrow."""
+        tx_id = await self._create_quoted_tx(client, provider_address)
+
+        await client.standard.accept_quote(tx_id, "150")
+        await client.standard.link_escrow(tx_id)
+
+        tx = await client.standard.get_transaction(tx_id)
+        assert tx.state == "COMMITTED"
+        assert tx.amount == "150000000"
+
+
 class TestStandardTransitionState:
     """Tests for StandardAdapter.transition_state() method."""
 
