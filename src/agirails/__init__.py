@@ -352,6 +352,31 @@ from agirails.storage import (
     CircuitBreakerConfig,
 )
 
+# Negotiation Module (autonomous buyer-side negotiation)
+from agirails.negotiation import (
+    PolicyEngine,
+    BuyerPolicy,
+    Constraints,
+    MaxUnitPrice,
+    MaxDailySpend,
+    Negotiation,
+    Selection,
+    QuoteOffer,
+    PolicyViolation,
+    PolicyResult,
+    DecisionEngine,
+    ScoringWeights,
+    CandidateStats,
+    ScoredCandidate,
+    ScoreBreakdown,
+    SessionStore,
+    SessionMapping,
+    BuyerOrchestrator,
+    NegotiationResult,
+    RoundResult,
+    OrchestratorConfig,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -620,4 +645,26 @@ __all__ = [
     "DownloadResult",
     # Types - Circuit Breaker
     "CircuitBreakerConfig",
+    # Negotiation Module
+    "PolicyEngine",
+    "BuyerPolicy",
+    "Constraints",
+    "MaxUnitPrice",
+    "MaxDailySpend",
+    "Negotiation",
+    "Selection",
+    "QuoteOffer",
+    "PolicyViolation",
+    "PolicyResult",
+    "DecisionEngine",
+    "ScoringWeights",
+    "CandidateStats",
+    "ScoredCandidate",
+    "ScoreBreakdown",
+    "SessionStore",
+    "SessionMapping",
+    "BuyerOrchestrator",
+    "NegotiationResult",
+    "RoundResult",
+    "OrchestratorConfig",
 ]
