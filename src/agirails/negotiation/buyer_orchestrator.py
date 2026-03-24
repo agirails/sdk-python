@@ -46,6 +46,8 @@ class RoundResult:
     action: Literal["accepted", "rejected", "timeout", "error"]
     reason: str
     tx_id: Optional[str] = None
+    quoted_price: Optional[float] = None
+    """Actual quoted price from on-chain (USDC float), if quote was received."""
 
 
 @dataclass
@@ -60,6 +62,8 @@ class NegotiationResult:
     rounds: List[RoundResult] = field(default_factory=list)
     actp_tx_id: Optional[str] = None
     selected_provider: Optional[str] = None
+    deadlock_detected: bool = False
+    """True if repeated identical prices were detected across rounds (price deadlock)."""
 
 
 @dataclass
@@ -295,6 +299,10 @@ class BuyerOrchestrator:
             self._policy.negotiation.quote_ttl
         )
 
+        # Price tracking for deadlock detection (PRD-5B)
+        price_history: List[float] = []
+        deadlock_detected = False
+
         for round_idx in range(max_rounds):
             candidate = ranked[round_idx]
             provider_address = self._find_agent_address(
@@ -323,6 +331,7 @@ class BuyerOrchestrator:
                 ),
                 commerce_session_id=session.commerce_session_id,
                 expires_at=int(time.time()) + quote_ttl_seconds,
+                final_offer=deadlock_detected,
             )
 
             validation = self._policy_engine.validate(offer)
@@ -427,7 +436,22 @@ class BuyerOrchestrator:
 
             emit(QuoteReceivedEvent(tx_id=tx_id))
 
-            # 3d. Reserve budget and link escrow (or recognize already-committed).
+            # 3d. Read quoted price from on-chain for tracking (PRD-5B)
+            quoted_price: Optional[float] = None
+            try:
+                quoted_tx = await self._runtime.get_transaction(tx_id)
+                if quoted_tx and hasattr(quoted_tx, "amount") and quoted_tx.amount is not None:
+                    raw_amount = float(quoted_tx.amount) if isinstance(quoted_tx.amount, str) else float(quoted_tx.amount)
+                    quoted_price = raw_amount / 1_000_000  # Convert base units to USDC
+                    price_history.append(quoted_price)
+
+                    # Deadlock detection: if 2+ consecutive identical prices, flag deadlock
+                    if len(price_history) >= 2 and price_history[-1] == price_history[-2]:
+                        deadlock_detected = True
+            except Exception:
+                pass  # Non-fatal — price tracking is best-effort
+
+            # 3e. Reserve budget and link escrow (or recognize already-committed).
             # ACTP invariant: tx.amount is immutable (set at createTransaction).
             # Policy was already validated pre-round, so offer.unit_price
             # is the correct amount for both reservation and escrow.
@@ -458,6 +482,7 @@ class BuyerOrchestrator:
                         action="accepted",
                         reason=reason,
                         tx_id=tx_id,
+                        quoted_price=quoted_price,
                     )
                 )
 
@@ -480,6 +505,7 @@ class BuyerOrchestrator:
                     rounds_used=round_idx + 1,
                     reason="Negotiation complete -- already committed",
                     rounds=rounds,
+                    deadlock_detected=deadlock_detected,
                 )
 
             # QUOTED path: reserve budget + link escrow (both must succeed, or try next candidate)
@@ -506,6 +532,7 @@ class BuyerOrchestrator:
                         action="accepted",
                         reason=reason,
                         tx_id=tx_id,
+                        quoted_price=quoted_price,
                     )
                 )
 
@@ -528,6 +555,7 @@ class BuyerOrchestrator:
                     rounds_used=round_idx + 1,
                     reason="Negotiation complete -- escrow linked",
                     rounds=rounds,
+                    deadlock_detected=deadlock_detected,
                 )
             except Exception as err:
                 # Reserve or linkEscrow failed -- release and try next
@@ -541,6 +569,7 @@ class BuyerOrchestrator:
                         action="error",
                         reason=f"Escrow failed: {reason}",
                         tx_id=tx_id,
+                        quoted_price=quoted_price,
                     )
                 )
                 emit(
@@ -560,12 +589,19 @@ class BuyerOrchestrator:
             )
         )
 
+        exhausted_reason = (
+            f"All {len(rounds)} candidates exhausted (price deadlock detected)"
+            if deadlock_detected
+            else f"All {len(rounds)} candidates exhausted"
+        )
+
         return NegotiationResult(
             success=False,
             commerce_session_id=session.commerce_session_id,
             rounds_used=len(rounds),
-            reason=f"All {len(rounds)} candidates exhausted",
+            reason=exhausted_reason,
             rounds=rounds,
+            deadlock_detected=deadlock_detected,
         )
 
     # ============================================================================

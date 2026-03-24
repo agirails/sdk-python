@@ -77,6 +77,8 @@ class QuoteOffer:
     expires_at: Optional[int] = None  # unix timestamp
     reputation_score: Optional[float] = None
     commerce_session_id: Optional[str] = None
+    final_offer: bool = False
+    """Signal that this is a final offer — no further negotiation expected."""  
 
 
 @dataclass

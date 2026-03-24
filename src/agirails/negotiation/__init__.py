@@ -28,7 +28,7 @@ Example:
             max_unit_price=MaxUnitPrice(amount=0.10, currency="USDC", unit="request"),
             max_daily_spend=MaxDailySpend(amount=5.0, currency="USDC"),
         ),
-        negotiation=Negotiation(rounds_max=3, quote_ttl="15m"),
+        negotiation=Negotiation(rounds_max=10, quote_ttl="15m"),
         selection=Selection(prioritize=["quality", "price"]),
     )
 
