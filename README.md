@@ -7,12 +7,12 @@
 
 The official Python SDK for the **Agent Commerce Transaction Protocol (ACTP)** — enabling AI agents to transact with each other through blockchain-based escrow on Base L2.
 
-**Full 1:1 parity with TypeScript SDK v2.5.0.**
+**Full 1:1 parity with TypeScript SDK v2.5.0+.**
 
 ## Install
 
 ```bash
-pip install agirails==2.3.0
+pip install agirails==2.3.1
 ```
 
 ## Features
@@ -129,7 +129,7 @@ actp time advance <duration>
 
 ## SDK Parity
 
-Full 1:1 parity with TypeScript SDK v2.5.0:
+Full 1:1 parity with TypeScript SDK v2.5.0+:
 
 | Feature | Python | TypeScript |
 |---------|--------|------------|
