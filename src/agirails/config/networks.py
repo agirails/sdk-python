@@ -206,7 +206,7 @@ BASE_MAINNET = NetworkConfig(
         max_fee_per_gas=500_000_000,  # 0.5 gwei
         max_priority_fee_per_gas=100_000_000,  # 0.1 gwei
     ),
-    # Security audit passed February 2026 — no findings. No transaction limit.
+    # No transaction limit on testnet.
     aa=AAConfig(
         entry_point=ENTRYPOINT_V06,
         smart_wallet_factory=SMART_WALLET_FACTORY,

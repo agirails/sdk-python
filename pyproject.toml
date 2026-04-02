@@ -36,7 +36,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # Security Note (M-1): Pin upper bounds to prevent breaking changes
+    # Pin upper bounds to prevent breaking changes
     "web3>=7.0.0,<8.0.0",
     "eth-account>=0.13.0,<0.14.0",
     "eth-abi>=5.0.0,<6.0.0",

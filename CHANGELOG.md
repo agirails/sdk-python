@@ -90,6 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> Note: Changelog entries for v2.1.0 through v2.3.1 were not recorded.
+> See git log for detailed changes.
+
 ### Planned for 2.1.0
 - `BlockchainRuntime` - Real blockchain integration
 - CLI tool implementation (`actp` command)
