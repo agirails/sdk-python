@@ -150,12 +150,12 @@ BASE_SEPOLIA = NetworkConfig(
     rpc_url=BASE_SEPOLIA_RPC_URL,
     block_explorer="https://sepolia.basescan.org",
     contracts=ContractAddresses(
-        actp_kernel="0x0ba0b17554601b30F5406e74d2208f567C12CcFE",
-        escrow_vault="0xedC62264301A119207f1f89C6bDE4Fd7a7A4CeB4",
+        actp_kernel="0x90a1Bcc218c148F63D036aB2f7B5329C9ee7868d",
+        escrow_vault="0xA336967F4481EeE4A8Bb59e35423D273fbf9f5e7",
         usdc="0x444b4e1A65949AB2ac75979D5d0166Eb7A248Ccb",  # MockUSDC
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry="0x55e7F23AB5700fD0D9f83294be2d0F2eC84013E1",  # AIP-7 v2
+        agent_registry="0x7403426a720f91ea155405e3b63d16aa40a46f98",  # AIP-7 v2
     ),
     eas=EASConfig(
         # Deployed 2025-11-23 - AIP-4 delivery proof schema
