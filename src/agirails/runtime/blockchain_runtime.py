@@ -615,6 +615,33 @@ class BlockchainRuntime:
         results = await asyncio.gather(*[_fetch(e) for e in events])
         return [tx for tx in results if tx is not None]
 
+    async def get_expired_delivered_transactions(
+        self, provider_address: str
+    ) -> list[dict[str, str]]:
+        """
+        Returns DELIVERED transactions for a provider whose dispute window has expired.
+        Used by SettleOnInteract for background settlement sweeps.
+
+        Note: dispute_window from on-chain is an absolute timestamp (deliveredAt + windowDuration).
+
+        Args:
+            provider_address: Provider's Ethereum address.
+
+        Returns:
+            List of dicts with tx_id for eligible transactions.
+        """
+        txs = await self.get_all_transactions(limit=500)
+        now = int(time.time())
+        return [
+            {"tx_id": tx.id}
+            for tx in txs
+            if tx.provider.lower() == provider_address.lower()
+            and tx.state == "DELIVERED"
+            and tx.dispute_window
+            and tx.dispute_window > 0
+            and now > tx.dispute_window
+        ]
+
     async def release_escrow(
         self,
         escrow_id: str,

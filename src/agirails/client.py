@@ -36,6 +36,7 @@ from agirails.adapters.basic import BasicAdapter
 from agirails.adapters.standard import StandardAdapter
 from agirails.adapters.types import UnifiedPayParams
 from agirails.errors import ValidationError
+from agirails.settle.settle_on_interact import SettleOnInteract
 from agirails.utils.helpers import Address
 
 if TYPE_CHECKING:
@@ -142,6 +143,11 @@ class ACTPClient:
 
         # Try to register optional adapters (x402, erc8004)
         self._try_register_optional_adapters()
+
+        # Settle-on-interact: sweep expired DELIVERED transactions on each interaction.
+        # requester_address is the local agent's address — it acts as provider in
+        # start_work/deliver flows, so the sweep finds expired provider-side transactions.
+        self._settle_on_interact = SettleOnInteract(runtime, requester_address)
 
     def _try_register_optional_adapters(self) -> None:
         """Auto-register optional components if dependencies are available.
@@ -404,6 +410,8 @@ class ACTPClient:
             ValidationError: If params are invalid.
             RuntimeError: If no suitable adapter found.
         """
+        self._settle_on_interact.trigger()
+
         if isinstance(params, dict):
             params = UnifiedPayParams(**params)
 

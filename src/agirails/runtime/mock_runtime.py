@@ -587,6 +587,26 @@ class MockRuntime(IMockRuntime):
 
         return results
 
+    async def sweep_expired_delivered_for_provider(self, provider_address: str) -> None:
+        """
+        Sweep all expired DELIVERED transactions for a provider.
+        Called by SettleOnInteract when operating on MockRuntime.
+
+        Args:
+            provider_address: Provider address to sweep for.
+        """
+        txs = await self.get_transactions_by_provider(provider_address, State.DELIVERED)
+        for tx in txs:
+            # Find the escrow linked to this transaction
+            mock_state = await self._state_manager.load()
+            for esc_id, esc in mock_state.escrows.items():
+                if esc.tx_id == tx.id and not esc.released:
+                    try:
+                        await self.release_escrow(esc_id)
+                    except Exception:
+                        pass  # Already settled or window still active
+                    break
+
     async def release_escrow(
         self,
         escrow_id: str,
