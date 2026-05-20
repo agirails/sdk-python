@@ -141,6 +141,25 @@ swaps needed only if:
   reverted with kernel `_requesterCheck` / `_providerCheck` mismatch.
   Legacy EOA / mock path is preserved when wallet provider lacks
   `pay_actp_batched`.
+- **`actp serve` — AIP-2.1 quote-channel daemon.** New CLI command +
+  Python package (`agirails.server`) that runs a FastAPI app exposing:
+  - `GET /` — health check (provider address + supported chainIds)
+  - `POST /quote-channel/{chainId}/{txId}` — receives AIP-2.1
+    `agirails.counteroffer.v1` messages, runs URL-path-binding +
+    TTL-with-grace + EIP-712 signature verification (via
+    `CounterOfferBuilder`) + in-memory nonce dedup, then evaluates the
+    verified counter against a loaded `ProviderPolicy`
+    (`ACCEPT` / `COUNTER` / `REJECT` verdicts logged for the operator).
+  Includes `ProviderPolicy` + `PricingPolicy` dataclasses with JSON
+  loader (`load_policy_from_file`), minimal `evaluate_counter` policy
+  engine (walk / concede strategies with concede_pct math), and
+  `QuoteChannelHandler` framework-agnostic verifier with
+  `InMemoryDedupStore`. FastAPI / uvicorn ship as the optional
+  `server` extra — install via `pip install agirails[server]`. Mirrors
+  the TS daemon's v1 surface; out-of-scope (parity-matched): on-chain
+  INITIATED watcher (lives in `actp agent`) and reverse-channel
+  delivery of `CounterAcceptMessage` (operator-handled per
+  AIP-2.1 §5.3).
 - **`X402Adapter` auto-registration** — when an `ACTPClient` is created
   with a `wallet_provider` exposing `send_transaction` (both
   `EOAWalletProvider` and `AutoWalletProvider` qualify) and `mode` is
@@ -159,7 +178,6 @@ swaps needed only if:
   by passing `private_key=None` (orchestrator side).
 
 ### Coming in 3.x
-- `actp serve` daemon (FastAPI quote-channel HTTP for AIP-2.1)
 - Web Receipts (EIP-712 ReceiptWrite + agirails.app upload)
 - `actp repair`, `actp claim-code`, `actp request`, `actp verify` CLI commands
 

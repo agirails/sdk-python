@@ -130,6 +130,7 @@ from agirails.cli.commands import autopublish as autopublish_cmd
 from agirails.cli.commands import test as test_cmd
 from agirails.cli.commands import register as register_cmd
 from agirails.cli.commands import negotiate as negotiate_cmd
+from agirails.cli.commands import serve as serve_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -162,6 +163,9 @@ app.command(name="autopublish")(autopublish_cmd.autopublish)
 app.command(name="test")(test_cmd.test)
 app.command(name="register")(register_cmd.register)
 app.command(name="negotiate")(negotiate_cmd.negotiate)
+
+# AIP-2.1 quote-channel daemon
+app.command(name="serve")(serve_cmd.serve)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(

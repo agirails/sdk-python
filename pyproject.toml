@@ -75,6 +75,10 @@ security = [
 mutation = [
     "mutmut>=2.4.0",                # Mutation testing
 ]
+server = [
+    "fastapi>=0.110.0",             # actp serve daemon (AIP-2.1 quote channel)
+    "uvicorn>=0.30.0",
+]
 
 [project.scripts]
 actp = "agirails.cli.main:run"
