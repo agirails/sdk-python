@@ -87,10 +87,14 @@ class TestNetworkConfig:
         assert BASE_MAINNET.name == "Base Mainnet"
         assert BASE_MAINNET.chain_id == 8453
         assert "basescan.org" in BASE_MAINNET.block_explorer
-        # Mainnet contracts deployed 2026-02-09
-        assert BASE_MAINNET.contracts.actp_kernel == "0x132B9eB321dBB57c828B083844287171BDC92d29"
-        assert BASE_MAINNET.contracts.escrow_vault == "0x6aAF45882c4b0dD34130ecC790bb5Ec6be7fFb99"
-        assert BASE_MAINNET.contracts.agent_registry == "0x6fB222CF3DDdf37Bcb248EE7BBBA42Fb41901de8"
+        # Mainnet V3 contracts deployed 2026-05-19
+        assert BASE_MAINNET.contracts.actp_kernel == "0x048c811352e8a3fECd5b0Ec4AA2c2b94083CC842"
+        assert BASE_MAINNET.contracts.escrow_vault == "0x262D5912A9612F0c66dA5d13B4E678D50ebC44b5"
+        assert BASE_MAINNET.contracts.agent_registry == "0x64Cb18bfb3CC1aCb1370a3B01613391D3561a009"
+        assert BASE_MAINNET.contracts.archive_treasury == "0x6159A80Ce8362aBB2307FbaB4Ed4D3F4A4231Acc"
+        assert BASE_MAINNET.contracts.x402_relay is None  # NOT redeployed in V3 stack
+        assert BASE_MAINNET.actp_kernel_deployment_block == 46_212_266
+        assert BASE_MAINNET.max_transaction_amount == 1000
 
     def test_to_dict(self) -> None:
         """Test NetworkConfig.to_dict() method."""

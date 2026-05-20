@@ -42,13 +42,13 @@ AMOUNT = "1000000"  # 1 USDC
 SERVICE_HASH = "0x" + "ab" * 32
 AGENT_ID = "0"
 NONCE = 0
-REGISTRY = "0x6fB222CF3DDdf37Bcb248EE7BBBA42Fb41901de8"
+REGISTRY = "0x64Cb18bfb3CC1aCb1370a3B01613391D3561a009"  # V3 mainnet AgentRegistry
 CONFIG_HASH = "0x" + "cd" * 32
 
 CONTRACTS = ContractAddresses(
     usdc="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    actp_kernel="0x132B9eB321dBB57c828B083844287171BDC92d29",
-    escrow_vault="0x6aAF45882c4b0dD34130ecC790bb5Ec6be7fFb99",
+    actp_kernel="0x048c811352e8a3fECd5b0Ec4AA2c2b94083CC842",  # V3 mainnet
+    escrow_vault="0x262D5912A9612F0c66dA5d13B4E678D50ebC44b5",  # V3 mainnet
 )
 
 SAMPLE_DESCRIPTOR = ServiceDescriptor(
