@@ -131,6 +131,7 @@ from agirails.cli.commands import test as test_cmd
 from agirails.cli.commands import register as register_cmd
 from agirails.cli.commands import negotiate as negotiate_cmd
 from agirails.cli.commands import serve as serve_cmd
+from agirails.cli.commands import claim_code as claim_code_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -166,6 +167,9 @@ app.command(name="negotiate")(negotiate_cmd.negotiate)
 
 # AIP-2.1 quote-channel daemon
 app.command(name="serve")(serve_cmd.serve)
+
+# Dashboard linking
+app.command(name="claim-code")(claim_code_cmd.claim_code)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(

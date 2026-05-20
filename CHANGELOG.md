@@ -216,8 +216,21 @@ swaps needed only if:
   and DID-bound signature recovery. Verify-only construction supported
   by passing `private_key=None` (orchestrator side).
 
+- **`actp claim-code`** — regenerate a fresh claim code for dashboard
+  linking. Reads AGIRAILS.md, resolves the agent's keystore (env or
+  encrypted file), signs the
+  ``agirails-claim-code:{agent_id}:{chain_name}:{timestamp}`` challenge
+  via EIP-191 personal_sign, and exchanges it at
+  ``agirails.app/api/v1/agents/claim-code`` for a 24h code. Supports
+  Smart Wallet agents where the on-chain owner differs from the EOA
+  signer (ships both as ``wallet`` + ``signer``). Output modes:
+  default (human), ``--json`` (machine-readable), ``--quiet`` (pipe-
+  friendly — emits only the code). Also added
+  ``api.request_claim_code`` + ``RequestClaimCodeParams`` to the
+  ``agirails_app`` API client for programmatic use.
+
 ### Coming in 3.x
-- `actp repair`, `actp claim-code`, `actp request`, `actp verify` CLI commands
+- `actp repair`, `actp request`, `actp verify` CLI commands
 
 ---
 

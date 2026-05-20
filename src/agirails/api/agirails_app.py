@@ -225,12 +225,72 @@ async def claim_agent(params: ClaimAgentParams) -> Dict[str, Any]:
     })
 
 
+@dataclass
+class RequestClaimCodeParams:
+    """Parameters for :func:`request_claim_code`.
+
+    Mirrors the TS ``requestClaimCode`` payload byte-for-byte (camelCase
+    on the wire) so a single server endpoint serves both SDKs. Sign the
+    message ``agirails-claim-code:{agent_id}:{chain_name}:{timestamp}``
+    with the agent's EOA key (``personal_sign`` / EIP-191) and pass the
+    resulting hex signature in ``signature``.
+    """
+
+    agent_id: str
+    wallet: str
+    signature: str
+    message: str
+    signer: Optional[str] = None
+    network: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+
+    def to_wire(self) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "agentId": self.agent_id,
+            "wallet": self.wallet,
+            "signature": self.signature,
+            "message": self.message,
+        }
+        if self.signer is not None:
+            body["signer"] = self.signer
+        if self.network is not None:
+            body["network"] = self.network
+        if self.config is not None:
+            body["config"] = self.config
+        return body
+
+
+async def request_claim_code(
+    params: RequestClaimCodeParams,
+) -> Dict[str, Any]:
+    """Get a fresh claim code for dashboard linking.
+
+    The server verifies the EIP-191 signature against ``wallet`` (or
+    ``signer`` when Smart Wallet ownership differs from the signing
+    EOA), confirms on-chain that the wallet owns ``agent_id``, then
+    issues a 24h claim code.
+
+    Args:
+        params: Agent ID + signed challenge.
+
+    Returns:
+        Dict with ``claimCode`` (string).
+
+    Raises:
+        AgirailsAppError: When the server returns non-2xx.
+    """
+    url = f"{AGIRAILS_APP_BASE_URL}/api/v1/agents/claim-code"
+    return await _post(url, params.to_wire())
+
+
 __all__ = [
     "AgirailsAppError",
     "UpsertAgentParams",
     "ClaimAgentParams",
+    "RequestClaimCodeParams",
     "check_slug",
     "upsert_agent",
     "get_claim_challenge",
     "claim_agent",
+    "request_claim_code",
 ]
