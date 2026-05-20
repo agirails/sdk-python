@@ -39,6 +39,9 @@ from agirails.adapters.types import UnifiedPayParams
 from agirails.errors import ValidationError
 from agirails.settle.settle_on_interact import SettleOnInteract
 from agirails.utils.helpers import Address
+from agirails.utils.logger import Logger
+
+_logger = Logger("agirails.client")
 
 if TYPE_CHECKING:
     from agirails.runtime.base import IACTPRuntime
@@ -165,11 +168,13 @@ class ACTPClient:
     def _try_register_optional_adapters(self) -> None:
         """Auto-register optional components if dependencies are available.
 
-        NOTE: X402Adapter is NOT auto-registered because it requires a wallet
-        provider's transfer function. Use register_adapter() to add it manually
-        when a wallet provider is configured.
+        NOTE: X402Adapter auto-registration runs in ``ACTPClient.create()``
+        (not here) because it needs the resolved network config. Callers
+        constructing the client via ``__init__`` directly can still pass a
+        wallet provider and call ``register_adapter()`` themselves, or use
+        the ``_maybe_register_x402`` helper.
 
-        ERC-8004 bridge IS auto-registered (read-only, no wallet needed).
+        ERC-8004 bridge IS auto-registered here (read-only, no wallet needed).
         """
         # ERC-8004 bridge for agent ID resolution (read-only)
         try:
@@ -311,7 +316,18 @@ class ACTPClient:
             state_directory=config.state_directory,
         )
 
-        return cls(runtime, requester, info, eas_helper, wallet_provider=wallet_provider)
+        client = cls(runtime, requester, info, eas_helper, wallet_provider=wallet_provider)
+
+        # AIP-12 parity: Auto-register X402Adapter when wallet_provider is
+        # configured for a real network. TS SDK gates on signTypedData (x402
+        # v2 EIP-712 path); Python X402Adapter is the legacy direct-transfer
+        # variant, so we gate on send_transaction + testnet/mainnet network
+        # so we have a USDC address and a network label to register with.
+        # Best-effort: any failure is logged and skipped, matching TS.
+        if wallet_provider is not None and config.mode in ("testnet", "mainnet"):
+            cls._maybe_register_x402(client, config, wallet_provider, requester)
+
+        return client
 
     @classmethod
     async def _build_auto_wallet_provider(
@@ -411,6 +427,104 @@ class ACTPClient:
                 paymaster_backup_url=paymaster_backup,
             )
         )
+
+    @classmethod
+    def _maybe_register_x402(
+        cls,
+        client: "ACTPClient",
+        config: ACTPClientConfig,
+        wallet_provider: object,
+        requester_address: str,
+    ) -> None:
+        """Best-effort X402Adapter auto-registration.
+
+        Mirrors TS SDK ACTPClient where ``X402Adapter`` is auto-registered
+        when the wallet provider supports EIP-712 signing. Python's
+        X402Adapter is the legacy direct-transfer variant, so we wire a
+        transfer closure that builds ``USDC.transfer(to, amount)`` calldata
+        and submits it via ``wallet_provider.send_transaction``.
+
+        Failures are logged and swallowed so the SDK still works without
+        x402 routing — users can always register their own X402Adapter
+        instance via :py:meth:`register_adapter`.
+        """
+        try:
+            if not hasattr(wallet_provider, "send_transaction"):
+                _logger.debug(
+                    "X402Adapter auto-registration skipped: wallet provider "
+                    "does not implement send_transaction"
+                )
+                return
+
+            from agirails.adapters.x402_adapter import (
+                X402Adapter,
+                X402AdapterConfig,
+            )
+            from agirails.config.networks import get_network
+
+            network_name = (
+                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
+            )
+            network = get_network(network_name)
+            usdc_address = network.contracts.usdc
+            rpc_url = config.rpc_url or network.rpc_url
+
+            transfer_fn = cls._build_x402_transfer_fn(
+                wallet_provider, usdc_address, rpc_url
+            )
+
+            adapter = X402Adapter(
+                requester_address=requester_address,
+                config=X402AdapterConfig(
+                    expected_network=network_name,
+                    transfer_fn=transfer_fn,
+                ),
+            )
+            client.register_adapter(adapter)
+            _logger.debug(
+                f"X402Adapter auto-registered for {network_name} "
+                f"(usdc={usdc_address})"
+            )
+        except Exception as exc:
+            _logger.warning(
+                f"X402Adapter auto-registration skipped: {exc}"
+            )
+
+    @staticmethod
+    def _build_x402_transfer_fn(
+        wallet_provider: object,
+        usdc_address: str,
+        rpc_url: str,
+    ) -> Any:
+        """Build an x402 ``transfer_fn(to, amount) -> tx_hash`` closure.
+
+        The closure encodes ``USDC.transfer(to, amount)`` calldata using
+        the bundled USDC ABI and submits it via the wallet provider's
+        ``send_transaction`` method. Returns the receipt hash, which the
+        X402Adapter sends back to the provider as proof of payment.
+        """
+        import json
+        from web3 import Web3
+        from agirails.wallet.auto_wallet_provider import TransactionRequest
+
+        abi_path = Path(__file__).parent / "abis" / "usdc.json"
+        usdc_abi = json.loads(abi_path.read_text())
+        w3 = Web3(Web3.HTTPProvider(rpc_url))
+        usdc_contract = w3.eth.contract(
+            address=Web3.to_checksum_address(usdc_address), abi=usdc_abi
+        )
+
+        async def transfer_fn(to: str, amount: str) -> str:
+            calldata = usdc_contract.encode_abi(
+                "transfer",
+                args=[Web3.to_checksum_address(to), int(amount)],
+            )
+            receipt = await wallet_provider.send_transaction(  # type: ignore[attr-defined]
+                TransactionRequest(to=usdc_address, data=calldata, value="0")
+            )
+            return receipt.hash
+
+        return transfer_fn
 
     @classmethod
     async def _create_mock_runtime(cls, config: ACTPClientConfig) -> IACTPRuntime:

@@ -117,6 +117,74 @@ class TestACTPClientAdapters:
         assert client.advanced is client.runtime
 
 
+class TestACTPClientX402AutoRegistration:
+    """Tests for AIP-12 X402Adapter auto-registration."""
+
+    @pytest.mark.asyncio
+    async def test_mock_mode_no_wallet_skips_x402(self):
+        """Mock mode without wallet_provider does not register x402."""
+        client = await ACTPClient.create(
+            mode="mock",
+            requester_address="0x" + "a" * 40,
+        )
+        assert "x402" not in client._registry.get_ids()
+
+    @pytest.mark.asyncio
+    async def test_wallet_with_send_transaction_registers_x402(self):
+        """Wallet provider with send_transaction triggers x402 auto-registration."""
+        from unittest.mock import MagicMock
+
+        from agirails.client import ACTPClientConfig, ACTPClientInfo
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bootstrap = await ACTPClient.create(
+                mode="mock",
+                requester_address="0x" + "b" * 40,
+                state_directory=tmpdir,
+            )
+            rt = bootstrap._runtime
+            wallet = MagicMock()
+            wallet.send_transaction = MagicMock()
+
+            info = ACTPClientInfo(mode="testnet", address="0x" + "c" * 40)
+            client = ACTPClient(
+                rt, "0x" + "c" * 40, info, None, wallet_provider=wallet
+            )
+            cfg = ACTPClientConfig(
+                mode="testnet",
+                requester_address="0x" + "c" * 40,
+                rpc_url="https://example.invalid/rpc",
+            )
+            ACTPClient._maybe_register_x402(client, cfg, wallet, "0x" + "c" * 40)
+            assert "x402" in client._registry.get_ids()
+
+    @pytest.mark.asyncio
+    async def test_wallet_without_send_transaction_skips_x402(self):
+        """Wallet provider missing send_transaction is skipped silently."""
+        from agirails.client import ACTPClientConfig, ACTPClientInfo
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bootstrap = await ACTPClient.create(
+                mode="mock",
+                requester_address="0x" + "d" * 40,
+                state_directory=tmpdir,
+            )
+            rt = bootstrap._runtime
+            bad_wallet = object()  # no send_transaction attribute
+
+            info = ACTPClientInfo(mode="testnet", address="0x" + "e" * 40)
+            client = ACTPClient(
+                rt, "0x" + "e" * 40, info, None, wallet_provider=bad_wallet
+            )
+            cfg = ACTPClientConfig(
+                mode="testnet",
+                requester_address="0x" + "e" * 40,
+                rpc_url="https://example.invalid/rpc",
+            )
+            ACTPClient._maybe_register_x402(client, cfg, bad_wallet, "0x" + "e" * 40)
+            assert "x402" not in client._registry.get_ids()
+
+
 class TestACTPClientBalanceOperations:
     """Tests for balance and token operations."""
 

@@ -97,13 +97,28 @@ swaps needed only if:
 - You decode `getTransaction()` returns via positional `tuple[index]`
   instead of `TransactionView.from_tuple()` or field-name access.
 
-### Coming in 3.x
+### Added (parity sprint)
 
-- `wallet="auto"` literal auto-detection in `ACTPClient.create()` (mirrors TS)
-- Top-level re-exports of `X402Adapter`, `AutoWalletProvider`,
-  `EOAWalletProvider`, `ERC8004Bridge`, `ReputationReporter`,
-  `discover_agents`, `compute_transaction_id`
-- `X402Adapter` auto-registration when wallet provider has `sign_typed_data`
+- **Top-level re-exports** of `X402Adapter`, `AutoWalletProvider`,
+  `EOAWalletProvider`, `IWalletProvider`, `WalletTier`, `WalletInfo`,
+  `ERC8004Bridge`, `ReputationReporter`, `discover_agents`,
+  `compute_transaction_id`.
+- **`wallet="auto"`** literal in `ACTPClient.create()` — mirrors TS SDK
+  `ACTPClient.create({ wallet: 'auto' })`. SDK reads network AA config
+  (Coinbase primary, Pimlico backup), constructs `AutoWalletProvider`,
+  derives the Smart Wallet counterfactual address, and overrides
+  `requester_address` with it. Requires `mode in ("testnet","mainnet")`
+  + `private_key`.
+- **`X402Adapter` auto-registration** — when an `ACTPClient` is created
+  with a `wallet_provider` exposing `send_transaction` (both
+  `EOAWalletProvider` and `AutoWalletProvider` qualify) and `mode` is
+  testnet or mainnet, the client auto-registers an `X402Adapter` wired
+  to a `USDC.transfer(to, amount)` closure that submits via the wallet
+  provider. Best-effort: any failure is logged and skipped. Mirrors the
+  TS SDK behavior (TS gates on `signTypedData` for x402 v2 EIP-712;
+  Python uses the legacy direct-transfer variant pending the v2 port).
+
+### Coming in 3.x
 - `CounterOfferBuilder` + `CounterAcceptBuilder` (AIP-2.1 EIP-712 builders)
 - `actp serve` daemon (FastAPI quote-channel HTTP for AIP-2.1)
 - Web Receipts (EIP-712 ReceiptWrite + agirails.app upload)
