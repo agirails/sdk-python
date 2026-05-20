@@ -143,23 +143,40 @@ swaps needed only if:
   `pay_actp_batched`.
 - **`actp serve` — AIP-2.1 quote-channel daemon.** New CLI command +
   Python package (`agirails.server`) that runs a FastAPI app exposing:
-  - `GET /` — health check (provider address + supported chainIds)
+  - `GET /` — health check (provider address + supported chainIds).
   - `POST /quote-channel/{chainId}/{txId}` — receives AIP-2.1
     `agirails.counteroffer.v1` messages, runs URL-path-binding +
     TTL-with-grace + EIP-712 signature verification (via
-    `CounterOfferBuilder`) + in-memory nonce dedup, then evaluates the
-    verified counter against a loaded `ProviderPolicy`
-    (`ACCEPT` / `COUNTER` / `REJECT` verdicts logged for the operator).
+    `CounterOfferBuilder`) + in-memory nonce dedup. The response
+    carries two independent signals:
+    - **Transport** — HTTP status (`201` accepted-for-processing,
+      `200` idempotent duplicate, `4xx` rejected) and the
+      `accepted` / `duplicate` flags.
+    - **Business** — when transport passes, the response also
+      includes `verdict: { action, reason, recommended_amount }`
+      where `action ∈ {ACCEPT, COUNTER, REJECT}` is the result of
+      running the verified message against the loaded
+      `ProviderPolicy`. Buyers can distinguish a transport failure
+      (`status 4xx`) from a successful negotiation round that ended
+      in policy rejection (`status 201` + `verdict.action = "REJECT"`).
   Includes `ProviderPolicy` + `PricingPolicy` dataclasses with JSON
-  loader (`load_policy_from_file`), minimal `evaluate_counter` policy
-  engine (walk / concede strategies with concede_pct math), and
+  loader (`load_policy_from_file`), `evaluate_counter` policy engine
+  (walk / concede strategies with concede_pct math), and
   `QuoteChannelHandler` framework-agnostic verifier with
   `InMemoryDedupStore`. FastAPI / uvicorn ship as the optional
-  `server` extra — install via `pip install agirails[server]`. Mirrors
-  the TS daemon's v1 surface; out-of-scope (parity-matched): on-chain
-  INITIATED watcher (lives in `actp agent`) and reverse-channel
-  delivery of `CounterAcceptMessage` (operator-handled per
-  AIP-2.1 §5.3).
+  `server` extra — install via `pip install agirails[server]`.
+
+  **v1 policy scope:** `evaluate_counter` enforces
+  `pricing.{min_acceptable_amount, ideal_amount}`,
+  `counter_strategy`, and `concede_pct`. The `services`,
+  `min_deadline_seconds`, and `max_requotes` fields are accepted by
+  the loader but **not enforced by the counter-evaluation path** —
+  `services` belongs to quote-time service filtering;
+  `min_deadline_seconds` bounds `tx.deadline` (enforced at quote-time
+  and on-chain); `max_requotes` is session state belonging to a
+  multi-round orchestrator. These ship in 3.x once the full provider
+  orchestrator + on-chain INITIATED watcher (`actp agent`) and
+  reverse-channel `CounterAccept` delivery (AIP-2.1 §5.3) land.
 - **`X402Adapter` auto-registration** — when an `ACTPClient` is created
   with a `wallet_provider` exposing `send_transaction` (both
   `EOAWalletProvider` and `AutoWalletProvider` qualify) and `mode` is

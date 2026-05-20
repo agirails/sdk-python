@@ -89,13 +89,29 @@ def create_app(
             HandlerContext(path_chain_id=chain_id, path_tx_id=tx_id),
         )
 
-        # Evaluate verified counter-offers against policy and log the verdict.
-        # The HTTP response is the handler's accepted-or-not signal; the
-        # verdict is operator-visible via logs (v1 doesn't auto-deliver
-        # CounterAcceptMessage back — see AIP-2.1 §5.3).
+        # Disambiguate: the handler's ``accepted`` flag is "message accepted
+        # FOR PROCESSING" (signature + path + TTL + dedup passed). The policy
+        # verdict (ACCEPT / COUNTER / REJECT) is a SECOND, business-level
+        # answer to "does the provider agree to the proposed price". We
+        # surface both in the response so buyers can distinguish a transport
+        # failure (status 4xx, accepted=false) from a successful negotiation
+        # round that ended in policy rejection (status 201, accepted=true,
+        # verdict.action="REJECT"). The verdict is also logged for operators.
+        # v1 still does NOT auto-deliver CounterAccept back (AIP-2.1 §5.3
+        # — operator handles signed reply delivery).
+        body = dict(result.body)  # copy so we don't mutate HandlerResult.body
         if result.parsed_message is not None:
             try:
                 verdict = evaluate_counter(result.parsed_message, policy)
+                body["verdict"] = {
+                    "action": verdict.action.value,
+                    "reason": verdict.reason,
+                    "recommended_amount": (
+                        str(verdict.recommended_amount)
+                        if verdict.recommended_amount is not None
+                        else None
+                    ),
+                }
                 _logger.info(
                     f"[counter] tx={tx_id[:12]}… "
                     f"counter={result.parsed_message.counterAmount} "
@@ -106,8 +122,9 @@ def create_app(
                     f"[counter] tx={tx_id[:12]}… "
                     f"policy eval failed: {exc}"
                 )
+                body["verdict_error"] = str(exc)
 
-        return JSONResponse(status_code=result.status, content=result.body)
+        return JSONResponse(status_code=result.status, content=body)
 
     return app
 

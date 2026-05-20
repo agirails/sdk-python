@@ -59,13 +59,35 @@ def evaluate_counter(
 ) -> Verdict:
     """Evaluate a buyer counter-offer against the provider policy.
 
+    **Policy fields used by v1 counter-evaluation:**
+
+      - ``pricing.min_acceptable_amount``  (absolute floor)
+      - ``pricing.ideal_amount``           (auto-accept threshold)
+      - ``counter_strategy``               ('walk' | 'concede')
+      - ``concede_pct``                    (governs COUNTER recommendation)
+
+    **Policy fields stored but NOT enforced by this function:**
+
+      - ``services`` — enforced at *quote-time* (provider declines to
+        quote services it doesn't offer); a counter-offer arrives only
+        after a quote was already given, so the service-filter has
+        already passed.
+      - ``min_deadline_seconds`` — bounds the on-chain transaction
+        deadline (``tx.deadline``), which is not carried in the
+        AIP-2.1 counter-offer message. Enforced at quote-time and on
+        chain.
+      - ``max_requotes`` — session-level cap on how many times the
+        provider re-quotes. Tracked by the orchestrator state machine
+        (out of scope for this stateless per-message evaluator).
+
     Args:
         message: The verified counter-offer (caller must have already
             run :meth:`CounterOfferBuilder.verify`).
         policy: Provider policy.
         last_quote_amount: Provider's most recent quote for this tx
             (USDC base units). Used by the concede strategy to compute
-            the next counter. When omitted, falls back to ``policy.pricing.ideal_amount``.
+            the next counter. When omitted, falls back to
+            ``policy.pricing.ideal_amount``.
 
     Returns:
         :class:`Verdict` with action + reason + optional recommended_amount.

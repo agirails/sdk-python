@@ -305,7 +305,10 @@ class TestFastAPIApp:
         assert body["service"] == "actp-serve"
         assert CHAIN_ID in body["chains"]
 
-    def test_post_counter_accepted(self, buyer, provider, basic_policy):
+    def test_post_counter_accepted_at_or_above_ideal(
+        self, buyer, provider, basic_policy
+    ):
+        """201 + accepted=true (transport) + verdict.action=ACCEPT (business)."""
         client = self._client(basic_policy)
         counter = _make_counter(buyer, provider, counter_amount="1100000")
         r = client.post(
@@ -313,24 +316,61 @@ class TestFastAPIApp:
             json=_counter_to_wire(counter),
         )
         assert r.status_code == 201
-        assert r.json()["accepted"] is True
+        body = r.json()
+        assert body["accepted"] is True  # message accepted FOR PROCESSING
+        assert body["verdict"]["action"] == "ACCEPT"  # policy verdict
+        assert body["verdict"]["recommended_amount"] == "1100000"
 
-    def test_post_counter_below_floor_still_returns_201(
+    def test_post_counter_below_floor_returns_201_with_reject_verdict(
         self, buyer, provider, basic_policy
     ):
-        """Handler accepts the message (verification + dedup pass);
-        policy verdict is logged but doesn't change the HTTP status."""
+        """Handler-level acceptance (sig + path + TTL + dedup OK) is
+        orthogonal to the business-level policy verdict. Buyer reads
+        both: HTTP status confirms transport, ``verdict`` confirms
+        whether the provider agrees to the price."""
         client = self._client(basic_policy)
-        counter = _make_counter(buyer, provider, counter_amount="100000")
-        # 100000 is below platform min, builder rejects at build time —
-        # so we need to test the floor-walking path instead.
+        # 700000 is above platform min but inside policy's negotiation
+        # band [500000, 1000000); strategy="walk" → policy REJECT.
         counter = _make_counter(buyer, provider, counter_amount="700000")
         r = client.post(
             build_channel_path(CHAIN_ID, TX_ID),
             json=_counter_to_wire(counter),
         )
-        # Handler validation passed; verdict (REJECT for walk) is logged.
         assert r.status_code == 201
+        body = r.json()
+        assert body["accepted"] is True
+        assert body["verdict"]["action"] == "REJECT"
+        assert "strategy='walk'" in body["verdict"]["reason"]
+        assert body["verdict"]["recommended_amount"] is None
+
+    def test_post_counter_concede_returns_counter_verdict(
+        self, buyer, provider
+    ):
+        """In concede mode the verdict carries the next price the
+        provider should re-quote."""
+        from agirails.server.policy import PricingPolicy, ProviderPolicy
+
+        concede_policy = ProviderPolicy(
+            pricing=PricingPolicy(
+                min_acceptable_amount=500_000, ideal_amount=1_000_000
+            ),
+            counter_strategy="concede",
+            concede_pct=30,
+        )
+        client = self._client(concede_policy)
+        counter = _make_counter(
+            buyer, provider, counter_amount="600000", quoteAmount="1500000"
+        )
+        r = client.post(
+            build_channel_path(CHAIN_ID, TX_ID),
+            json=_counter_to_wire(counter),
+        )
+        assert r.status_code == 201
+        body = r.json()
+        assert body["verdict"]["action"] == "COUNTER"
+        # concede from ideal (1_000_000) toward floor (500_000) at 30%
+        # → 1_000_000 - 500_000 * 0.3 = 850_000
+        assert body["verdict"]["recommended_amount"] == "850000"
 
     def test_post_bad_json_returns_400(self, basic_policy):
         client = self._client(basic_policy)
