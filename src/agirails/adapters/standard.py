@@ -248,6 +248,13 @@ class StandardAdapter(BaseAdapter):
             InvalidStateTransitionError: If not in QUOTED state.
         """
         amount_wei = self.parse_amount(new_amount)
+
+        # AIP-12: route through Smart Wallet so msg.sender == requester.
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_accept_quote(tx_id, amount_wei)
+            return
+
         await self._runtime.accept_quote(tx_id=tx_id, new_amount=amount_wei)
 
     async def link_escrow(self, tx_id: str, amount: Optional[Union[str, int, float]] = None) -> str:
@@ -278,7 +285,16 @@ class StandardAdapter(BaseAdapter):
         else:
             amount_wei = self.parse_amount(amount)
 
-        # Link escrow
+        # AIP-12: route through Smart Wallet — approve + linkEscrow in a single
+        # batched UserOp so msg.sender == Smart Wallet (kernel _requesterCheck).
+        router = self._smart_wallet_router
+        if router is not None and router.should_route() and self._contract_addresses is not None:
+            await router.send_link_escrow(
+                tx_id, amount_wei, self._contract_addresses.usdc
+            )
+            return tx_id  # escrowId == txId (ACTP standard)
+
+        # Link escrow (legacy EOA / mock path)
         escrow_id = await self._runtime.link_escrow(
             tx_id=tx_id,
             amount=amount_wei,
@@ -318,6 +334,17 @@ class StandardAdapter(BaseAdapter):
         if isinstance(new_state, str):
             new_state = State(new_state)
 
+        # AIP-12: route through Smart Wallet so msg.sender matches
+        # the party allowed to make this transition (requester for
+        # CANCELLED, provider for IN_PROGRESS/DELIVERED, etc).
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, new_state.value, proof or "0x",
+                label=f"transitionState({new_state.value})",
+            )
+            return
+
         await self._runtime.transition_state(
             tx_id=tx_id,
             new_state=new_state,
@@ -348,6 +375,21 @@ class StandardAdapter(BaseAdapter):
             InvalidStateTransitionError: If transaction is not in DELIVERED state
             ValueError: If attestation verification fails
         """
+        # AIP-12: route through Smart Wallet — validate preconditions +
+        # attestation in-process, then send transitionState(SETTLED) so
+        # msg.sender == Smart Wallet (kernel _requesterCheck on release).
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            from agirails.wallet.smart_wallet_router import SmartWalletRouter
+
+            tx_id_from_escrow = SmartWalletRouter.extract_tx_id(escrow_id)
+            await router.validate_release_preconditions(tx_id_from_escrow)
+            await router.verify_release_attestation(
+                tx_id_from_escrow, attestation_uid
+            )
+            await router.send_settle(tx_id_from_escrow)
+            return
+
         # Check if runtime has EAS helper (BlockchainRuntime)
         runtime_has_eas = hasattr(self._runtime, "eas_helper") and self._runtime.eas_helper
 

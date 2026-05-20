@@ -71,6 +71,23 @@ class BaseAdapter:
         self._wallet_provider = wallet_provider
         self._contract_addresses = contract_addresses
 
+        # Build SmartWalletRouter when wallet provider is AA-capable.
+        # Lazy import keeps the wallet/web3 dependency cost off mock-only callers.
+        self._smart_wallet_router: Optional[object] = None
+        if wallet_provider is not None and contract_addresses is not None:
+            from agirails.wallet.smart_wallet_router import (
+                SmartWalletContractAddresses,
+                create_smart_wallet_router,
+            )
+            router_contracts = SmartWalletContractAddresses(
+                usdc=contract_addresses.usdc,
+                actp_kernel=contract_addresses.actp_kernel,
+                escrow_vault=contract_addresses.escrow_vault,
+            )
+            self._smart_wallet_router = create_smart_wallet_router(
+                wallet_provider, router_contracts, runtime, eas_helper
+            )
+
     @property
     def runtime(self) -> IACTPRuntime:
         """Get the underlying runtime."""

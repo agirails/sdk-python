@@ -165,7 +165,13 @@ class ACTPClient:
             wallet_provider=wallet_provider,
             contract_addresses=contract_addresses,
         )
-        self._standard = StandardAdapter(runtime, requester_address, eas_helper)
+        self._standard = StandardAdapter(
+            runtime,
+            requester_address,
+            eas_helper,
+            wallet_provider=wallet_provider,
+            contract_addresses=contract_addresses,
+        )
 
         # Initialize registry and router
         self._registry = AdapterRegistry()

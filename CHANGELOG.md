@@ -121,6 +121,26 @@ swaps needed only if:
   Without a wallet provider exposing `pay_actp_batched`, the legacy
   sequential path through `runtime.create_transaction` is preserved
   unchanged.
+- **`SmartWalletRouter`** (`agirails.wallet.smart_wallet_router`) — Python
+  port of `sdk-js/src/wallet/SmartWalletRouter.ts`. Encodes ACTPKernel
+  state-transition calls (`transitionState`, `acceptQuote`, `linkEscrow`)
+  + USDC approve as `TransactionRequest` / batched call lists and
+  submits them via `wallet_provider.send_transaction` /
+  `send_batch_transaction`. Includes `validate_release_preconditions`
+  (state + dispute window check with mock-mode-duration /
+  blockchain-mode-absolute-timestamp heuristic) and
+  `verify_release_attestation`. Constructed automatically by
+  `BaseAdapter` whenever wallet provider + contract addresses are wired.
+- **`StandardAdapter` lifecycle routing** — `link_escrow`, `accept_quote`,
+  `transition_state`, and `release_escrow` now route through the
+  `SmartWalletRouter` when the wallet provider is AA-capable.
+  `link_escrow` submits approve + linkEscrow as one batched UserOp;
+  `release_escrow` runs preconditions + attestation guard before
+  submitting `transitionState(SETTLED)`. This closes the parity gap with
+  TS SDK where every lifecycle call on `wallet="auto"` previously
+  reverted with kernel `_requesterCheck` / `_providerCheck` mismatch.
+  Legacy EOA / mock path is preserved when wallet provider lacks
+  `pay_actp_batched`.
 - **`X402Adapter` auto-registration** — when an `ACTPClient` is created
   with a `wallet_provider` exposing `send_transaction` (both
   `EOAWalletProvider` and `AutoWalletProvider` qualify) and `mode` is
