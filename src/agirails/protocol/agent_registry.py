@@ -689,6 +689,26 @@ class AgentRegistry:
         tx = await self._build_transaction(function)
         return await self._send_transaction(tx)
 
+    async def set_listed(self, listed: bool) -> TransactionReceipt:
+        """
+        Set agent's listed flag on the AgentRegistry.
+
+        Listing is the v2 public-discoverability surface — controls
+        whether ``query_agents_by_service`` returns the agent in its
+        result set. Independent from ``is_active``, which gates whether
+        the kernel will accept new transactions naming the agent as
+        provider.
+
+        Args:
+            listed: Whether the agent should appear in public listings.
+
+        Returns:
+            Transaction receipt.
+        """
+        function = self._contract.functions.setListed(listed)
+        tx = await self._build_transaction(function)
+        return await self._send_transaction(tx)
+
     async def get_service_descriptors(
         self,
         address: str,

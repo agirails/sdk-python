@@ -216,6 +216,17 @@ swaps needed only if:
   and DID-bound signature recovery. Verify-only construction supported
   by passing `private_key=None` (orchestrator side).
 
+- **`actp repair`** — reshape an on-chain agent without redeploying.
+  Drops phantom services, updates endpoint, and toggles
+  ``isActive`` / ``listed`` flags via the existing ``AgentRegistry``
+  methods. Each repair action sends its own transaction; sequential
+  execution means a failure midway leaves the earlier txs landed and
+  the user can retry the rest. Requires explicit ``--yes`` in
+  non-TTY contexts. ``AgentRegistry`` gains ``set_listed(bool)`` to
+  match the TS ``AgentRegistryClient.setListed`` surface.
+  Destructive ``deregisterAgent`` deliberately NOT exposed —
+  reputation-forfeiting operations live behind a separate command
+  with bigger guards.
 - **`actp claim-code`** — regenerate a fresh claim code for dashboard
   linking. Reads AGIRAILS.md, resolves the agent's keystore (env or
   encrypted file), signs the
@@ -230,7 +241,7 @@ swaps needed only if:
   ``agirails_app`` API client for programmatic use.
 
 ### Coming in 3.x
-- `actp repair`, `actp request`, `actp verify` CLI commands
+- `actp request`, `actp verify` CLI commands
 
 ---
 
