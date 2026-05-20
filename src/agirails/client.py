@@ -26,6 +26,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
@@ -87,6 +88,18 @@ class ACTPClientConfig:
     eas_config: Optional[Dict[str, Any]] = None
     require_attestation: bool = False
     runtime: Optional[IACTPRuntime] = None
+    # AIP-12: Wallet mode (parity with TS SDK).
+    # - "auto": construct AutoWalletProvider (Coinbase Smart Wallet + Paymaster,
+    #   gasless flow). Requires CDP_API_KEY or PIMLICO_API_KEY env so the
+    #   network config can resolve a bundler+paymaster URL pair. When "auto"
+    #   is selected, requester_address is auto-derived from the Smart Wallet
+    #   counterfactual address and does NOT need to be provided.
+    # - "eoa": explicit EOA path from private_key. Caller still provides
+    #   requester_address (matching the signer).
+    # - None (default): preserves pre-3.0.0 behavior — caller wires its own
+    #   wallet provider via the ACTPClient() wallet_provider kwarg, or relies
+    #   on private_key for EOA signing without AA infra.
+    wallet: Optional[str] = None  # Literal["auto", "eoa"] | None
 
 
 class ACTPClient:
@@ -183,6 +196,7 @@ class ACTPClient:
         state_directory: Optional[Union[Path, str]] = None,
         private_key: Optional[str] = None,
         rpc_url: Optional[str] = None,
+        wallet: Optional[str] = None,
         config: Optional[ACTPClientConfig] = None,
         **kwargs: Any,
     ) -> "ACTPClient":
@@ -193,10 +207,15 @@ class ACTPClient:
 
         Args:
             mode: Client mode ("mock", "testnet", "mainnet")
-            requester_address: Requester's Ethereum address
+            requester_address: Requester's Ethereum address. When wallet="auto"
+                this is auto-derived from the Smart Wallet and can be omitted.
             state_directory: Directory for mock state (Path or string)
             private_key: Private key for signing (testnet/mainnet)
             rpc_url: RPC URL for blockchain (testnet/mainnet)
+            wallet: Wallet mode. "auto" = construct AutoWalletProvider
+                (Coinbase Smart Wallet + Paymaster, gasless). "eoa" = force
+                EOA path. None (default) = legacy behavior, caller wires
+                its own wallet provider.
             config: Full configuration object (alternative to individual args)
             **kwargs: Additional configuration passed to config
 
@@ -235,8 +254,19 @@ class ACTPClient:
                 state_directory=Path(state_directory) if state_directory else None,
                 private_key=private_key,
                 rpc_url=rpc_url,
+                wallet=wallet,
                 **kwargs,
             )
+
+        # AIP-12: auto-construct Smart Wallet provider when wallet="auto".
+        # Must run BEFORE requester_address validation because the Smart
+        # Wallet address is derived from the signer's counterfactual address
+        # and supplied back into config.requester_address.
+        wallet_provider: Optional[object] = None
+        if config.wallet == "auto":
+            wallet_provider = await cls._build_auto_wallet_provider(config)
+            # Override (or fill in) requester_address with the Smart Wallet address.
+            config.requester_address = wallet_provider.get_address()
 
         # Validate requester address
         if not config.requester_address:
@@ -281,7 +311,106 @@ class ACTPClient:
             state_directory=config.state_directory,
         )
 
-        return cls(runtime, requester, info, eas_helper)
+        return cls(runtime, requester, info, eas_helper, wallet_provider=wallet_provider)
+
+    @classmethod
+    async def _build_auto_wallet_provider(
+        cls, config: ACTPClientConfig
+    ) -> object:
+        """Build AutoWalletProvider from config (wallet='auto' path).
+
+        Mirrors the TS SDK ACTPClient.create() AA initialization:
+        - Requires testnet or mainnet mode (mock has no on-chain kernel)
+        - Requires private_key (signer that owns the Smart Wallet)
+        - Reads bundler/paymaster URLs from network config (Coinbase
+          primary, Pimlico backup)
+        - Derives Smart Wallet counterfactual address from signer
+        """
+        # Imports here so mock-mode-only callers don't pay the AA import cost.
+        from web3 import Web3
+        from agirails.config.networks import get_network
+        from agirails.wallet.auto_wallet_provider import (
+            AutoWalletConfig,
+            AutoWalletProvider,
+        )
+
+        if config.mode not in ("testnet", "mainnet"):
+            raise ValidationError(
+                message=(
+                    'wallet="auto" requires mode in ("testnet", "mainnet"). '
+                    "Mock mode has no on-chain kernel for Smart Wallet routing."
+                ),
+                details={"field": "wallet", "mode": config.mode},
+            )
+        if not config.private_key:
+            raise ValidationError(
+                message=(
+                    'wallet="auto" requires private_key — the EOA that '
+                    "signs UserOps as owner of the Smart Wallet."
+                ),
+                details={"field": "private_key"},
+            )
+
+        network_name = (
+            "base-sepolia" if config.mode == "testnet" else "base-mainnet"
+        )
+        network = get_network(network_name)
+
+        if network.aa is None:
+            raise ValidationError(
+                message=(
+                    f"Network {network_name!r} has no aa config; "
+                    'wallet="auto" needs bundler + paymaster endpoints.'
+                ),
+                details={"field": "network.aa", "network": network_name},
+            )
+
+        bundler_primary = network.aa.bundler_urls.get(
+            "coinbase"
+        ) or network.aa.bundler_urls.get("pimlico")
+        paymaster_primary = network.aa.paymaster_urls.get(
+            "coinbase"
+        ) or network.aa.paymaster_urls.get("pimlico")
+        # When both providers are configured, the other becomes the backup.
+        bundler_backup = (
+            network.aa.bundler_urls.get("pimlico")
+            if network.aa.bundler_urls.get("coinbase")
+            and network.aa.bundler_urls.get("pimlico")
+            else None
+        )
+        paymaster_backup = (
+            network.aa.paymaster_urls.get("pimlico")
+            if network.aa.paymaster_urls.get("coinbase")
+            and network.aa.paymaster_urls.get("pimlico")
+            else None
+        )
+
+        if not bundler_primary or not paymaster_primary:
+            raise ValidationError(
+                message=(
+                    "AA bundler/paymaster endpoints are not configured. "
+                    "Set one of: CDP_API_KEY, PIMLICO_API_KEY, or explicit "
+                    "CDP_BUNDLER_URL / PIMLICO_BUNDLER_URL env vars."
+                ),
+                details={"field": "network.aa.bundler_urls"},
+            )
+
+        rpc_url = config.rpc_url or network.rpc_url
+        w3 = Web3(Web3.HTTPProvider(rpc_url))
+        chain_id = await asyncio.to_thread(lambda: w3.eth.chain_id)
+
+        return await AutoWalletProvider.create(
+            AutoWalletConfig(
+                private_key=config.private_key,
+                w3=w3,
+                chain_id=chain_id,
+                actp_kernel_address=network.contracts.actp_kernel,
+                bundler_primary_url=bundler_primary,
+                bundler_backup_url=bundler_backup,
+                paymaster_primary_url=paymaster_primary,
+                paymaster_backup_url=paymaster_backup,
+            )
+        )
 
     @classmethod
     async def _create_mock_runtime(cls, config: ACTPClientConfig) -> IACTPRuntime:
