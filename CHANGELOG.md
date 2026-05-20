@@ -216,6 +216,21 @@ swaps needed only if:
   and DID-bound signature recovery. Verify-only construction supported
   by passing `private_key=None` (orchestrator side).
 
+- **`actp request`** — Level 1 negotiated job request (PRD §5.6).
+  Distinct from ``actp pay``: pay commits funds directly without a
+  handler; request routes through a registered provider's handler.
+  Creates an INITIATED transaction whose ``service_description`` is
+  the bytes32 routing key ``keccak256(toUtf8Bytes(name.strip()))``;
+  a provider listening for that hash quotes, accepts, runs its
+  handler, and delivers. CLI prints each state transition with an
+  elapsed-time prefix, then issues the requester-immediate settle
+  on DELIVERED. Two separate timeouts (``--quote-timeout`` default
+  30s, ``--delivery-timeout`` default 5m); quote timeout exits with
+  code **2** so scripts can distinguish "provider offline" from
+  other failures. ``--quiet`` emits only the tx id, ``--json`` emits
+  the full structured result (``txId, finalState, elapsedMs, settled,
+  payload``). Backed by a new ``agirails.cli.lib.run_request``
+  helper module that the SDK can also call programmatically.
 - **`actp verify`** — trustless verification of agent identity files.
   Reads input from file path, URL, or stdin (pipe). Walks the
   verification chain: parses AGIRAILS.md → computes the canonical
@@ -255,7 +270,7 @@ swaps needed only if:
   ``agirails_app`` API client for programmatic use.
 
 ### Coming in 3.x
-- `actp request` CLI command (Level 1 negotiated job request)
+- `actp agent` long-running provider daemon (on-chain INITIATED watcher)
 
 ---
 

@@ -16,6 +16,10 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Keep the SDK's own cli/lib helper module (run_request etc.) — the
+# generic `lib/` rule above is meant for build/venv directories.
+!src/agirails/cli/lib/
+!src/agirails/cli/lib/**
 parts/
 sdist/
 var/

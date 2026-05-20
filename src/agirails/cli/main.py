@@ -134,6 +134,7 @@ from agirails.cli.commands import serve as serve_cmd
 from agirails.cli.commands import claim_code as claim_code_cmd
 from agirails.cli.commands import repair as repair_cmd
 from agirails.cli.commands import verify as verify_cmd
+from agirails.cli.commands import request as request_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -178,6 +179,9 @@ app.command(name="repair")(repair_cmd.repair)
 
 # Trustless identity verification
 app.command(name="verify")(verify_cmd.verify)
+
+# Level 1 negotiated job request (PRD §5.6)
+app.command(name="request")(request_cmd.request)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(
