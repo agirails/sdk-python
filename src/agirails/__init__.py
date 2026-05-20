@@ -332,7 +332,15 @@ except ImportError:
 
 # Builders
 from agirails.builders import (
+    CounterAcceptBuilder,
+    CounterAcceptMessage,
+    CounterAcceptParams,
+    CounterOfferBuilder,
+    CounterOfferJustification,
+    CounterOfferMessage,
+    CounterOfferParams,
     DeliveryProofBuilder,
+    MessageNonceManager,
     QuoteBuilder,
 )
 
@@ -647,6 +655,14 @@ __all__ = [
     # Builders
     "DeliveryProofBuilder",
     "QuoteBuilder",
+    "CounterOfferBuilder",
+    "CounterOfferMessage",
+    "CounterOfferParams",
+    "CounterOfferJustification",
+    "CounterAcceptBuilder",
+    "CounterAcceptMessage",
+    "CounterAcceptParams",
+    "MessageNonceManager",
     # Storage Layer (AIP-7 §4 - Hybrid Storage)
     # Clients
     "FilebaseClient",

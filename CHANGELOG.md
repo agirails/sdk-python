@@ -117,9 +117,16 @@ swaps needed only if:
   provider. Best-effort: any failure is logged and skipped. Mirrors the
   TS SDK behavior (TS gates on `signTypedData` for x402 v2 EIP-712;
   Python uses the legacy direct-transfer variant pending the v2 port).
+- **AIP-2.1 `CounterOfferBuilder` + `CounterAcceptBuilder`** — Python
+  ports of the TS counter-offer/accept builders. EIP-712 signed
+  off-chain messages for buyer-side counter-offers and provider-side
+  acceptance, with canonical-JSON `compute_hash` for on-chain anchoring
+  and dedup, monotonic per-message-type nonces (`MessageNonceManager`),
+  amount-band validation (≥ $0.05, strictly < quoteAmount, ≤ maxPrice),
+  and DID-bound signature recovery. Verify-only construction supported
+  by passing `private_key=None` (orchestrator side).
 
 ### Coming in 3.x
-- `CounterOfferBuilder` + `CounterAcceptBuilder` (AIP-2.1 EIP-712 builders)
 - `actp serve` daemon (FastAPI quote-channel HTTP for AIP-2.1)
 - Web Receipts (EIP-712 ReceiptWrite + agirails.app upload)
 - `actp repair`, `actp claim-code`, `actp request`, `actp verify` CLI commands

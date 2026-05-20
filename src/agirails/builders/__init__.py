@@ -4,6 +4,8 @@ Builder patterns for AGIRAILS SDK.
 Provides fluent builders for constructing protocol objects:
 - QuoteBuilder: For service quotes (AIP-2)
 - DeliveryProofBuilder: For delivery proofs (AIP-4)
+- CounterOfferBuilder: For AIP-2.1 buyer counter-offers
+- CounterAcceptBuilder: For AIP-2.1 provider acceptance
 
 Example:
     >>> from agirails.builders import QuoteBuilder, DeliveryProofBuilder
@@ -35,6 +37,20 @@ from agirails.builders.delivery_proof import (
     create_delivery_proof,
     compute_output_hash,
 )
+from agirails.builders.counter_offer import (
+    AIP21_COUNTER_OFFER_TYPES,
+    CounterOfferBuilder,
+    CounterOfferJustification,
+    CounterOfferMessage,
+    CounterOfferParams,
+    MessageNonceManager,
+)
+from agirails.builders.counter_accept import (
+    AIP21_COUNTER_ACCEPT_TYPES,
+    CounterAcceptBuilder,
+    CounterAcceptMessage,
+    CounterAcceptParams,
+)
 
 __all__ = [
     # Quote
@@ -47,4 +63,16 @@ __all__ = [
     "BatchDeliveryProofBuilder",
     "create_delivery_proof",
     "compute_output_hash",
+    # Counter-offer (AIP-2.1)
+    "AIP21_COUNTER_OFFER_TYPES",
+    "CounterOfferBuilder",
+    "CounterOfferJustification",
+    "CounterOfferMessage",
+    "CounterOfferParams",
+    "MessageNonceManager",
+    # Counter-accept (AIP-2.1)
+    "AIP21_COUNTER_ACCEPT_TYPES",
+    "CounterAcceptBuilder",
+    "CounterAcceptMessage",
+    "CounterAcceptParams",
 ]
