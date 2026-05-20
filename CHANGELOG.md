@@ -68,7 +68,10 @@ ABI shape).
   `archive_treasury`, `identity_registry`, `x402_relay`,
   `erc8004_identity_registry` (all default `None` — backward-compatible).
 - `NetworkConfig` gains `actp_kernel_deployment_block: Optional[int]`
-  (used by `BlockchainRuntime` to bound initial event-log scan range).
+  (surfaced for parity with the TS SDK; intended to be used by
+  `BlockchainRuntime` as the lower bound of initial event-log scans.
+  Wiring is a tracked follow-up — `get_all_transactions()` currently
+  still uses a fixed `latest - 50_000` window.).
 - `NetworkConfig.to_dict()` now surfaces all 4 new contract fields.
 
 ### Breaking

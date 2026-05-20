@@ -116,9 +116,12 @@ class NetworkConfig:
     max_transaction_amount: Optional[int] = None
     # Account Abstraction config (None for mock network)
     aa: Optional[AAConfig] = None
-    # Deploy block of the ACTPKernel contract on this chain. Used by
-    # BlockchainRuntime to bound the initial event-log scan range so
-    # we don't sweep from genesis. None = scan from block 0 (slow).
+    # Deploy block of the ACTPKernel contract on this chain. Surfaced on
+    # the network config for parity with the TypeScript SDK; intended to
+    # be used by BlockchainRuntime as the lower bound of initial event-log
+    # scans. **Not yet wired** — BlockchainRuntime.get_all_transactions()
+    # currently uses a fixed `latest - 50_000` window. Wiring this is a
+    # tracked follow-up. None = caller falls back to the existing default.
     actp_kernel_deployment_block: Optional[int] = None
 
     def to_dict(self) -> Dict:
