@@ -166,6 +166,28 @@ swaps needed only if:
   `InMemoryDedupStore`. FastAPI / uvicorn ship as the optional
   `server` extra — install via `pip install agirails[server]`.
 
+- **Web Receipts** (`agirails.receipts.upload_receipt`) — Python port
+  of `sdk-js/src/cli/receiptUpload.ts`. Async upload helper that posts
+  a settled-transaction receipt to the public agirails.app endpoint:
+  - **Mock network** → `POST /api/v1/receipts/mock` with Bearer API key.
+  - **On-chain** → `POST /api/v1/receipts` with either Bearer API key
+    or the EIP-712 wallet-sig flow (preferred when an agent signer is
+    already available). Wallet path runs the
+    `/api/v1/receipts/prepare` handshake to fetch a server-issued
+    nonce + `issuedAt`, signs `ReceiptWrite(agentAddress, txId,
+    network, amountWei, netWei, nonce, issuedAt)` over the
+    `AGIRAILS Receipts` domain (chainId = 8453 / 84532), and ships
+    the signature in `x-agent-signature` + the address in
+    `x-agent-address` headers so the server can recover and bind the
+    upload to the agent.
+  Best-effort: returns a `ReceiptUploadSuccess | ReceiptUploadFailure`
+  union — never raises. Network errors, 4xx/5xx, missing credentials,
+  malformed responses all surface as `ReceiptUploadFailure(ok=False,
+  reason=...)`. Re-exported at top level as `upload_receipt`,
+  `ReceiptUploadPayload`, `ReceiptUploadOptions`, and the two result
+  types. Reads `AGIRAILS_BASE_URL` and `AGIRAILS_API_KEY` from env as
+  fallback defaults.
+
   **v1 policy scope:** `evaluate_counter` enforces
   `pricing.{min_acceptable_amount, ideal_amount}`,
   `counter_strategy`, and `concede_pct`. The `services`,
@@ -195,7 +217,6 @@ swaps needed only if:
   by passing `private_key=None` (orchestrator side).
 
 ### Coming in 3.x
-- Web Receipts (EIP-712 ReceiptWrite + agirails.app upload)
 - `actp repair`, `actp claim-code`, `actp request`, `actp verify` CLI commands
 
 ---

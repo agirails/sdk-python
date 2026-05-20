@@ -344,6 +344,16 @@ from agirails.builders import (
     QuoteBuilder,
 )
 
+# Web Receipts (AIP-7 §6 — agirails.app public receipt artifact)
+from agirails.receipts import (
+    ReceiptUploadFailure,
+    ReceiptUploadOptions,
+    ReceiptUploadPayload,
+    ReceiptUploadResult,
+    ReceiptUploadSuccess,
+    upload_receipt,
+)
+
 # Storage Layer (AIP-7 §4 - Hybrid Storage)
 from agirails.storage import (
     # Clients
@@ -663,6 +673,13 @@ __all__ = [
     "CounterAcceptMessage",
     "CounterAcceptParams",
     "MessageNonceManager",
+    # Web Receipts (AIP-7 §6 — agirails.app)
+    "ReceiptUploadFailure",
+    "ReceiptUploadOptions",
+    "ReceiptUploadPayload",
+    "ReceiptUploadResult",
+    "ReceiptUploadSuccess",
+    "upload_receipt",
     # Storage Layer (AIP-7 §4 - Hybrid Storage)
     # Clients
     "FilebaseClient",
