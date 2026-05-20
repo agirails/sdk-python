@@ -194,6 +194,50 @@ class BasicAdapter(BaseAdapter):
         else:
             service_hash = ServiceHash.ZERO
 
+        # ====================================================================
+        # AIP-12: Batched payment via AA wallet (1 UserOp = approve +
+        # createTransaction + linkEscrow). Active when client.create() wired
+        # a wallet_provider exposing pay_actp_batched AND contract_addresses
+        # — i.e. wallet="auto" or a manually-constructed AutoWalletProvider.
+        # On-chain this guarantees msg.sender == Smart Wallet == requester,
+        # which the kernel checks via _requesterCheck.
+        # ====================================================================
+        if (
+            self._wallet_provider is not None
+            and self._contract_addresses is not None
+            and hasattr(self._wallet_provider, "pay_actp_batched")
+        ):
+            from agirails.wallet.auto_wallet_provider import BatchedPayParams
+
+            batched_result = await self._wallet_provider.pay_actp_batched(
+                BatchedPayParams(
+                    provider=provider,
+                    requester=self._requester_address,
+                    amount=amount_wei,
+                    deadline=deadline,
+                    dispute_window=dispute_window,
+                    service_hash=service_hash,
+                    agent_id="0",
+                    contracts=self._contract_addresses,
+                )
+            )
+            if not batched_result.success:
+                raise ValidationError(
+                    message=f"Batched payment UserOp failed: {batched_result.hash}",
+                    details={"tx_hash": batched_result.hash, "tx_id": batched_result.tx_id},
+                )
+            return BasicPayResult(
+                tx_id=batched_result.tx_id,
+                escrow_id=batched_result.tx_id,  # batched path: escrowId == txId
+                state="COMMITTED",
+                amount=amount_wei,
+                deadline=deadline,
+            )
+
+        # ====================================================================
+        # Legacy flow: sequential on-chain calls (EOA / mock)
+        # ====================================================================
+
         # Create transaction
         tx_params = CreateTransactionParams(
             requester=self._requester_address,

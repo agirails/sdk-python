@@ -109,6 +109,18 @@ swaps needed only if:
   derives the Smart Wallet counterfactual address, and overrides
   `requester_address` with it. Requires `mode in ("testnet","mainnet")`
   + `private_key`.
+- **AIP-12 batched payment routing in `BasicAdapter`** — when an
+  `ACTPClient` is created with a wallet provider that implements
+  `pay_actp_batched` (`AutoWalletProvider`) and `contract_addresses` is
+  resolved (auto-populated by `create()` for testnet/mainnet),
+  `client.basic.pay(address)` routes through a single batched UserOp
+  (USDC approve + `createTransaction` + `linkEscrow`) instead of three
+  sequential EOA-signed calls. This is what makes `wallet="auto"`
+  actually gasless end-to-end and ensures on-chain
+  `msg.sender == Smart Wallet == requester` (kernel `_requesterCheck`).
+  Without a wallet provider exposing `pay_actp_batched`, the legacy
+  sequential path through `runtime.create_transaction` is preserved
+  unchanged.
 - **`X402Adapter` auto-registration** — when an `ACTPClient` is created
   with a `wallet_provider` exposing `send_transaction` (both
   `EOAWalletProvider` and `AutoWalletProvider` qualify) and `mode` is

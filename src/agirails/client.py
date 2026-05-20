@@ -125,6 +125,7 @@ class ACTPClient:
         info: ACTPClientInfo,
         eas_helper: Optional[object] = None,
         wallet_provider: Optional[object] = None,
+        contract_addresses: Optional[object] = None,
     ) -> None:
         """
         Initialize ACTPClient.
@@ -137,18 +138,33 @@ class ACTPClient:
             info: Client information
             eas_helper: Optional EAS helper
             wallet_provider: Optional wallet provider (AutoWalletProvider or
-                EOAWalletProvider). When set with pay_actp_batched support,
-                client.pay() routes EVM addresses to BasicAdapter for batched
-                UserOps instead of StandardAdapter.
+                EOAWalletProvider). When set together with
+                ``contract_addresses`` and ``pay_actp_batched`` support,
+                ``client.basic.pay()`` routes EVM-address payments through a
+                single batched UserOp (approve + createTransaction +
+                linkEscrow) so msg.sender == Smart Wallet == requester.
+            contract_addresses: Optional :class:`ContractAddresses` (from
+                ``agirails.wallet.aa.transaction_batcher``) holding ``usdc``,
+                ``actp_kernel``, ``escrow_vault``. Required alongside
+                ``wallet_provider`` to enable the batched ACTP payment path.
         """
         self._runtime = runtime
         self._requester_address = requester_address.lower()
         self._info = info
         self._eas_helper = eas_helper
         self._wallet_provider = wallet_provider
+        self._contract_addresses = contract_addresses
 
-        # Initialize adapters
-        self._basic = BasicAdapter(runtime, requester_address, eas_helper)
+        # Initialize adapters — wire wallet_provider + contract_addresses
+        # into BasicAdapter so AIP-12 batched payments are used when
+        # available, matching the TS createSmartWalletRouter pattern.
+        self._basic = BasicAdapter(
+            runtime,
+            requester_address,
+            eas_helper,
+            wallet_provider=wallet_provider,
+            contract_addresses=contract_addresses,
+        )
         self._standard = StandardAdapter(runtime, requester_address, eas_helper)
 
         # Initialize registry and router
@@ -316,7 +332,35 @@ class ACTPClient:
             state_directory=config.state_directory,
         )
 
-        client = cls(runtime, requester, info, eas_helper, wallet_provider=wallet_provider)
+        # Resolve contract_addresses for AIP-12 batched payments. Required
+        # alongside wallet_provider so BasicAdapter can route via
+        # pay_actp_batched (1 UserOp = approve + createTransaction +
+        # linkEscrow). Only meaningful on testnet/mainnet — mock mode has
+        # no on-chain contracts to address.
+        contract_addresses: Optional[object] = None
+        if wallet_provider is not None and config.mode in ("testnet", "mainnet"):
+            from agirails.config.networks import get_network
+            from agirails.wallet.aa.transaction_batcher import (
+                ContractAddresses as AAContractAddresses,
+            )
+            network_name = (
+                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
+            )
+            network = get_network(network_name)
+            contract_addresses = AAContractAddresses(
+                usdc=network.contracts.usdc,
+                actp_kernel=network.contracts.actp_kernel,
+                escrow_vault=network.contracts.escrow_vault,
+            )
+
+        client = cls(
+            runtime,
+            requester,
+            info,
+            eas_helper,
+            wallet_provider=wallet_provider,
+            contract_addresses=contract_addresses,
+        )
 
         # AIP-12 parity: Auto-register X402Adapter when wallet_provider is
         # configured for a real network. TS SDK gates on signTypedData (x402

@@ -117,6 +117,129 @@ class TestACTPClientAdapters:
         assert client.advanced is client.runtime
 
 
+class TestBasicAdapterSmartWalletRouting:
+    """Tests for AIP-12 BasicAdapter batched UserOp routing via wallet_provider."""
+
+    @pytest.mark.asyncio
+    async def test_pay_routes_via_pay_actp_batched_when_wired(self):
+        """When wallet_provider + contract_addresses are wired, pay() uses
+        the batched UserOp path and never touches runtime.create_transaction.
+        Verifies on-chain msg.sender == requester guarantee."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from agirails.adapters.basic import BasicAdapter, BasicPayParams
+        from agirails.wallet.aa.transaction_batcher import ContractAddresses
+        from agirails.wallet.auto_wallet_provider import BatchedPayResult
+
+        runtime = MagicMock()
+        runtime.create_transaction = AsyncMock(
+            side_effect=AssertionError(
+                "runtime.create_transaction MUST NOT be called when "
+                "pay_actp_batched is available"
+            )
+        )
+        runtime.link_escrow = AsyncMock(
+            side_effect=AssertionError("link_escrow MUST NOT be called")
+        )
+        runtime.get_transaction = AsyncMock(return_value=None)
+        runtime.maxTransactionAmount = None
+
+        wallet = MagicMock()
+        wallet.pay_actp_batched = AsyncMock(
+            return_value=BatchedPayResult(
+                tx_id="0x" + "a" * 64,
+                hash="0x" + "b" * 64,
+                success=True,
+            )
+        )
+
+        contracts = ContractAddresses(
+            usdc="0x" + "1" * 40,
+            actp_kernel="0x" + "2" * 40,
+            escrow_vault="0x" + "3" * 40,
+        )
+        sw_address = "0x" + "7" * 40
+
+        adapter = BasicAdapter(
+            runtime,
+            sw_address,
+            None,
+            wallet_provider=wallet,
+            contract_addresses=contracts,
+        )
+        result = await adapter.pay(
+            BasicPayParams(to="0x" + "4" * 40, amount="1.50", deadline="1h")
+        )
+
+        assert wallet.pay_actp_batched.call_count == 1
+        assert runtime.create_transaction.call_count == 0
+        assert result.tx_id == "0x" + "a" * 64
+        assert result.state == "COMMITTED"
+
+        # Requester passed to wallet MUST be the Smart Wallet address —
+        # this is what the kernel checks via _requesterCheck.
+        bp = wallet.pay_actp_batched.call_args.args[0]
+        assert bp.requester.lower() == sw_address.lower()
+        assert bp.contracts is contracts
+
+    @pytest.mark.asyncio
+    async def test_pay_falls_back_to_runtime_without_wallet_provider(self):
+        """Legacy EOA / mock path: no wallet_provider → runtime.create_transaction."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from agirails.adapters.basic import BasicAdapter, BasicPayParams
+
+        runtime = MagicMock()
+        runtime.create_transaction = AsyncMock(return_value="0x" + "c" * 64)
+        runtime.link_escrow = AsyncMock(return_value="0x" + "d" * 64)
+        runtime.get_transaction = AsyncMock(return_value=None)
+        runtime.maxTransactionAmount = None
+
+        adapter = BasicAdapter(runtime, "0x" + "5" * 40, None)
+        result = await adapter.pay(
+            BasicPayParams(to="0x" + "6" * 40, amount="2.00", deadline="1h")
+        )
+
+        assert runtime.create_transaction.call_count == 1
+        assert runtime.link_escrow.call_count == 1
+        assert result.tx_id == "0x" + "c" * 64
+
+    @pytest.mark.asyncio
+    async def test_pay_falls_back_when_wallet_lacks_pay_actp_batched(self):
+        """Wallet provider without pay_actp_batched (EOAWalletProvider) →
+        legacy sequential path."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from agirails.adapters.basic import BasicAdapter, BasicPayParams
+        from agirails.wallet.aa.transaction_batcher import ContractAddresses
+
+        runtime = MagicMock()
+        runtime.create_transaction = AsyncMock(return_value="0x" + "e" * 64)
+        runtime.link_escrow = AsyncMock(return_value="0x" + "f" * 64)
+        runtime.get_transaction = AsyncMock(return_value=None)
+        runtime.maxTransactionAmount = None
+
+        eoa_wallet = object()  # no pay_actp_batched attribute
+        contracts = ContractAddresses(
+            usdc="0x" + "1" * 40,
+            actp_kernel="0x" + "2" * 40,
+            escrow_vault="0x" + "3" * 40,
+        )
+
+        adapter = BasicAdapter(
+            runtime,
+            "0x" + "5" * 40,
+            None,
+            wallet_provider=eoa_wallet,
+            contract_addresses=contracts,
+        )
+        await adapter.pay(
+            BasicPayParams(to="0x" + "6" * 40, amount="1.00", deadline="1h")
+        )
+
+        assert runtime.create_transaction.call_count == 1
+
+
 class TestACTPClientX402AutoRegistration:
     """Tests for AIP-12 X402Adapter auto-registration."""
 

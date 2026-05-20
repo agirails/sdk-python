@@ -44,6 +44,8 @@ class BaseAdapter:
         runtime: IACTPRuntime,
         requester_address: str,
         eas_helper: Optional[object] = None,
+        wallet_provider: Optional[object] = None,
+        contract_addresses: Optional[object] = None,
     ) -> None:
         """
         Initialize base adapter.
@@ -52,10 +54,22 @@ class BaseAdapter:
             runtime: ACTP runtime (mock or blockchain)
             requester_address: Address of the requester
             eas_helper: Optional EAS helper for attestations
+            wallet_provider: Optional wallet provider (AutoWalletProvider or
+                EOAWalletProvider). When set with ``pay_actp_batched`` and
+                ``contract_addresses`` populated, BasicAdapter routes ACTP
+                payments through a single batched UserOp (approve +
+                createTransaction + linkEscrow). Without it, payments fall
+                back to sequential ``runtime.create_transaction`` calls.
+            contract_addresses: Optional :class:`ContractAddresses` instance
+                (from ``agirails.wallet.aa.transaction_batcher``) holding
+                ``usdc``, ``actp_kernel``, ``escrow_vault``. Required
+                alongside ``wallet_provider`` for the batched UserOp path.
         """
         self._runtime = runtime
         self._requester_address = requester_address.lower()
         self._eas_helper = eas_helper
+        self._wallet_provider = wallet_provider
+        self._contract_addresses = contract_addresses
 
     @property
     def runtime(self) -> IACTPRuntime:
