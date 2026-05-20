@@ -576,8 +576,19 @@ class BlockchainRuntime:
         Use a reasonable from_block to avoid scanning from genesis.
 
         Args:
-            from_block: Starting block for event scan. Defaults to latest - 50_000
-                        (~2 days on Base). Pass 0 to scan from genesis (slow).
+            from_block: Starting block for event scan. When ``None``, the
+                runtime picks the tighter of two bounds:
+                  - ``config.actp_kernel_deployment_block`` — the contract
+                    didn't exist before this block, so scanning earlier is
+                    pure RPC waste (and most public RPCs reject ranges that
+                    deep on event queries).
+                  - ``latest - 50_000`` — caps the scan window to ~24h on
+                    Base (~2s block time) when no deploy-block is known.
+                The actual default is ``max(deployment_block, latest -
+                50_000)`` so newly-deployed contracts scan a small slice
+                and old contracts still get the bounded heuristic.
+                Pass ``0`` to force a from-genesis scan (slow; many public
+                RPCs will reject this).
             limit: Maximum number of transactions to return.
 
         Returns:
@@ -586,9 +597,14 @@ class BlockchainRuntime:
         if from_block is None:
             try:
                 latest = await self.w3.eth.block_number
-                from_block = max(0, latest - 50_000)
+                heuristic_floor = max(0, latest - 50_000)
+                deploy_floor = self.config.actp_kernel_deployment_block or 0
+                # Pick the tighter (= more recent) floor. See docstring above.
+                from_block = max(heuristic_floor, deploy_floor)
             except Exception:
-                from_block = 0
+                # Fall back to the deploy block when we can't reach the chain
+                # — at least bounds the eventual scan when RPC recovers.
+                from_block = self.config.actp_kernel_deployment_block or 0
 
         _logger.info(
             "get_all_transactions scanning from block %d (limit=%d)", from_block, limit

@@ -68,10 +68,16 @@ ABI shape).
   `archive_treasury`, `identity_registry`, `x402_relay`,
   `erc8004_identity_registry` (all default `None` — backward-compatible).
 - `NetworkConfig` gains `actp_kernel_deployment_block: Optional[int]`
-  (surfaced for parity with the TS SDK; intended to be used by
-  `BlockchainRuntime` as the lower bound of initial event-log scans.
-  Wiring is a tracked follow-up — `get_all_transactions()` currently
-  still uses a fixed `latest - 50_000` window.).
+  (Sepolia V4: `41_725_686`; Base V3: `46_212_266`). Now actively
+  consumed by `BlockchainRuntime.get_all_transactions()` as the
+  lower-bound floor for the initial event-log scan — the contract
+  didn't exist before that block, so scanning earlier is pure RPC
+  waste (and many public RPCs reject ranges that deep on event
+  queries). The default `from_block` is now
+  `max(deployment_block, latest - 50_000)` so newly-deployed
+  contracts scan a small slice and old contracts still get the
+  bounded 50k-block heuristic. RPC failure falls back to the deploy
+  block alone. Explicit `from_block=…` continues to override both.
 - `NetworkConfig.to_dict()` now surfaces all 4 new contract fields.
 
 ### Breaking
