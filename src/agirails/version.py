@@ -1,4 +1,4 @@
 """AGIRAILS SDK version information."""
 
-__version__ = "2.4.0"
-__version_info__ = (2, 4, 0)
+__version__ = "3.0.0"
+__version_info__ = (3, 0, 0)

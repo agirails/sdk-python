@@ -5,11 +5,26 @@ All notable changes to AGIRAILS Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] — 2026-05-XX (in progress)
+## [3.0.0] — 2026-05-20
 
 > Tracks the 2026-05-19 Base mainnet V3 + Sepolia V4 redeploy and brings
 > the Python SDK to parity with `@agirails/sdk@4.0.0`. **Breaking** mainnet
 > address surface change; ABI shape change (19 → 21 fields).
+>
+> Highlights:
+>
+> - Wire-protocol parity with V3 contracts: 21-field `TransactionView`,
+>   AIP-14 dispute bonds, MIN_FEE on-chain.
+> - Full `wallet="auto"` Smart Wallet path end-to-end: `pay()` AND every
+>   lifecycle call (`accept_quote`, `link_escrow`, `transition_state`,
+>   `release_escrow`) now route through the bundler+paymaster so
+>   `msg.sender == requester` on chain.
+> - AIP-2.1 quote channel: signed `CounterOfferBuilder` /
+>   `CounterAcceptBuilder` + an `actp serve` FastAPI daemon that
+>   verifies and policy-evaluates incoming counter-offers.
+> - Web Receipts upload helper with EIP-712 `ReceiptWrite` signing.
+> - Four new CLI commands: `actp serve`, `actp claim-code`, `actp
+>   repair`, `actp verify`, `actp request`.
 
 ### Mainnet contracts (Base, chain 8453)
 
@@ -172,6 +187,18 @@ swaps needed only if:
   `InMemoryDedupStore`. FastAPI / uvicorn ship as the optional
   `server` extra — install via `pip install agirails[server]`.
 
+  **v1 policy scope:** `evaluate_counter` enforces
+  `pricing.{min_acceptable_amount, ideal_amount}`,
+  `counter_strategy`, and `concede_pct`. The `services`,
+  `min_deadline_seconds`, and `max_requotes` fields are accepted by
+  the loader but **not enforced by the counter-evaluation path** —
+  `services` belongs to quote-time service filtering;
+  `min_deadline_seconds` bounds `tx.deadline` (enforced at quote-time
+  and on-chain); `max_requotes` is session state belonging to a
+  multi-round orchestrator. These ship in 3.x once the full provider
+  orchestrator + on-chain INITIATED watcher (`actp agent`) and
+  reverse-channel `CounterAccept` delivery (AIP-2.1 §5.3) land.
+
 - **Web Receipts** (`agirails.receipts.upload_receipt`) — Python port
   of `sdk-js/src/cli/receiptUpload.ts`. Async upload helper that posts
   a settled-transaction receipt to the public agirails.app endpoint:
@@ -194,17 +221,6 @@ swaps needed only if:
   types. Reads `AGIRAILS_BASE_URL` and `AGIRAILS_API_KEY` from env as
   fallback defaults.
 
-  **v1 policy scope:** `evaluate_counter` enforces
-  `pricing.{min_acceptable_amount, ideal_amount}`,
-  `counter_strategy`, and `concede_pct`. The `services`,
-  `min_deadline_seconds`, and `max_requotes` fields are accepted by
-  the loader but **not enforced by the counter-evaluation path** —
-  `services` belongs to quote-time service filtering;
-  `min_deadline_seconds` bounds `tx.deadline` (enforced at quote-time
-  and on-chain); `max_requotes` is session state belonging to a
-  multi-round orchestrator. These ship in 3.x once the full provider
-  orchestrator + on-chain INITIATED watcher (`actp agent`) and
-  reverse-channel `CounterAccept` delivery (AIP-2.1 §5.3) land.
 - **`X402Adapter` auto-registration** — when an `ACTPClient` is created
   with a `wallet_provider` exposing `send_transaction` (both
   `EOAWalletProvider` and `AutoWalletProvider` qualify) and `mode` is
@@ -275,8 +291,23 @@ swaps needed only if:
   ``api.request_claim_code`` + ``RequestClaimCodeParams`` to the
   ``agirails_app`` API client for programmatic use.
 
-### Coming in 3.x
-- `actp agent` long-running provider daemon (on-chain INITIATED watcher)
+### Deferred to 3.1+
+
+- **`actp agent`** long-running provider daemon (on-chain INITIATED
+  watcher). The TS equivalent already exists; `actp serve` covers the
+  AIP-2.1 quote channel surface, so the on-chain watch loop ships
+  separately once the hybrid subscription + bounded catch-up sweep
+  is ported.
+- **Full `ProviderPolicy` enforcement** — `services` /
+  `min_deadline_seconds` / `max_requotes` (declared in the policy
+  schema but not yet consumed by `evaluate_counter` — see
+  `actp serve` section above for the precise scope).
+- **Pydantic at HTTP/wire boundaries** — current builders + receipts
+  use dataclasses. Pydantic gives nicer parse errors at the
+  agirails.app / `actp serve` ingress; tracked as a 3.1 refactor.
+- **Workflow-attested PyPI publish (PEP 740)** — Python equivalent of
+  the npm OIDC + sigstore + SLSA provenance chain. Current 3.0.0
+  ships through the standard `poetry publish` API-token path.
 
 ---
 
@@ -385,4 +416,5 @@ swaps needed only if:
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 3.0.0 | 2026-05-20 | V3 mainnet / V4 Sepolia parity, full Smart Wallet path, AIP-2.1 quote channel, Web Receipts, 4 new CLI commands |
 | 2.0.0 | 2024-12-25 | Initial v2 release with Python 3.9 support |
