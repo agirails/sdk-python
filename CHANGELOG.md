@@ -216,6 +216,20 @@ swaps needed only if:
   and DID-bound signature recovery. Verify-only construction supported
   by passing `private_key=None` (orchestrator side).
 
+- **`actp verify`** — trustless verification of agent identity files.
+  Reads input from file path, URL, or stdin (pipe). Walks the
+  verification chain: parses AGIRAILS.md → computes the canonical
+  config hash → matches against the on-chain ``getConfigHash`` /
+  ``getConfigCID`` for the agent's wallet (or
+  ``--address`` override) → optionally fetches the IPFS content at
+  the registered CID and confirms it hashes to the same value →
+  optionally fetches a reputation snapshot from agirails.app.
+  Outputs ``trustTier`` ∈ ``{chain-verified, published, unverified}``
+  and exits non-zero on hash mismatch. JSON output uses the same
+  camelCase keys as the TS daemon so dashboards and CI can parse
+  results from either SDK identically. The marquee invocation::
+
+      curl -s https://agirails.app/a/<slug>/<slug>.md | actp verify
 - **`actp repair`** — reshape an on-chain agent without redeploying.
   Drops phantom services, updates endpoint, and toggles
   ``isActive`` / ``listed`` flags via the existing ``AgentRegistry``
@@ -241,7 +255,7 @@ swaps needed only if:
   ``agirails_app`` API client for programmatic use.
 
 ### Coming in 3.x
-- `actp request`, `actp verify` CLI commands
+- `actp request` CLI command (Level 1 negotiated job request)
 
 ---
 
