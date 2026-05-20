@@ -202,6 +202,8 @@ class TransactionView:
     dispute_window: int
     metadata: str
     platform_fee_bps_locked: int
+    requester_penalty_bps_locked: int = 0  # AIP-14 / d9c6e8e: locked penalty rate at tx creation
+    dispute_bond_bps_locked: int = 0  # INV-30: locked dispute bond rate at tx creation
     agent_id: int = 0
     requester_agent_id: int = 0  # AIP-14
     dispute_initiator: str = ""  # AIP-14
@@ -221,12 +223,36 @@ class TransactionView:
             attestation_uid=self.attestation_uid,
             created_at=datetime.fromtimestamp(self.created_at),
             updated_at=datetime.fromtimestamp(self.updated_at),
-            metadata={"platformFeeBpsLocked": self.platform_fee_bps_locked},
+            metadata={
+                "platformFeeBpsLocked": self.platform_fee_bps_locked,
+                "requesterPenaltyBpsLocked": self.requester_penalty_bps_locked,
+                "disputeBondBpsLocked": self.dispute_bond_bps_locked,
+            },
         )
 
     @classmethod
     def from_tuple(cls, data: Tuple) -> "TransactionView":
-        """Create from contract return tuple."""
+        """Create from contract return tuple.
+
+        Expects the V3+ 21-field shape that ships with the bundled ABI:
+        [0]  transaction_id          [11] attestation_uid
+        [1]  requester               [12] dispute_window
+        [2]  provider                [13] metadata
+        [3]  state                   [14] platform_fee_bps_locked
+        [4]  amount                  [15] requester_penalty_bps_locked  (INV-30 / AIP-14 d9c6e8e)
+        [5]  created_at              [16] dispute_bond_bps_locked       (INV-30)
+        [6]  updated_at              [17] agent_id
+        [7]  deadline                [18] requester_agent_id            (AIP-14)
+        [8]  service_hash            [19] dispute_initiator             (AIP-14)
+        [9]  escrow_contract         [20] dispute_bond                  (AIP-14)
+        [10] escrow_id
+
+        web3.py decodes against the bundled ABI, so tuples reaching this
+        method are already 21-field. Reading a pre-V3 (19-field) contract
+        with this SDK version will error at decode time before reaching
+        from_tuple — loud failure is the intended behavior so callers know
+        they're against the wrong contract generation.
+        """
         return cls(
             transaction_id="0x" + data[0].hex() if isinstance(data[0], bytes) else data[0],
             requester=data[1],
@@ -243,10 +269,12 @@ class TransactionView:
             dispute_window=data[12],
             metadata="0x" + data[13].hex() if isinstance(data[13], bytes) else data[13],
             platform_fee_bps_locked=data[14],
-            agent_id=data[15] if len(data) > 15 else 0,
-            requester_agent_id=data[16] if len(data) > 16 else 0,
-            dispute_initiator=data[17] if len(data) > 17 else "",
-            dispute_bond=data[18] if len(data) > 18 else 0,
+            requester_penalty_bps_locked=data[15],
+            dispute_bond_bps_locked=data[16],
+            agent_id=data[17],
+            requester_agent_id=data[18],
+            dispute_initiator=data[19],
+            dispute_bond=data[20],
         )
 
 
