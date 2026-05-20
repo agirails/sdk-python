@@ -54,12 +54,35 @@ from agirails.adapters import (
     StandardAdapter,
     StandardTransactionParams,
     TransactionDetails,
+    X402Adapter,
     DEFAULT_DEADLINE_SECONDS,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
     MIN_AMOUNT_WEI,
     MAX_DEADLINE_HOURS,
     MAX_DEADLINE_DAYS,
 )
+
+# Wallet providers (Tier 1 = AA gasless, Tier 2 = EOA)
+from agirails.wallet import (
+    AutoWalletProvider,
+    EOAWalletProvider,
+    IWalletProvider,
+    WalletTier,
+    WalletInfo,
+)
+
+# ERC-8004 identity + reputation
+from agirails.erc8004 import (
+    ERC8004Bridge,
+    ReputationReporter,
+)
+
+# Service discovery (agirails.app API)
+from agirails.api import discover_agents
+
+# Transaction ID computation (canonical hash used by Smart Wallet
+# routing + AIP-2 quote anchoring)
+from agirails.wallet.aa.transaction_batcher import compute_transaction_id
 
 # Runtime Layer
 from agirails.runtime import (
@@ -396,11 +419,25 @@ __all__ = [
     "StandardAdapter",
     "StandardTransactionParams",
     "TransactionDetails",
+    "X402Adapter",
     "DEFAULT_DEADLINE_SECONDS",
     "DEFAULT_DISPUTE_WINDOW_SECONDS",
     "MIN_AMOUNT_WEI",
     "MAX_DEADLINE_HOURS",
     "MAX_DEADLINE_DAYS",
+    # Wallet providers
+    "AutoWalletProvider",
+    "EOAWalletProvider",
+    "IWalletProvider",
+    "WalletTier",
+    "WalletInfo",
+    # ERC-8004
+    "ERC8004Bridge",
+    "ReputationReporter",
+    # Service discovery
+    "discover_agents",
+    # Transaction ID helper
+    "compute_transaction_id",
     # Runtime Types
     "State",
     "TransactionStateValue",
