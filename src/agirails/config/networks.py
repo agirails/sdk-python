@@ -79,6 +79,10 @@ class ContractAddresses:
     eas: str
     eas_schema_registry: str
     agent_registry: Optional[str] = None
+    archive_treasury: Optional[str] = None
+    identity_registry: Optional[str] = None  # AIP-7 (Sepolia only; ERC-1056 DID registry)
+    x402_relay: Optional[str] = None  # deprecated since SDK 3.3.0 (zero on mainnet V3)
+    erc8004_identity_registry: Optional[str] = None  # ERC-8004 canonical CREATE2 (same on all chains)
 
 
 @dataclass(frozen=True)
@@ -112,6 +116,10 @@ class NetworkConfig:
     max_transaction_amount: Optional[int] = None
     # Account Abstraction config (None for mock network)
     aa: Optional[AAConfig] = None
+    # Deploy block of the ACTPKernel contract on this chain. Used by
+    # BlockchainRuntime to bound the initial event-log scan range so
+    # we don't sweep from genesis. None = scan from block 0 (slow).
+    actp_kernel_deployment_block: Optional[int] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -127,6 +135,10 @@ class NetworkConfig:
                 "eas": self.contracts.eas,
                 "easSchemaRegistry": self.contracts.eas_schema_registry,
                 "agentRegistry": self.contracts.agent_registry,
+                "archiveTreasury": self.contracts.archive_treasury,
+                "identityRegistry": self.contracts.identity_registry,
+                "x402Relay": self.contracts.x402_relay,
+                "erc8004IdentityRegistry": self.contracts.erc8004_identity_registry,
             },
             "eas": {
                 "deliverySchemaUID": self.eas.delivery_schema_uid,
@@ -141,7 +153,11 @@ class NetworkConfig:
 # ============================================================================
 # Base Sepolia Testnet Configuration
 # ============================================================================
-# Redeployed 2026-02-06 with agentId support, AgentRegistry v2 2026-02-09
+# Redeployed 2026-05-19 (V4): solc 0.8.34, INV-30 disputeBondBpsLocked,
+# AIP-14 dispute bonds, M-2 mediator timelock fix. Aligns Sepolia ABI shape
+# with mainnet V3. All 4 contracts Sourcify EXACT_MATCH verified.
+# See actp-kernel deployments/base-sepolia.json for deploy block, tx hashes,
+# Sourcify match IDs.
 # ============================================================================
 
 BASE_SEPOLIA = NetworkConfig(
@@ -150,12 +166,16 @@ BASE_SEPOLIA = NetworkConfig(
     rpc_url=BASE_SEPOLIA_RPC_URL,
     block_explorer="https://sepolia.basescan.org",
     contracts=ContractAddresses(
-        actp_kernel="0xE151C35EAda9d05830aE3e3d81bE61dfe1953ED4",
-        escrow_vault="0xA73e357647Db4cDcfD1aDbbE0422fA7D1B792FeF",
+        actp_kernel="0x9d25A874f046185d9237Cd4954C88D2B74B0021b",
+        escrow_vault="0x7dF07327090efcA73DCBa70414aA3131Fc6d2efB",
         usdc="0x444b4e1A65949AB2ac75979D5d0166Eb7A248Ccb",  # MockUSDC
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry="0x7403426a720f91ea155405e3b63d16aa40a46f98",  # AIP-7 v2
+        agent_registry="0xD91F9aBfBf60b4a2Fd5317ab0cDF3F44faB5D656",
+        archive_treasury="0x2eE4f7bE289fc9EFC2F9f2D6E53e50abDF23A3eb",
+        identity_registry="0xce9749c768b425fab0daa0331047d1340ec99a88",  # AGIRAILSIdentityRegistry
+        x402_relay="0x110b25bb3d45c40dfcf34bb451aa7069b2a1cb3b",  # deprecated since SDK 3.3.0
+        erc8004_identity_registry="0x8004A818BFB912233c491871b3d84c89A494BD9e",
     ),
     eas=EASConfig(
         # Deployed 2025-11-23 - AIP-4 delivery proof schema
@@ -165,6 +185,7 @@ BASE_SEPOLIA = NetworkConfig(
         max_fee_per_gas=2_000_000_000,  # 2 gwei
         max_priority_fee_per_gas=1_000_000_000,  # 1 gwei
     ),
+    actp_kernel_deployment_block=41_725_686,  # V4 deploy on 2026-05-19
     aa=AAConfig(
         entry_point=ENTRYPOINT_V06,
         smart_wallet_factory=SMART_WALLET_FACTORY,
@@ -183,7 +204,13 @@ BASE_SEPOLIA = NetworkConfig(
 # ============================================================================
 # Base Mainnet Configuration
 # ============================================================================
-# Redeployed 2026-02-09 with agentId + AgentRegistry v2
+# Redeployed 2026-05-19 (V3): solc 0.8.34, INV-30 disputeBondBpsLocked,
+# AIP-14 dispute bonds, MIN_FEE on-chain, M-2 mediator timelock fix.
+# Admin / pauser / feeRecipient: Treasury Safe 2-of-4 (0x61fE58E9…b7f2).
+# All 4 contracts Sourcify EXACT_MATCH verified.
+# Note: X402Relay NOT redeployed on mainnet V3 — x402 v2 routes payments
+# directly buyer→seller via @x402/fetch + facilitator (zero AGIRAILS fee).
+# See actp-kernel deployments/base-mainnet.json for deploy details.
 # ============================================================================
 
 BASE_MAINNET = NetworkConfig(
@@ -192,12 +219,16 @@ BASE_MAINNET = NetworkConfig(
     rpc_url=BASE_MAINNET_RPC_URL,
     block_explorer="https://basescan.org",
     contracts=ContractAddresses(
-        actp_kernel="0x132B9eB321dBB57c828B083844287171BDC92d29",
-        escrow_vault="0x6aAF45882c4b0dD34130ecC790bb5Ec6be7fFb99",
+        actp_kernel="0x048c811352e8a3fECd5b0Ec4AA2c2b94083CC842",
+        escrow_vault="0x262D5912A9612F0c66dA5d13B4E678D50ebC44b5",
         usdc="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # Official USDC on Base
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry="0x6fB222CF3DDdf37Bcb248EE7BBBA42Fb41901de8",
+        agent_registry="0x64Cb18bfb3CC1aCb1370a3B01613391D3561a009",
+        archive_treasury="0x6159A80Ce8362aBB2307FbaB4Ed4D3F4A4231Acc",
+        # identity_registry: not deployed on mainnet (Sepolia-only AGIRAILSIdentityRegistry)
+        # x402_relay: deprecated, NOT redeployed in V3 stack
+        erc8004_identity_registry="0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
     ),
     eas=EASConfig(
         delivery_schema_uid="0x166501e7476e2fcf9214c4c5144533c2957d56fe59d639effc1719a0658d9c9a"
@@ -206,7 +237,9 @@ BASE_MAINNET = NetworkConfig(
         max_fee_per_gas=500_000_000,  # 0.5 gwei
         max_priority_fee_per_gas=100_000_000,  # 0.1 gwei
     ),
-    # No transaction limit on testnet.
+    # SECURITY: $1,000 max tx limit on mainnet (None on testnet).
+    max_transaction_amount=1000,
+    actp_kernel_deployment_block=46_212_266,  # V3 deploy on 2026-05-19
     aa=AAConfig(
         entry_point=ENTRYPOINT_V06,
         smart_wallet_factory=SMART_WALLET_FACTORY,
