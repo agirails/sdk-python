@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.0] — 2026-05-20
 
+### Fixed post-audit (still 3.0.0 — pre-publish)
+
+- **PRD §5.4 hash-based service routing now actually dispatches.**
+  Both `Agent.provide()` and `Provider.register_service()` now keep a
+  ``keccak256(toUtf8Bytes(name)) → registration`` reverse map and
+  consult it first when looking up handlers. Without this, an
+  on-chain transaction with `service_description = keccak("foo")`
+  (the shape produced by `actp request --service foo`, by
+  BuyerOrchestrator, and by the TS SDK) would silently miss the
+  matching handler — both code paths previously tried to parse the
+  description as JSON / "service:NAME;..." / plain string only.
+  Closes the parity gap with TS `Agent.handlersByHash` (Agent.ts:644).
+  Legacy JSON / legacy / plain-string formats keep working via the
+  string-dispatch fallback.
+- `actp request` CLI help no longer claims slug-URL resolution.
+  `run_request` rejects anything that isn't a `0x…40` EVM address,
+  so the help text now says so explicitly and points users at
+  `actp find <slug>` to resolve a slug first. Slug resolution itself
+  is a tracked 3.1 item.
+- `respx>=0.21.0` added to the `dev` extra. Web Receipts and
+  `actp verify` tests need it for httpx mocking; without it the
+  full pytest run on a no-extras dev install would fail at
+  collection time.
+- `NetworkConfig.actp_kernel_deployment_block` docstring corrected
+  to reflect that 3.0.0 actually consumes the field in
+  `BlockchainRuntime.get_all_transactions()` (the "Not yet wired"
+  caveat was stale relative to commit 985fd8b).
+
+
+
 > Tracks the 2026-05-19 Base mainnet V3 + Sepolia V4 redeploy and brings
 > the Python SDK to parity with `@agirails/sdk@4.0.0`. **Breaking** mainnet
 > address surface change; ABI shape change (19 → 21 fields).

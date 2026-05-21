@@ -119,6 +119,11 @@ class Provider:
         self._directory = directory or ServiceDirectory()
         self._status = ProviderStatus.IDLE
         self._services: Dict[str, RegisteredService] = {}
+        # PRD §5.4 / TS parity: reverse map from keccak256(toUtf8Bytes(name))
+        # → service name. BlockchainRuntime transactions whose
+        # service_description is a bytes32 routing key (the on-chain shape)
+        # dispatch through this map back to the registered handler.
+        self._service_name_by_hash: Dict[str, str] = {}
         self._lock = threading.RLock()
         self._poll_task: Optional[asyncio.Task[None]] = None
         self._stop_event: Optional[asyncio.Event] = None
@@ -216,6 +221,12 @@ class Provider:
                 entry=entry,
                 handler=handler,
             )
+            # PRD §5.4 routing-key index. Matches the TS hashKey
+            # convention (lowercased 0x-prefixed keccak hex).
+            from eth_hash.auto import keccak as _keccak
+
+            hash_key = ("0x" + _keccak(name.encode("utf-8")).hex()).lower()
+            self._service_name_by_hash[hash_key] = name
 
             return entry
 
@@ -234,6 +245,10 @@ class Provider:
                 return False
 
             del self._services[name]
+            from eth_hash.auto import keccak as _keccak
+
+            hash_key = ("0x" + _keccak(name.encode("utf-8")).hex()).lower()
+            self._service_name_by_hash.pop(hash_key, None)
             self._directory.unregister(name)
             return True
 
@@ -531,10 +546,17 @@ class Provider:
 
         PARITY FIX: Uses _get_tx_field for MockTransaction compatibility.
 
-        Supports multiple formats:
-        1. JSON: {"service": "name", "input": ...}
-        2. Legacy: "service:name;input:..."
-        3. Plain string (service name directly)
+        Supports multiple formats (in dispatch order):
+
+          PRIMARY (PRD §5.4): bytes32 hash. ``service_description`` is the
+            on-chain routing key ``keccak256(toUtf8Bytes(name))``; resolved
+            back to a name via the ``_service_name_by_hash`` reverse map
+            populated at ``register_service`` time. This is how
+            BlockchainRuntime transactions and ``actp request --service
+            <name>`` reach the registered handler.
+          FALLBACK 1: JSON ``{"service": "name", "input": ...}``.
+          FALLBACK 2: Legacy ``"service:name;input:..."``.
+          FALLBACK 3: Plain string (short — direct name).
         """
         service_desc = (
             self._get_tx_field(tx, "serviceDescription")
@@ -542,6 +564,21 @@ class Provider:
             or ""
         )
         if not service_desc:
+            return "unknown"
+
+        # PRIMARY: bytes32 routing-key lookup.
+        if (
+            isinstance(service_desc, str)
+            and service_desc.startswith("0x")
+            and len(service_desc) == 66  # 0x + 64 hex = bytes32
+        ):
+            name = self._service_name_by_hash.get(service_desc.lower())
+            if name is not None:
+                return name
+            # Known shape (bytes32) but not one of our services →
+            # surface explicit "unknown" rather than falling through to
+            # the plain-string check below (which would return the raw
+            # hex, leaking a confusing service name into logs).
             return "unknown"
 
         # Try JSON format first

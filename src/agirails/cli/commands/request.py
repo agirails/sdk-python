@@ -41,7 +41,12 @@ _VALID_NETWORKS = {"mock", "testnet", "mainnet"}
 
 def request(
     provider: str = typer.Argument(
-        ..., help="Provider EVM address (0x…) or agirails.app slug URL."
+        ...,
+        help=(
+            "Provider EVM address (0x…40 hex chars). Slug-URL resolution "
+            "(e.g. https://agirails.app/a/<slug>) is tracked for 3.1 — "
+            "for now resolve to an address first with `actp find <slug>`."
+        ),
     ),
     amount: str = typer.Argument(
         ..., help='Amount to escrow, USDC (e.g. "0.05").'

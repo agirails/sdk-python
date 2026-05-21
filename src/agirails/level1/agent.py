@@ -147,6 +147,14 @@ class Agent:
 
         # Service registrations
         self._services: Dict[str, _ServiceRegistration] = {}
+        # PRD §5.4 / TS parity (Agent.ts:644): keep a reverse map from the
+        # on-chain routing key keccak256(toUtf8Bytes(name)) → registration so
+        # BlockchainRuntime transactions whose service_description is a
+        # bytes32 hash can dispatch to the same handler that the mock /
+        # JSON path uses. Without this, `actp request --service foo`
+        # creates an INITIATED tx whose service_description=keccak("foo"),
+        # but Agent.provide("foo") couldn't reach the handler from that.
+        self._handlers_by_hash: Dict[str, _ServiceRegistration] = {}
 
         # Job tracking (security measure C-2: LRU cache)
         self._active_jobs: LRUCache[str, Job] = LRUCache(self.MAX_ACTIVE_JOBS)
@@ -421,10 +429,20 @@ class Agent:
 
     def _register_service(self, config: ServiceConfig, handler: JobHandler) -> None:
         """Register a service internally."""
-        self._services[config.name] = _ServiceRegistration(
+        registration = _ServiceRegistration(
             config=config,
             handler=handler,
         )
+        self._services[config.name] = registration
+        # PRD §5.4: index by keccak256(toUtf8Bytes(name)) too so on-chain
+        # routing keys from `actp request --service <name>` and the TS
+        # BuyerOrchestrator find the same handler. lower() matches the TS
+        # convention (handlersByHash.set(hashKey, ...)) so cross-SDK
+        # transactions dispatch identically.
+        from eth_hash.auto import keccak as _keccak
+
+        hash_key = "0x" + _keccak(config.name.encode("utf-8")).hex()
+        self._handlers_by_hash[hash_key.lower()] = registration
         self._emit("service:registered", config.name)
 
     # ═══════════════════════════════════════════════════════════
@@ -684,12 +702,31 @@ class Agent:
             self._processing_locks.discard(tx_id)
 
     def _find_service_handler(self, tx: Any) -> Optional[_ServiceRegistration]:
-        """Find service handler for a transaction."""
+        """Find service handler for a transaction.
+
+        Dispatch order (mirrors TS Agent.ts findServiceHandler):
+
+          PRIMARY (PRD §5.4): match by keccak256(name) against
+            ``_handlers_by_hash``. This is how on-chain BlockchainRuntime
+            transactions route — service_description is the bytes32
+            routing key, not parsable metadata.
+          FALLBACK: legacy JSON / "service:name;..." string parse for
+            MockRuntime test fixtures and pre-3.0 callers.
+        """
+        # PRIMARY: on-chain hash routing.
+        service_desc = getattr(tx, "service_description", None)
+        if isinstance(service_desc, str) and service_desc.startswith("0x"):
+            normalized = service_desc.lower()
+            zero_hash = "0x" + "0" * 64
+            if normalized != zero_hash:
+                by_hash = self._handlers_by_hash.get(normalized)
+                if by_hash is not None:
+                    return by_hash
+
+        # FALLBACK: legacy string-based dispatch.
         service_name = self._extract_service_name(tx)
         if service_name is None:
             return None
-
-        # Exact match only (no substring matching for security)
         return self._services.get(service_name)
 
     def _extract_service_name(self, tx: Any) -> Optional[str]:
