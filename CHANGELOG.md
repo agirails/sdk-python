@@ -5,6 +5,19 @@ All notable changes to AGIRAILS Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0b1] — 2026-05-21
+
+> First public pre-release of 3.0.0. Mirrors the TS 4.0.0 beta path —
+> we publish on PyPI under the PEP-440 pre-release version
+> ``3.0.0b1`` so integrators can test before the permanent ``3.0.0``
+> version number is burned. Install with::
+>
+>     pip install --pre agirails==3.0.0b1
+>
+> Subsequent betas bump the suffix (``3.0.0b2``, ``3.0.0b3``, …).
+> Stable ``3.0.0`` ships after at least one beta cycle without
+> integrator-reported regressions.
+
 ## [3.0.0] — 2026-05-20
 
 ### Fixed post-audit (still 3.0.0 — pre-publish)
