@@ -68,11 +68,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the full diff against 2.x.
 
 Priority-routed; same shape as the TypeScript `AdapterRouter`:
 
-| Adapter             | Priority | Target           | Use case                                   |
-| ------------------- | -------- | ---------------- | ------------------------------------------ |
-| **X402Adapter**     | 70       | `https://…` URLs | Instant HTTP payments, relay-fee splitting |
-| **StandardAdapter** | 60       | `0x…` addresses  | Full ACTP escrow lifecycle                 |
-| **BasicAdapter**    | 50       | `0x…` addresses  | Pay-and-forget (batched Smart Wallet)      |
+| Adapter             | Priority | Target           | Use case                                              |
+| ------------------- | -------- | ---------------- | ----------------------------------------------------- |
+| **X402Adapter**     | 70       | `https://…` URLs | Instant atomic HTTP payments — direct USDC settlement |
+| **StandardAdapter** | 60       | `0x…` addresses  | Full ACTP escrow lifecycle                            |
+| **BasicAdapter**    | 50       | `0x…` addresses  | Pay-and-forget (batched Smart Wallet)                 |
+
+x402 on Base mainnet routes payments directly buyer → seller via `@x402/fetch` + facilitator (no AGIRAILS fee). Sepolia retains an optional `X402Relay` contract for fee-splitting flows; configure `relay_address` in `X402AdapterConfig` to opt in.
 
 ## Keystore policy (AIP-13)
 
