@@ -152,14 +152,30 @@ def test_create_transaction_reads_back_with_v3_shape(runtime, sepolia_w3, sepoli
     state_value = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
     assert state_value in ("INITIATED", "COMMITTED")
 
-    # V3 wire-shape: the 21-field locked-bps fields must be readable.
-    # If we got back a TransactionView decoded from a 19-field tuple,
-    # these attributes wouldn't exist or would be None.
-    assert hasattr(tx, "platform_fee_bps_locked")
-    assert hasattr(tx, "requester_penalty_bps_locked")
-    assert hasattr(tx, "dispute_bond_bps_locked")
-    # On a V3 deploy, all three are non-zero (kernel sets them at create-time).
+    # V3 wire-shape: all 7 new V3 fields must reach user code via field-name
+    # access on MockTransaction. Pre-V3 (19-field) decoder is rejected by
+    # TransactionView.from_tuple, so reaching this point already implies
+    # the 21-field shape. We further assert the values are populated.
     assert int(tx.platform_fee_bps_locked) > 0, (
-        "platform_fee_bps_locked is 0; either kernel didn't set it or "
-        "we're reading legacy V2 shape"
+        "platform_fee_bps_locked is 0 — kernel didn't lock the fee rate "
+        "at create-time. Either the deploy is misconfigured or the SDK "
+        "is dropping the field on the way to MockTransaction."
     )
+    # AIP-14 + INV-30: requester_penalty + dispute_bond are also locked
+    # per-tx at create time. The 2026-05-19 V3 deploy sets both to 500
+    # (5%) on the sepolia kernel.
+    assert int(tx.requester_penalty_bps_locked) > 0, (
+        "requester_penalty_bps_locked = 0 — INV-30 / AIP-14 not honoured"
+    )
+    assert int(tx.dispute_bond_bps_locked) > 0, (
+        "dispute_bond_bps_locked = 0 — INV-30 not honoured"
+    )
+    # ERC-8004 IDs default to 0 when caller didn't register an agent.
+    # We just verify the fields exist as ints (the actual integer doesn't
+    # matter for parity — we're testing the decoder, not the use case).
+    assert isinstance(tx.agent_id, int)
+    assert isinstance(tx.requester_agent_id, int)
+    # Fresh tx is not disputed → dispute_initiator is zero address +
+    # dispute_bond is 0. AIP-14 populates these when state=DISPUTED.
+    assert tx.dispute_initiator in ("", "0x" + "0" * 40)
+    assert int(tx.dispute_bond) == 0

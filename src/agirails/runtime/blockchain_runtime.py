@@ -539,7 +539,12 @@ class BlockchainRuntime:
             if tx_view.requester == "0x0000000000000000000000000000000000000000":
                 return None
 
-            # Convert to MockTransaction for interface compatibility
+            # Convert to MockTransaction for interface compatibility.
+            # V3 fields (locked-bps + ERC-8004 IDs + AIP-14 dispute bond)
+            # are surfaced so SDK callers can read them via field-name
+            # access without a second RPC. Pre-V3 (19-field) decode is
+            # intentionally rejected by TransactionView.from_tuple, so
+            # if we reach this point tx_view has the V3 attributes.
             return MockTransaction(
                 id=tx_view.transaction_id,
                 requester=tx_view.requester,
@@ -553,6 +558,13 @@ class BlockchainRuntime:
                 escrow_id=tx_view.escrow_id if tx_view.escrow_id != "0" * 64 else None,
                 service_description=tx_view.service_hash,
                 delivery_proof="",  # PARITY: TS BlockchainRuntime returns '' (empty), not attestation_uid
+                platform_fee_bps_locked=int(tx_view.platform_fee_bps_locked),
+                requester_penalty_bps_locked=int(tx_view.requester_penalty_bps_locked),
+                dispute_bond_bps_locked=int(tx_view.dispute_bond_bps_locked),
+                agent_id=int(tx_view.agent_id),
+                requester_agent_id=int(tx_view.requester_agent_id),
+                dispute_initiator=tx_view.dispute_initiator or "",
+                dispute_bond=int(tx_view.dispute_bond),
             )
 
         try:

@@ -175,6 +175,23 @@ class MockTransaction:
     service_description: Optional[str] = None
     delivery_proof: Optional[str] = None  # PARITY: TS uses 'deliveryProof'
 
+    # V3 (2026-05 Base mainnet redeploy) TransactionView fields. Populated
+    # by BlockchainRuntime.get_transaction; mock runtime leaves them at
+    # defaults (mock doesn't model fee/penalty/dispute math).
+    #
+    # Per-tx locked rates — captured at create-time so live admin rate
+    # updates can't affect in-flight transactions (INV-30 / AIP-14).
+    platform_fee_bps_locked: int = 0
+    requester_penalty_bps_locked: int = 0      # AIP-14 / d9c6e8e
+    dispute_bond_bps_locked: int = 0           # INV-30
+    # ERC-8004 identity (surfaces in TransactionView for receipt parity
+    # — no second RPC needed to look up agent identity).
+    agent_id: int = 0
+    requester_agent_id: int = 0                # AIP-14
+    # AIP-14 dispute bond accounting. Populated when state == DISPUTED.
+    dispute_initiator: str = ""
+    dispute_bond: int = 0
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -191,11 +208,25 @@ class MockTransaction:
             "escrowId": self.escrow_id,
             "serviceDescription": self.service_description,
             "deliveryProof": self.delivery_proof,  # PARITY: camelCase for JSON
+            # V3 fields (camelCase for cross-SDK JSON parity).
+            "platformFeeBpsLocked": self.platform_fee_bps_locked,
+            "requesterPenaltyBpsLocked": self.requester_penalty_bps_locked,
+            "disputeBondBpsLocked": self.dispute_bond_bps_locked,
+            "agentId": self.agent_id,
+            "requesterAgentId": self.requester_agent_id,
+            "disputeInitiator": self.dispute_initiator,
+            "disputeBond": self.dispute_bond,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "MockTransaction":
-        """Create from dictionary (JSON deserialization)."""
+        """Create from dictionary (JSON deserialization).
+
+        Pre-V3 saved state defaults the new fields to 0 / "" — keeping
+        the rehydration path backward-compatible. Accepts both
+        camelCase (TS-aligned JSON) and snake_case (Python idiom)
+        for every V3 field.
+        """
         return cls(
             id=data["id"],
             requester=data["requester"],
@@ -211,6 +242,23 @@ class MockTransaction:
             service_description=data.get("serviceDescription", data.get("service_description")),
             # PARITY: Support both old 'proof' and new 'deliveryProof' keys
             delivery_proof=data.get("deliveryProof", data.get("delivery_proof", data.get("proof"))),
+            platform_fee_bps_locked=int(data.get(
+                "platformFeeBpsLocked", data.get("platform_fee_bps_locked", 0)
+            )),
+            requester_penalty_bps_locked=int(data.get(
+                "requesterPenaltyBpsLocked", data.get("requester_penalty_bps_locked", 0)
+            )),
+            dispute_bond_bps_locked=int(data.get(
+                "disputeBondBpsLocked", data.get("dispute_bond_bps_locked", 0)
+            )),
+            agent_id=int(data.get("agentId", data.get("agent_id", 0))),
+            requester_agent_id=int(data.get(
+                "requesterAgentId", data.get("requester_agent_id", 0)
+            )),
+            dispute_initiator=str(data.get(
+                "disputeInitiator", data.get("dispute_initiator", "")
+            )),
+            dispute_bond=int(data.get("disputeBond", data.get("dispute_bond", 0))),
         )
 
 
