@@ -134,9 +134,25 @@ fail_under = 85
 show_missing = true
 
 [tool.mutmut]
-paths_to_mutate = "src/agirails/utils/security.py,src/agirails/runtime/mock_runtime.py,src/agirails/protocol/proofs.py"
-tests_dir = "tests"
-runner = "python -m pytest -x -q"
+# Scoped to a single file for the inaugural baseline. Once we have a
+# kill-rate floor we'll add the other paths back. Runs the targeted
+# test module instead of the full suite — each mutation takes ~1-3s
+# instead of ~45s, cutting baseline run from hours to ~15 min.
+# mutmut 3.x + src-layout + editable install have a structural mismatch:
+# mutmut copies src/ to mutants/src/ and chdirs there before running the
+# test runner, but the editable install (pip install -e .) keeps
+# pointing at the ORIGINAL src/ — so mutated versions are never under
+# test. Known limitation; needs either:
+#   - A custom runner that activates the mutants/ tree (`PYTHONPATH=mutants/src python -m pytest …`)
+#   - OR a wheel-install style harness where each mutation gets its own
+#     temporary venv
+#   - OR move to flat layout (agirails/ at repo root, no src/)
+# All three are non-trivial; tracked for 3.1+. The weekly `mutation-test`
+# CI job is left wired so it surfaces the same issue on schedule
+# rather than silently passing.
+paths_to_mutate = ["src/agirails/protocol/proofs.py"]
+tests_dir = ["tests/test_protocol/test_proofs.py"]
+runner = "python -m pytest"
 
 [tool.black]
 line-length = 100
