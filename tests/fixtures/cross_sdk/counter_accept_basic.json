@@ -1,0 +1,20 @@
+{
+  "label": "counter_accept_basic",
+  "fixtureKind": "counter_accept",
+  "kernelAddress": "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "expectedSigner": "0x1563915e194D8CfBA1943570603F7606A3115508",
+  "expectedHash": "0xc3fed094814a6740c59b3d0bfb6b9cec51e0b8e4266768783b3ca4eeedbb2b2a",
+  "message": {
+    "type": "agirails.counteraccept.v1",
+    "version": "1.0.0",
+    "txId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "provider": "did:ethr:84532:0x1563915e194D8CfBA1943570603F7606A3115508",
+    "consumer": "did:ethr:84532:0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+    "acceptedAmount": "800000",
+    "inReplyTo": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "acceptedAt": 1700000000,
+    "chainId": 84532,
+    "nonce": 1,
+    "signature": "0x0a71eb3fb5a3662fb428a1e61c2a825e4f01204b07b0430fc5fd7ac4632793111a5e86550fca5cf014678eeaf86a3f88037a9cb156b61b4414c615676435e4c71b"
+  }
+}

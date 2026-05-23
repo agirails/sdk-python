@@ -1,0 +1,32 @@
+{
+  "label": "counter_offer_with_justification",
+  "fixtureKind": "counter_offer",
+  "kernelAddress": "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "expectedSigner": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+  "expectedHash": "0x5ff8b2d05bd267bf5f106b42a95c8fc7a770a43167da12030a0da243bf67c4cb",
+  "message": {
+    "type": "agirails.counteroffer.v1",
+    "version": "1.0.0",
+    "txId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "consumer": "did:ethr:84532:0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+    "provider": "did:ethr:84532:0x1563915e194D8CfBA1943570603F7606A3115508",
+    "quoteAmount": "1500000",
+    "counterAmount": "800000",
+    "maxPrice": "2000000",
+    "currency": "USDC",
+    "decimals": 6,
+    "inReplyTo": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "counteredAt": 1700000000,
+    "expiresAt": 1700003600,
+    "justification": {
+      "reason": "market rate is lower",
+      "marketRate": 0.75,
+      "breakdown": {
+        "observed_quotes": 3
+      }
+    },
+    "chainId": 84532,
+    "nonce": 1,
+    "signature": "0xad34caf274011fe5056de59933edeffc975ba77335072e03e2e7f6617b02169c64dbd65c375db8c085d34931ae342f03eddbb44161be6eeaefeaed37cded1c131b"
+  }
+}
