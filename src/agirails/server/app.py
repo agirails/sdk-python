@@ -118,7 +118,7 @@ def create_app(
                     f"→ {verdict.action.value}: {verdict.reason}"
                 )
             except Exception as exc:
-                _logger.warning(
+                _logger.warn(
                     f"[counter] tx={tx_id[:12]}… "
                     f"policy eval failed: {exc}"
                 )

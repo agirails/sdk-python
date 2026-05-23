@@ -536,7 +536,7 @@ class ACTPClient:
                 f"(usdc={usdc_address})"
             )
         except Exception as exc:
-            _logger.warning(
+            _logger.warn(
                 f"X402Adapter auto-registration skipped: {exc}"
             )
 
