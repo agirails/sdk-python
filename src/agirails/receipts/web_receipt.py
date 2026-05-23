@@ -172,7 +172,14 @@ async def upload_receipt(
         )
 
     try:
-        async with httpx.AsyncClient(timeout=opts.timeout_seconds) as client:
+        # follow_redirects: agirails.app responds with 308 → www.agirails.app
+        # (apex → www canonical redirect). Without this, the POST is sent
+        # to the apex once, gets 308, and httpx returns the 308 as an
+        # error response. We follow redirects on both prepare (below) and
+        # the main receipts upload.
+        async with httpx.AsyncClient(
+            timeout=opts.timeout_seconds, follow_redirects=True
+        ) as client:
             res = await client.post(endpoint, headers=headers, json=body)
     except httpx.HTTPError as exc:
         return ReceiptUploadFailure(ok=False, reason=str(exc) or "network error")
@@ -241,7 +248,9 @@ async def _wallet_sig_prepare(
 
     prepare_url = f"{base_url}/api/v1/receipts/prepare"
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout_seconds, follow_redirects=True
+        ) as client:
             prep_res = await client.post(
                 prepare_url, json={"signerAddress": signer_address}
             )

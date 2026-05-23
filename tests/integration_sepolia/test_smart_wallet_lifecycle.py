@@ -124,7 +124,14 @@ async def test_smart_wallet_address_differs_from_eoa(sepolia_signer):
 
 
 def _mint_usdc_to(w3, signer, recipient, amount_wei):
-    """MockUSDC.mint() is permissionless — fund any address."""
+    """MockUSDC.mint() is permissionless — fund any address.
+
+    Includes a retry loop on the post-mint ``balanceOf`` read because
+    public Base sepolia RPCs are load-balanced across replicas — the
+    same provider can serve the mint receipt from one node and a
+    ``balanceOf`` call from another that hasn't yet seen the new state.
+    Retry until the indexed balance matches the receipt or we time out.
+    """
     from web3 import Web3
 
     usdc_abi = [
@@ -158,8 +165,18 @@ def _mint_usdc_to(w3, signer, recipient, amount_wei):
     })
     signed = signer.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-    return usdc.functions.balanceOf(recipient).call()
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+    assert receipt.status == 1, f"MockUSDC.mint reverted (tx={tx_hash.hex()})"
+
+    # Read-after-write retry against load-balanced public RPC.
+    deadline = time.time() + 30
+    last_bal = 0
+    while time.time() < deadline:
+        last_bal = usdc.functions.balanceOf(recipient).call()
+        if last_bal >= amount_wei:
+            return last_bal
+        time.sleep(2)
+    return last_bal
 
 
 @pytest.mark.asyncio

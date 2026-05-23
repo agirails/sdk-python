@@ -1,27 +1,22 @@
-"""Full ACTP lifecycle integration test against live base-sepolia.
+"""Requester-side ACTP lifecycle integration test against live base-sepolia.
 
-Walks the canonical state machine end-to-end on a SINGLE transaction:
+Walks the requester-controllable leg of the state machine:
 
-    INITIATED → COMMITTED → IN_PROGRESS → DELIVERED → SETTLED
+    INITIATED → COMMITTED
 
 Step D (test_eoa_runtime_lifecycle) covered the create+read leg only.
-This file proves the rest of the kernel surface (linkEscrow,
-transitionState, releaseEscrow) actually works as documented against
-the live V4 sepolia kernel.
+This file extends coverage to linkEscrow against the live V4 sepolia
+kernel — proving the requester-side surface (create + linkEscrow)
+works as documented.
 
-Strategy: the same EOA acts as both `requester` and `provider`. Kernel
-allows this; transitions IN_PROGRESS / DELIVERED are gated by
-provider-only checks, SETTLED by requester-only. With both roles
-held by the same address, all guards pass without needing two
-coordinated signers.
+Why not the full INITIATED → SETTLED walk: the kernel enforces
+``requester != provider`` (``Self-transaction not allowed`` revert)
+so we can't use a single-signer trick to drive the provider-only
+transitions (IN_PROGRESS, DELIVERED). The full walk needs two
+coordinated signers — kept as a follow-up test.
 
-Cost per full run: 4 sepolia transactions (linkEscrow + IN_PROGRESS
-transition + DELIVERED transition + SETTLED release). ~0.0008 ETH.
-
-This is the highest-signal write test in the suite: if any single
-on-chain guard regresses (state machine, _requesterCheck,
-_providerCheck, dispute-window early-release), the lifecycle stops
-mid-flight and we know exactly where.
+Cost per run: 2 sepolia transactions (createTransaction + linkEscrow).
+~0.0004 ETH.
 
 Marker-gated `-m integration_sepolia`; default skip.
 """
@@ -43,9 +38,14 @@ pytestmark = pytest.mark.integration_sepolia
 
 
 @pytest.mark.asyncio
-async def test_full_lifecycle_eoa(sepolia_signer, sepolia_w3):
-    """Run a full INITIATED → SETTLED state walk and assert each
-    transition lands on chain with the expected state."""
+async def test_requester_side_lifecycle_eoa(sepolia_signer, sepolia_w3):
+    """Walk INITIATED → COMMITTED end-to-end against live sepolia,
+    asserting each transition lands on chain with the expected state.
+
+    Provider-only transitions (IN_PROGRESS, DELIVERED) are out of
+    scope — kernel rejects ``requester == provider`` so the
+    single-signer trick no longer works.
+    """
     from agirails.runtime.base import CreateTransactionParams
     from agirails.runtime.blockchain_runtime import BlockchainRuntime
     from agirails.runtime.types import State
@@ -59,7 +59,7 @@ async def test_full_lifecycle_eoa(sepolia_signer, sepolia_w3):
         rpc_url=SEPOLIA_RPC,
     )
 
-    # Mint enough USDC to fund both the escrow + provider fee path.
+    # Mint enough USDC to fund the escrow leg.
     usdc_abi = [
         {
             "type": "function", "name": "balanceOf",
@@ -96,14 +96,19 @@ async def test_full_lifecycle_eoa(sepolia_signer, sepolia_w3):
         f"integration-test-lifecycle-{nonce_hex}".encode("utf-8")
     ).hex()
 
+    # Dummy provider address — never holds funds and never signs.
+    # Kernel only checks `requester != provider`, not that the
+    # provider exists on chain.
+    dummy_provider = "0x" + "5" * 40
+
     # ── 1. INITIATED ──────────────────────────────────────────────────────
     tx_id = await rt.create_transaction(
         CreateTransactionParams(
             requester=sepolia_signer.address,
-            provider=sepolia_signer.address,  # self-pay; both guards pass
+            provider=dummy_provider,
             amount="50000",  # 0.05 USDC
             deadline=int(time.time()) + 3600,
-            dispute_window=3600,  # short window so requester can settle early
+            dispute_window=3600,
             service_description=service_hash,
         )
     )
@@ -112,36 +117,14 @@ async def test_full_lifecycle_eoa(sepolia_signer, sepolia_w3):
     assert tx_after_create.state == State.INITIATED
 
     # ── 2. INITIATED → COMMITTED (linkEscrow) ─────────────────────────────
-    escrow_id = await rt.link_escrow(tx_id, "50000")
-    # escrowId equals txId in V3 (ACTP standard); kernel stores it as bytes32.
+    await rt.link_escrow(tx_id, "50000")
     tx_after_link = await rt.get_transaction(tx_id)
     assert tx_after_link.state == State.COMMITTED, (
         f"After linkEscrow expected COMMITTED, got {tx_after_link.state}"
     )
 
-    # ── 3. COMMITTED → IN_PROGRESS (provider starts work) ─────────────────
-    await rt.transition_state(tx_id, State.IN_PROGRESS)
-    tx_after_start = await rt.get_transaction(tx_id)
-    assert tx_after_start.state == State.IN_PROGRESS
-
-    # ── 4. IN_PROGRESS → DELIVERED (provider delivers) ────────────────────
-    delivery_proof = "0x" + keccak(b"delivery-proof-payload").hex()
-    await rt.transition_state(tx_id, State.DELIVERED, proof=delivery_proof)
-    tx_after_deliver = await rt.get_transaction(tx_id)
-    assert tx_after_deliver.state == State.DELIVERED
-
-    # ── 5. DELIVERED → SETTLED (requester early-release) ──────────────────
-    # ACTPKernel allows DELIVERED → SETTLED by the requester without
-    # waiting for the dispute window (kernel.sol:700-704). Since signer
-    # IS the requester, this should succeed immediately.
-    await rt.release_escrow(escrow_id=escrow_id, attestation_uid="")
-    tx_after_settle = await rt.get_transaction(tx_id)
-    assert tx_after_settle.state == State.SETTLED, (
-        f"After release_escrow expected SETTLED, got {tx_after_settle.state}"
-    )
-
     # V3 invariant: locked-bps fields populated at create time and
-    # preserved through all transitions.
-    assert int(tx_after_settle.platform_fee_bps_locked) > 0
-    assert int(tx_after_settle.requester_penalty_bps_locked) > 0
-    assert int(tx_after_settle.dispute_bond_bps_locked) > 0
+    # preserved through the escrow link.
+    assert int(tx_after_link.platform_fee_bps_locked) > 0
+    assert int(tx_after_link.requester_penalty_bps_locked) > 0
+    assert int(tx_after_link.dispute_bond_bps_locked) > 0
