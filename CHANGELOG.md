@@ -5,6 +5,47 @@ All notable changes to AGIRAILS Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] — 2026-05-24
+
+> README-only patch. The 3.0.0 long description on PyPI carried over
+> several pre-publish inaccuracies that would mislead an integrator
+> on copy-paste; this release rebuilds the wheel against an audited
+> README. No SDK code changes.
+
+### Fixed (docs)
+
+- **Gasless quickstart example** — `client.basic.pay()` accepts
+  ``dict | BasicPayParams | UnifiedPayParams``; the previous
+  ``client.basic.pay("0x…", amount="0.05")`` would raise
+  ``TypeError`` on copy-paste.
+- **State machine diagram** — removed bogus
+  ``IN_PROGRESS → DISPUTED`` arrow (the kernel only allows
+  ``DELIVERED → DISPUTED``) and added explanatory bullets so the
+  full DAG matches ``runtime/types.py::VALID_TRANSITIONS`` exactly,
+  including the ``INITIATED → COMMITTED`` direct path and
+  ``CANCELLED`` reachability from
+  ``INITIATED``/``QUOTED``/``COMMITTED``/``IN_PROGRESS``/``DISPUTED``.
+- **CLI section** — corrected six entries:
+  - ``actp tx deliver`` / ``actp tx settle`` don't exist; replaced
+    with the generic ``actp tx transition <tx_id> <NEW_STATE>``.
+  - ``actp request`` flags fixed: ``provider`` + ``amount`` are
+    positional, ``--to`` doesn't exist.
+  - ``actp claim-code`` arg is a path to ``AGIRAILS.md``; the
+    command mints a 24h dashboard-link code, it doesn't consume one.
+  - ``actp repair`` never took a ``tx_id``; it edits on-chain
+    provider role flags (``--remove-service``, ``--endpoint``,
+    ``--active``, ``--listed``).
+  - ``actp publish``/``pull``/``diff`` take ``--path``, not a
+    positional path.
+  - Added ``actp find`` (was missing from the docs).
+- **Adapters table** — X402Adapter was described as "relay-fee
+  splitting" which inverts the mainnet reality (direct buyer →
+  seller, zero AGIRAILS fee); relay is a sepolia-only opt-in.
+  BasicAdapter was described as "pay-and-forget" but it only drives
+  the tx to ``COMMITTED`` — the provider still needs ``DELIVERED``
+  and the requester ``SETTLED``. Both fixed and clarified with
+  per-adapter notes.
+
 ## [3.0.0] — 2026-05-23
 
 > Stable promotion of `3.0.0b1`. No functional code changes since the
@@ -472,6 +513,7 @@ swaps needed only if:
 
 | Version  | Date       | Highlights                                                                                                                  |
 | -------- | ---------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 3.0.1    | 2026-05-24 | README-only patch — corrects 3.0.0 PyPI long description (CLI, code example, state diagram, adapter descriptions)            |
 | 3.0.0    | 2026-05-23 | V3 mainnet / V4 Sepolia parity, full Smart Wallet path, AIP-2.1 quote channel, Web Receipts, 4 new CLI commands             |
 | 3.0.0b1  | 2026-05-21 | Beta — adds Trusted Publisher OIDC workflow + post-audit fixes                                                              |
 | 2.0.0    | 2024-12-25 | Initial v2 release with Python 3.9 support                                                                                  |
