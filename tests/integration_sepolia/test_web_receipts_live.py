@@ -61,6 +61,7 @@ async def test_live_agirails_app_receipt_upload(sepolia_signer, sepolia_w3):
     this test closes.
     """
     import httpx
+    from eth_hash.auto import keccak
     from agirails.receipts import (
         ReceiptUploadFailure,
         ReceiptUploadOptions,
@@ -68,6 +69,7 @@ async def test_live_agirails_app_receipt_upload(sepolia_signer, sepolia_w3):
         ReceiptUploadSuccess,
         upload_receipt,
     )
+    from tests.integration_sepolia.conftest import SEPOLIA_KERNEL
 
     # Use a known-good tx id from the EOA lifecycle integration run.
     # If never run, falls back to a placeholder — server may reject
@@ -75,9 +77,10 @@ async def test_live_agirails_app_receipt_upload(sepolia_signer, sepolia_w3):
     # Pick a fresh nonce per run with timestamp suffix so we never
     # collide with prior test receipts.
     nonce_suffix = int(time.time())
+    service_name = f"python-sdk-integration-test-{nonce_suffix}"
     payload = ReceiptUploadPayload(
         agentAddress=sepolia_signer.address,
-        service=f"python-sdk-integration-test-{nonce_suffix}",
+        service=service_name,
         amountWei="50000",  # $0.05
         feeWei="500",
         netWei="49500",
@@ -88,6 +91,13 @@ async def test_live_agirails_app_receipt_upload(sepolia_signer, sepolia_w3):
         network="base-sepolia",
         requesterAddress=sepolia_signer.address,
         durationMs=420,
+        # On-chain receipts require kernelAddress + serviceHash — server
+        # rejects without them ("Invalid kernelAddress"). For mock
+        # receipts both are optional. serviceHash is the keccak256 of
+        # the service name (the same hash the SDK puts on chain as the
+        # serviceDescription routing key).
+        kernelAddress=SEPOLIA_KERNEL,
+        serviceHash="0x" + keccak(service_name.encode("utf-8")).hex(),
         ownerCaption=f"python-sdk integration test {nonce_suffix}",
     )
 
