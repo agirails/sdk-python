@@ -49,7 +49,7 @@ client = await ACTPClient.create(
     wallet="auto",                  # derive a counterfactual Smart Wallet
     private_key=os.environ["PRIVATE_KEY"],
 )
-result = await client.basic.pay("0xProvider…", amount="0.05")
+result = await client.basic.pay({"to": "0xProvider…", "amount": "0.05"})
 # single batched UserOp: USDC.approve + createTransaction + linkEscrow
 ```
 
@@ -98,9 +98,13 @@ actp deploy:check    # scan repo for exposed secrets
 
 ```
 INITIATED ─→ QUOTED ─→ COMMITTED ─→ IN_PROGRESS ─→ DELIVERED ─→ SETTLED
-                ↘                ↘             ↘
-              CANCELLED       CANCELLED     DISPUTED → SETTLED
+                                                       │
+                                                       └─→ DISPUTED ─→ SETTLED
 ```
+
+- `INITIATED` can skip `QUOTED` and go straight to `COMMITTED` when no negotiation is needed.
+- `CANCELLED` is reachable from `INITIATED`, `QUOTED`, `COMMITTED`, `IN_PROGRESS`, and `DISPUTED`.
+- `SETTLED` and `CANCELLED` are terminal.
 
 Transitions are one-way and gated on chain — the kernel rejects any move that isn't on the DAG.
 
@@ -108,30 +112,32 @@ Transitions are one-way and gated on chain — the kernel rejects any move that 
 
 ```bash
 # Payments + transactions
-actp pay <to> <amount> [--deadline TIME]
+actp pay <provider> <amount> [--deadline TIME] [--description TEXT]
 actp balance [ADDRESS]
 actp tx list [--state STATE]
 actp tx status <tx_id>
-actp tx deliver <tx_id>
-actp tx settle <tx_id>
+actp tx transition <tx_id> <NEW_STATE> [--proof BYTES32]   # e.g. DELIVERED / SETTLED
 
 # Quote channel (AIP-2.1)
-actp serve --policy policy.yaml [--port 8080]
-actp request --service <name> --to <addr> --amount <usdc>
+actp serve --policy policy.yaml [--port 8080] [--mock]
+actp request <provider> <amount> --service <name> [--deadline T] [--auto-accept]
 
-# Verification + repair
-actp verify <tx_id|receipt_url>
-actp claim-code <code>
-actp repair <tx_id>
+# Discovery + verification
+actp find <query> [--capability NAME] [--max-price USDC] [--limit N]
+actp verify <tx_id | receipt_url | agent_address>
+
+# Agent dashboard / on-chain role
+actp claim-code [path-to-AGIRAILS.md]      # mints a 24h code to link dashboard
+actp repair [--remove-service NAME] [--endpoint URL] [--active true|false]
 
 # AGIRAILS.md config sync
-actp publish [path]
-actp pull [path] [--network NETWORK]
-actp diff [path] [--network NETWORK]
+actp publish [--path PATH] [--network NETWORK] [--dry-run]
+actp pull    [--path PATH] [--network NETWORK]
+actp diff    [--path PATH] [--network NETWORK]
 
 # Mock-mode helpers
 actp mint <address> <amount>
-actp time advance <duration>
+actp time advance <seconds>
 ```
 
 ## Testing
