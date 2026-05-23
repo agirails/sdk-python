@@ -172,7 +172,14 @@ class TestDeployCheckRawKeyInEnv:
     """Test deploy check raw key in .env FAIL."""
 
     def test_raw_key_in_env_fails(self, runner: CliRunner, project_dir: Path) -> None:
-        """Test deploy check detects raw private key in .env file."""
+        """Test deploy check detects raw private key in .env file.
+
+        The hex below is Foundry/Anvil's well-known deterministic
+        account #0 private key (public, holds no funds on any real
+        network). It exists in every Foundry install and is the
+        conventional "obviously-a-test-key" fixture for tooling that
+        scans for raw keys.
+        """
         (project_dir / ".env").write_text(
             "PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80\n",
             encoding="utf-8",

@@ -193,13 +193,18 @@ class MockRuntime(IMockRuntime):
         amount: str,
         deadline: int,
         timestamp: int,
+        nonce: int,
     ) -> str:
         """
         Generate deterministic transaction ID.
 
-        Uses keccak256-like hashing for compatibility with on-chain IDs.
+        Includes a per-state nonce so consecutive create calls with
+        identical params don't collide — real ACTP IDs are always
+        unique per call (derived from blockhash + sender nonce), and
+        the mock has to honour the same invariant for property-based
+        / stateful tests to be well-defined.
         """
-        data = f"{requester}{provider}{amount}{deadline}{timestamp}"
+        data = f"{requester}{provider}{amount}{deadline}{timestamp}{nonce}"
         hash_bytes = hashlib.sha256(data.encode()).digest()
         return "0x" + hash_bytes.hex()
 
@@ -263,13 +268,17 @@ class MockRuntime(IMockRuntime):
                     min_amount=min_amount,
                 )
 
-            # Generate transaction ID
+            # Generate transaction ID with a per-state monotonic nonce
+            # (count of existing txs) so two creates with identical
+            # params + same blockchain timestamp don't produce the same
+            # ID — real on-chain IDs are unique per call.
             tx_id = self._generate_tx_id(
                 params.requester,
                 params.provider,
                 params.amount,
                 params.deadline,
                 current_time,
+                len(state.transactions),
             )
 
             # Create transaction

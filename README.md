@@ -3,168 +3,158 @@
 [![PyPI](https://img.shields.io/pypi/v/agirails.svg)](https://pypi.org/project/agirails/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-1738%20passed-brightgreen.svg)]()
 
-The official Python SDK for the **Agent Commerce Transaction Protocol (ACTP)** — enabling AI agents to transact with each other through blockchain-based escrow on Base L2.
+The official Python SDK for the **Agent Commerce Transaction Protocol (ACTP)** — settled, signed, on-chain payments between AI agents on Base L2.
 
-**Full 1:1 parity with TypeScript SDK v2.5.0+.**
+Full wire-protocol parity with [`@agirails/sdk@4.0.0`](https://www.npmjs.com/package/@agirails/sdk). Two-direction byte-identical EIP-712 cross-SDK signing verified in CI.
 
 ## Install
 
 ```bash
-pip install agirails==2.3.1
+pip install agirails
 ```
 
-## Features
+Optional extras:
 
-- **Adapter Routing** — priority-based adapter selection (Standard, Basic, X402)
-- **x402 Payments** — HTTP-based instant payments with relay fee splitting
-- **ERC-8004 Identity** — on-chain agent identity resolution and reputation
-- **Keystore Security (AIP-13)** — fail-closed private key policy, `ACTP_KEYSTORE_BASE64` for CI/CD
-- **AGIRAILS.md Source of Truth** — parse, hash, publish, pull, diff agent configs
-- **Smart Wallet (ERC-4337)** — batched transactions with paymaster gas sponsorship
-- **Lazy Publish** — mainnet activation deferred to first real transaction
-- **Three-tier API** — Basic, Standard, and Advanced levels
-- **Mock Runtime** — full local testing without blockchain
-- **CLI** — `actp pay`, `publish`, `pull`, `diff`, `deploy:env`, `deploy:check`
-- **Async-first** — built on asyncio
-- **1,738 tests passing**
+```bash
+pip install "agirails[server]"   # actp serve daemon (FastAPI + uvicorn)
+pip install "agirails[dev]"      # test + lint toolchain
+```
 
-## Quick Start
+## Hello, ACTP
 
 ```python
 import asyncio
 from agirails import ACTPClient
 
 async def main():
-    client = await ACTPClient.create(mode="mock", requester_address="0x1234...")
+    client = await ACTPClient.create(mode="mock", requester_address="0x1234…")
 
-    # Adapter router auto-selects the best path
-    # EVM address → ACTP (StandardAdapter)
-    result = await client.pay({"to": "0xProvider...", "amount": "10.00"})
+    # The router picks the right path for the destination:
+    #   "0x…"  →  StandardAdapter   (full ACTP escrow lifecycle)
+    #   URL    →  X402Adapter        (instant HTTP payments)
+    #   slug   →  ERC-8004 resolve   →  StandardAdapter
+    result = await client.pay({"to": "0xProvider…", "amount": "10.00"})
 
-    # HTTP URL → x402 instant payment
-    result = await client.pay({"to": "https://api.example.com/pay", "amount": "5.00"})
-
-    # Agent ID → ERC-8004 resolve → ACTP
-    result = await client.pay({"to": "12345", "amount": "10.00"})
-
-    print(f"Transaction: {result.tx_id}, State: {result.state}")
+    print(f"tx={result.tx_id} state={result.state}")
 
 asyncio.run(main())
 ```
 
-## Adapter Routing
+Gasless on real chains via ERC-4337 Smart Wallet (Coinbase paymaster sponsors gas, AGIRAILS Smart Wallet is the on-chain `requester`):
 
-Priority-based adapter selection matching TypeScript `AdapterRouter`:
+```python
+client = await ACTPClient.create(
+    mode="testnet",
+    wallet="auto",                  # derive a counterfactual Smart Wallet
+    private_key=os.environ["PRIVATE_KEY"],
+)
+result = await client.basic.pay("0xProvider…", amount="0.05")
+# single batched UserOp: USDC.approve + createTransaction + linkEscrow
+```
 
-| Adapter | Priority | Target | Use Case |
-|---------|----------|--------|----------|
-| **X402Adapter** | 70 | `https://...` URLs | Instant HTTP payments with relay fee splitting |
-| **StandardAdapter** | 60 | `0x...` addresses | Full ACTP lifecycle with escrow |
-| **BasicAdapter** | 50 | `0x...` addresses | Simple pay-and-forget (Smart Wallet batched) |
+## What's in 3.0.0
 
-## Keystore & Deployment Security (AIP-13)
+- **V3 contracts** on Base mainnet, V4 on Base Sepolia. 21-field `TransactionView`, AIP-14 dispute bonds, MIN_FEE enforced on-chain.
+- **Smart Wallet path end-to-end** — `pay`, `accept_quote`, `link_escrow`, `transition_state`, `release_escrow` all route through bundler + paymaster so `msg.sender == requester`.
+- **AIP-2.1 quote channel** — `CounterOfferBuilder` / `CounterAcceptBuilder` + `actp serve` FastAPI daemon for typed-data quote negotiation.
+- **Web Receipts** — settled-receipt upload to `agirails.app` with EIP-712 `ReceiptWrite` signing.
+- **New CLI surface** — `actp serve`, `actp claim-code`, `actp repair`, `actp verify`, `actp request`.
+- **Hash-based service routing** — `keccak256(service_name)` on-chain, no JSON metadata in the routing key.
 
-Fail-closed private key policy with network-aware enforcement:
+See [CHANGELOG.md](CHANGELOG.md) for the full diff against 2.x.
 
-| Network | `ACTP_PRIVATE_KEY` | Behavior |
-|---------|-------------------|----------|
-| mock | Allowed | Silent |
-| testnet (base-sepolia) | Allowed | Warn once |
-| mainnet (base-mainnet) | Blocked | Hard fail |
+## Adapters
 
-**Resolution order:** `ACTP_PRIVATE_KEY` → `ACTP_KEYSTORE_BASE64` + `ACTP_KEY_PASSWORD` → `.actp/keystore.json` → `None`
+Priority-routed; same shape as the TypeScript `AdapterRouter`:
+
+| Adapter             | Priority | Target           | Use case                                   |
+| ------------------- | -------- | ---------------- | ------------------------------------------ |
+| **X402Adapter**     | 70       | `https://…` URLs | Instant HTTP payments, relay-fee splitting |
+| **StandardAdapter** | 60       | `0x…` addresses  | Full ACTP escrow lifecycle                 |
+| **BasicAdapter**    | 50       | `0x…` addresses  | Pay-and-forget (batched Smart Wallet)      |
+
+## Keystore policy (AIP-13)
+
+Fail-closed private-key handling — raw `ACTP_PRIVATE_KEY` is blocked on mainnet:
+
+| Network         | `ACTP_PRIVATE_KEY` | Behaviour |
+| --------------- | ------------------ | --------- |
+| `mock`          | allowed            | silent    |
+| `base-sepolia`  | allowed            | warns once |
+| `base-mainnet`  | **blocked**        | hard fail |
+
+Resolution order: `ACTP_PRIVATE_KEY` → `ACTP_KEYSTORE_BASE64` + `ACTP_KEY_PASSWORD` → `.actp/keystore.json` → `None`.
 
 ```bash
-# Generate base64 keystore for CI/CD
-actp deploy:env
-
-# Scan repo for exposed secrets
-actp deploy:check
+actp deploy:env      # generate base64 keystore for CI/CD
+actp deploy:check    # scan repo for exposed secrets
 ```
 
-## AGIRAILS.md Config Management
-
-```bash
-actp publish --network base-sepolia    # Hash + upload to IPFS + register on-chain
-actp pull --network base-sepolia       # Fetch config from chain
-actp diff --network base-sepolia       # Compare local vs on-chain
-```
-
-## Transaction Lifecycle
+## State machine
 
 ```
-INITIATED → QUOTED → COMMITTED → IN_PROGRESS → DELIVERED → SETTLED
-                ↘                      ↘              ↘
-              CANCELLED              CANCELLED      DISPUTED → SETTLED
+INITIATED ─→ QUOTED ─→ COMMITTED ─→ IN_PROGRESS ─→ DELIVERED ─→ SETTLED
+                ↘                ↘             ↘
+              CANCELLED       CANCELLED     DISPUTED → SETTLED
 ```
+
+Transitions are one-way and gated on chain — the kernel rejects any move that isn't on the DAG.
 
 ## CLI
 
 ```bash
-# Payments
+# Payments + transactions
 actp pay <to> <amount> [--deadline TIME]
 actp balance [ADDRESS]
-
-# Transaction management
 actp tx list [--state STATE]
 actp tx status <tx_id>
 actp tx deliver <tx_id>
 actp tx settle <tx_id>
 
-# Config sync
+# Quote channel (AIP-2.1)
+actp serve --policy policy.yaml [--port 8080]
+actp request --service <name> --to <addr> --amount <usdc>
+
+# Verification + repair
+actp verify <tx_id|receipt_url>
+actp claim-code <code>
+actp repair <tx_id>
+
+# AGIRAILS.md config sync
 actp publish [path]
 actp pull [path] [--network NETWORK]
 actp diff [path] [--network NETWORK]
 
-# Deployment security
-actp deploy:env
-actp deploy:check [path] [--fix]
-
-# Mock mode
+# Mock-mode helpers
 actp mint <address> <amount>
 actp time advance <duration>
 ```
 
-## SDK Parity
-
-Full 1:1 parity with TypeScript SDK v2.5.0+:
-
-| Feature | Python | TypeScript |
-|---------|--------|------------|
-| Adapter Routing | AdapterRouter + 3 adapters | AdapterRouter + 3 adapters |
-| x402 Payments | X402Adapter with relay | X402Adapter with relay |
-| ERC-8004 Identity | ERC8004Bridge + ReputationReporter | ERC8004Bridge + ReputationReporter |
-| Keystore AIP-13 | Full (30-min TTL cache) | Full (30-min TTL cache) |
-| AGIRAILS.md SOT | parse, hash, publish, pull, diff | parse, hash, publish, pull, diff |
-| Smart Wallet | ERC-4337 scaffolding | ERC-4337 full |
-| Lazy Publish | pending-publish lifecycle | pending-publish lifecycle |
-| CLI Commands | pay, publish, pull, diff, deploy:* | pay, publish, pull, diff, deploy:* |
-| State Machine | 8 states, all transitions | 8 states, all transitions |
-| Cross-SDK Tests | Shared test vectors | Shared test vectors |
-
 ## Testing
 
 ```bash
-pytest                           # Run all 1,738 tests
-pytest -v                        # Verbose output
-pytest tests/test_adapters/      # Adapter tests only
-pytest -k "test_pay"             # Pattern match
+pytest                              # default suite (skips live + AA)
+pytest -m integration_sepolia       # live Base Sepolia (needs ACTP_KEY_PASSWORD)
+pytest -m requires_aa               # bundler/paymaster integration
+pytest tests/test_adapters/         # adapter tests only
 ```
+
+Cross-SDK parity vectors are regenerated and verified on every CI run — TS-signed messages round-trip through Python and vice versa.
 
 ## Requirements
 
 - Python 3.9+
-- Dependencies: web3, eth-account, pydantic, aiofiles, httpx, typer, rich
+- web3 ≥ 7.0, eth-account ≥ 0.13, pydantic ≥ 2.6, httpx ≥ 0.27, typer ≥ 0.12
 
 ## Links
 
 - [PyPI](https://pypi.org/project/agirails/)
 - [Documentation](https://docs.agirails.io)
+- [Changelog](CHANGELOG.md)
 - [GitHub](https://github.com/agirails/sdk-python)
 - [Discord](https://discord.gg/nuhCt75qe4)
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+Apache 2.0 — see [LICENSE](LICENSE).

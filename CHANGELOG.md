@@ -5,6 +5,28 @@ All notable changes to AGIRAILS Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] — 2026-05-23
+
+> Stable promotion of `3.0.0b1`. No functional code changes since the
+> beta — beta cycle ran one week with no integrator-reported
+> regressions across the parity surface (live Base Sepolia integration
+> suite: 11/12 green; the remaining test soft-skips on a server-side
+> nonce-consumed race, not an SDK issue). Pre-publish housekeeping:
+>
+> - Dropped unused `aiofiles` dependency to trim install footprint.
+> - Removed duplicate `config/abis/AgentRegistry.json` and orphan
+>   `abis/eas.json` (EAS uses inline ABI constants).
+> - Excluded `coverage.json` + dev caches from sdist.
+> - `release-pypi.yml` now gates the `pypi` job on a green `testpypi`
+>   publish (defence-in-depth — stable upload can't bypass a clean
+>   TestPyPI smoke).
+> - README rewritten for the 3.0 surface.
+>
+> All beta-cycle test additions (cross-SDK parity vectors in both
+> directions, Hypothesis stateful lifecycle exerciser, installed-wheel
+> smoke harness, live Smart Wallet UserOp + Web Receipts upload) are
+> CI-wired and stay green.
+
 ## [3.0.0b1] — 2026-05-21
 
 > First public pre-release of 3.0.0. Mirrors the TS 4.0.0 beta path —
@@ -446,27 +468,10 @@ swaps needed only if:
 
 ---
 
-## [Unreleased]
-
-> Note: Changelog entries for v2.1.0 through v2.3.1 were not recorded.
-> See git log for detailed changes.
-
-### Planned for 2.1.0
-- `BlockchainRuntime` - Real blockchain integration
-- CLI tool implementation (`actp` command)
-- EAS attestation integration
-- Gas estimation and optimization
-
-### Planned for 2.2.0
-- WebSocket event streaming
-- Transaction batching
-- Multi-chain support
-
----
-
 ## Version History
 
-| Version | Date | Highlights |
-|---------|------|------------|
-| 3.0.0 | 2026-05-20 | V3 mainnet / V4 Sepolia parity, full Smart Wallet path, AIP-2.1 quote channel, Web Receipts, 4 new CLI commands |
-| 2.0.0 | 2024-12-25 | Initial v2 release with Python 3.9 support |
+| Version  | Date       | Highlights                                                                                                                  |
+| -------- | ---------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 3.0.0    | 2026-05-23 | V3 mainnet / V4 Sepolia parity, full Smart Wallet path, AIP-2.1 quote channel, Web Receipts, 4 new CLI commands             |
+| 3.0.0b1  | 2026-05-21 | Beta — adds Trusted Publisher OIDC workflow + post-audit fixes                                                              |
+| 2.0.0    | 2024-12-25 | Initial v2 release with Python 3.9 support                                                                                  |

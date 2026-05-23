@@ -235,9 +235,8 @@ def _load_agent_registry_abi() -> List[Dict[str, Any]]:
     abi_path = os.path.join(
         os.path.dirname(__file__),
         "..",
-        "config",
         "abis",
-        "AgentRegistry.json",
+        "agent_registry.json",
     )
 
     if os.path.exists(abi_path):

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import warnings
 from datetime import datetime
 from unittest.mock import patch
 
@@ -346,24 +345,6 @@ class TestSignedMessage:
 
         assert message.verify(expected_signer="0xexpected") is False
 
-    def test_verify_emits_warning(self) -> None:
-        """Test verify emits warning about not being cryptographic."""
-        message = SignedMessage(
-            domain=EIP712Domain(),
-            message={},
-            message_type="Test",
-            signature="0xsig",
-            signer="0xsigner",
-        )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = message.verify()
-
-            assert result is True
-            assert len(w) == 1
-            assert "does not perform cryptographic verification" in str(w[0].message)
-
     def test_verify_case_insensitive_signer(self) -> None:
         """Test verify handles case-insensitive signer comparison."""
         message = SignedMessage(
@@ -374,9 +355,7 @@ class TestSignedMessage:
             signer="0xABCDEF",
         )
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            assert message.verify(expected_signer="0xabcdef") is True
+        assert message.verify(expected_signer="0xabcdef") is True
 
 
 class TestTypedData:

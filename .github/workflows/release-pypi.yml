@@ -124,10 +124,12 @@ jobs:
     name: Publish to TestPyPI
     needs: build
     runs-on: ubuntu-latest
-    # Auto on tag push (any version). Manual: target=testpypi.
+    # Runs on every tag push AND on every workflow_dispatch (both
+    # testpypi and pypi targets). A pypi run gets a TestPyPI smoke
+    # publish first — the pypi job depends on this succeeding.
     if: |
       github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'testpypi')
+      github.event_name == 'workflow_dispatch'
     environment:
       name: testpypi
       url: https://test.pypi.org/project/agirails/${{ needs.build.outputs.version }}/
@@ -150,7 +152,9 @@ jobs:
 
   pypi:
     name: Publish to PyPI
-    needs: build
+    # Gate on a green TestPyPI publish — stable upload cannot bypass
+    # the TestPyPI smoke step (defence-in-depth).
+    needs: [build, testpypi]
     runs-on: ubuntu-latest
     # Live PyPI: workflow_dispatch with target=pypi (forces manual gate even
     # for stable tags). Beta versions can NOT be auto-promoted by accident.
