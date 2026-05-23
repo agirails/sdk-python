@@ -52,7 +52,21 @@ async def test_requester_side_lifecycle_eoa(sepolia_signer, sepolia_w3):
     from eth_hash.auto import keccak
     from web3 import Web3
 
-    # ── Setup ────────────────────────────────────────────────────────────
+    # ── Sepolia ETH balance gate ─────────────────────────────────────────
+    # This test sends 2 on-chain txs (createTransaction + linkEscrow);
+    # if the deployer EOA is below the rough cost floor, skip with a
+    # refill hint instead of crashing mid-flight on -32003 insufficient
+    # funds. Threshold = ~3x a single-tx ceiling at 0.05 gwei × 200k gas.
+    MIN_ETH_WEI = 30_000_000_000_000  # 0.00003 ETH (~3 tx headroom)
+    eth_bal = sepolia_w3.eth.get_balance(sepolia_signer.address)
+    if eth_bal < MIN_ETH_WEI:
+        pytest.skip(
+            f"Deployer {sepolia_signer.address} has {eth_bal} wei "
+            f"(< {MIN_ETH_WEI} wei needed). Refill with sepolia ETH "
+            f"from https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet "
+            f"or another base-sepolia faucet."
+        )
+
     rt = await BlockchainRuntime.create(
         private_key=sepolia_signer.key.hex(),
         network="base-sepolia",

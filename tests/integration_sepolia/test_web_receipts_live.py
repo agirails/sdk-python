@@ -119,24 +119,46 @@ async def test_live_agirails_app_receipt_upload(sepolia_signer, sepolia_w3):
     assert isinstance(result, (ReceiptUploadSuccess, ReceiptUploadFailure))
 
     if isinstance(result, ReceiptUploadFailure):
-        # Diagnostic-friendly failure: surface the server reason so a
-        # CI failure is actionable. The test still PASSES on certain
-        # known failure modes (tx not indexed, rate-limited) — the
-        # important thing is the SDK and server agreed on the format.
+        # Classify the failure. We're trying to distinguish three buckets:
+        #   - shape/schema drift (HARD FAIL) — the SDK is sending wrong
+        #     wire format and integrators on this version would break
+        #   - transient / business-logic / nonce-race (SOFT SKIP) — SDK
+        #     and server agree on shape, run is just unlucky
+        #   - genuine unknown (HARD FAIL) — surface it for inspection
         reason = (result.reason or "").lower()
-        # Hard fail on shape/schema drift (would say "invalid X" or
-        # "missing X" in the server's response).
-        # Soft fail (skip) on transient issues.
+
+        # Transient/business issues that are not shape drift.
+        # "Nonce invalid or already used" is the /prepare→/receipts
+        # atomic-consume race or a replay; SDK shape is still correct.
+        soft_skip_markers = (
+            "nonce",
+            "tx not found",
+            "transaction not found",
+            "rate limit",
+            "too many",
+            "duplicate",
+            "already exists",
+        )
+        if any(s in reason for s in soft_skip_markers):
+            pytest.skip(
+                f"agirails.app rejected with a transient/business "
+                f"condition (not shape drift): {result.reason}"
+            )
+
+        # Shape-drift markers — these mean the server can't parse what
+        # the SDK sent (e.g. "Invalid kernelAddress", "Missing service",
+        # "Malformed signature"). Hard fail.
         if any(s in reason for s in ("invalid", "missing", "malformed")):
             pytest.fail(
                 f"agirails.app rejected the SDK's payload with shape "
                 f"error: {result.reason}. This means the SDK's HTTP "
                 f"request body has drifted from what the server expects."
             )
-        # Otherwise it's a transient/business error — mark expected.
-        pytest.skip(
-            f"agirails.app didn't accept the receipt this run, but the "
-            f"reason isn't a schema drift: {result.reason}"
+
+        # Unknown failure — surface for diagnosis.
+        pytest.fail(
+            f"agirails.app upload failed with unclassified reason: "
+            f"{result.reason}"
         )
 
     # Success case: URL is reachable.
