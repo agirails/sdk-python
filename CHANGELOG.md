@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Subsequent betas bump the suffix (``3.0.0b2``, ``3.0.0b3``, …).
 > Stable ``3.0.0`` ships after at least one beta cycle without
 > integrator-reported regressions.
+>
+> **Trusted Publisher workflow shipped this release** (pulled in
+> from the 3.1+ deferred list): ``.github/workflows/release-pypi.yml``
+> uses GitHub Actions OIDC + PyPI Trusted Publishers per PEP 740.
+> No long-lived API token is stored in repo secrets; every publish
+> mints a fresh short-lived credential at workflow runtime. Beta
+> tags auto-publish to TestPyPI; live PyPI publishes require an
+> explicit ``workflow_dispatch`` with ``target=pypi`` + the
+> ``pypi`` environment's reviewer approval.
 
 ## [3.0.0] — 2026-05-20
 
@@ -348,9 +357,9 @@ swaps needed only if:
 - **Pydantic at HTTP/wire boundaries** — current builders + receipts
   use dataclasses. Pydantic gives nicer parse errors at the
   agirails.app / `actp serve` ingress; tracked as a 3.1 refactor.
-- **Workflow-attested PyPI publish (PEP 740)** — Python equivalent of
-  the npm OIDC + sigstore + SLSA provenance chain. Current 3.0.0
-  ships through the standard `poetry publish` API-token path.
+- ~~**Workflow-attested PyPI publish (PEP 740)** — Python equivalent
+  of the npm OIDC + sigstore + SLSA provenance chain.~~ **Shipped
+  earlier than planned in 3.0.0b1** — see the beta section above.
 
 ---
 

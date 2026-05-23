@@ -1,0 +1,174 @@
+name: Publish to PyPI
+
+# OIDC trusted-publisher workflow (PEP 740 + PyPI Trusted Publishers).
+# No long-lived API tokens stored in repo secrets — GitHub mints a
+# short-lived OIDC token at runtime, the pypa/gh-action-pypi-publish
+# action exchanges it with PyPI's Trusted Publisher endpoint for a
+# one-time upload privilege scoped to this exact workflow run.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# PyPI side — ONE-TIME SETUP per publisher
+#
+# TestPyPI (https://test.pypi.org/manage/account/publishing/):
+#   - "Add a new pending publisher"
+#   - PyPI project name:     agirails
+#   - Owner:                  agirails
+#   - Repository name:        sdk-python
+#   - Workflow filename:      release-pypi.yml
+#   - Environment name:       testpypi
+#
+# PyPI (https://pypi.org/manage/project/agirails/settings/publishing/):
+#   - "Add a new trusted publisher" (project already exists from 2.0.0+)
+#   - Owner:                  agirails
+#   - Repository name:        sdk-python
+#   - Workflow filename:      release-pypi.yml
+#   - Environment name:       pypi
+#
+# GitHub side — ONE-TIME SETUP
+#   Settings → Environments:
+#     - Create "testpypi"  (no protections needed)
+#     - Create "pypi"      (recommend: required reviewers = repo admin)
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# How to release
+#
+#   Beta (b1, b2, …, rcN):
+#     git tag v3.0.0b1
+#     git push origin v3.0.0b1
+#     → Workflow auto-publishes to TestPyPI only.
+#
+#   Stable:
+#     git tag v3.0.0
+#     git push origin v3.0.0
+#     → Workflow publishes to TestPyPI automatically.
+#     → For PyPI: open Actions tab → "Publish to PyPI" → "Run workflow"
+#       → target=pypi → click Run. Environment gate requires reviewer
+#       approval before the upload step actually runs.
+#
+#   Emergency (manual trigger for either target):
+#     Actions tab → workflow_dispatch with target=testpypi or pypi
+#
+# Pre-release detection: a version is considered pre-release if it
+# contains "a", "b", or "rc" per PEP 440 (e.g. 3.0.0b1, 3.0.0rc2).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Publish target'
+        required: true
+        type: choice
+        default: testpypi
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheel + sdist
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build
+        run: python -m pip install --upgrade build
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read().decode())['project']['version'])")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # PEP 440 pre-release markers.
+          if [[ "$VERSION" =~ (a|b|rc)[0-9]+ ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Built version: $VERSION"
+
+      - name: Verify tag matches version
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$TAG" != "$VERSION" ]]; then
+            echo "::error::Tag v$TAG does not match pyproject.toml version $VERSION"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # Auto on tag push (any version). Manual: target=testpypi.
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'testpypi')
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/agirails/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write  # OIDC token issuance
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Skip if a duplicate upload would error — useful when re-running
+          # a failed workflow that already uploaded.
+          skip-existing: true
+
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # Live PyPI: workflow_dispatch with target=pypi (forces manual gate even
+    # for stable tags). Beta versions can NOT be auto-promoted by accident.
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi'
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agirails/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
