@@ -1,0 +1,20 @@
+{
+  "label": "python_signed_counter_accept_mainnet",
+  "fixtureKind": "counter_accept",
+  "kernelAddress": "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "expectedSigner": "0x1563915e194D8CfBA1943570603F7606A3115508",
+  "expectedHash": "0x6568ecb6cf9bc593938380a4aea985602f930ee9c33d9cda03529d7b31f66fde",
+  "message": {
+    "type": "agirails.counteraccept.v1",
+    "version": "1.0.0",
+    "txId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "provider": "did:ethr:8453:0x1563915e194D8CfBA1943570603F7606A3115508",
+    "consumer": "did:ethr:8453:0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+    "acceptedAmount": "800000",
+    "inReplyTo": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "acceptedAt": 1700000000,
+    "chainId": 8453,
+    "nonce": 1,
+    "signature": "0xfb5216b5a089b45278475e8861e284c2927776f4fb1cb66307b5cccab1e87f792d65f0d5bde3a436dad8900bc2cb1b8db534ab57e6b8667fece3e87bbd5ece031c"
+  }
+}
