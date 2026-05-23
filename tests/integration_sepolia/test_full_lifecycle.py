@@ -131,10 +131,19 @@ async def test_requester_side_lifecycle_eoa(sepolia_signer, sepolia_w3):
     assert tx_after_create.state == State.INITIATED
 
     # ── 2. INITIATED → COMMITTED (linkEscrow) ─────────────────────────────
+    # linkEscrow's _sign_and_send returns once the receipt confirms, so
+    # the on-chain tx did land. Public sepolia RPCs are load-balanced
+    # across replicas though, and the post-link read may hit a node
+    # that hasn't yet seen the new state. Poll with a 30s budget.
     await rt.link_escrow(tx_id, "50000")
     tx_after_link = await rt.get_transaction(tx_id)
+    deadline = time.time() + 30
+    while tx_after_link.state != State.COMMITTED and time.time() < deadline:
+        await asyncio.sleep(2)
+        tx_after_link = await rt.get_transaction(tx_id)
     assert tx_after_link.state == State.COMMITTED, (
-        f"After linkEscrow expected COMMITTED, got {tx_after_link.state}"
+        f"After linkEscrow expected COMMITTED, got {tx_after_link.state} "
+        f"(polled for 30s — replica lag or actual revert)"
     )
 
     # V3 invariant: locked-bps fields populated at create time and
