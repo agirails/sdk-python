@@ -16,6 +16,11 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/test.yml'
   workflow_dispatch:  # Allow manual trigger
+  schedule:
+    # Weekly mutation testing — Mondays at 03:00 UTC. The mutmut job is
+    # the only consumer of this trigger; other jobs ignore it via the
+    # `if: github.event_name == ...` guards on each job.
+    - cron: '0 3 * * 1'
 
 env:
   PYTHON_VERSION: '3.11'
@@ -50,8 +55,12 @@ jobs:
 
       - name: Run unit tests
         run: |
+          # integration_sepolia is also marker-gated in pyproject.toml,
+          # but ignore the dir explicitly so the runner doesn't even
+          # collect them (saves seconds + clearer "X deselected" output).
           pytest tests/ \
             --ignore=tests/integration/ \
+            --ignore=tests/integration_sepolia/ \
             --ignore=tests/benchmarks/ \
             -v \
             --tb=short \
@@ -217,13 +226,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run parity tests
+      - name: Run parity tests (Python-only fixtures)
         run: |
           pytest tests/test_parity.py -v --tb=short
 
-      - name: Run fixture-based parity tests
+      - name: Run cross-SDK parity tests (TS-signed → Python verify)
+        # tests/test_cross_sdk/ uses pre-generated JSON fixtures in
+        # tests/fixtures/cross_sdk/ that are produced by the TypeScript
+        # SDK's CounterOfferBuilder/CounterAcceptBuilder. Fixtures are
+        # committed to the repo; no Node setup needed at CI time.
+        # To regenerate (after any wire-format change), run locally:
+        #   NODE_PATH=../sdk-js/node_modules node scripts/generate_parity_vectors.js
         run: |
-          pytest tests/fixtures/ -v --tb=short || true
+          pytest tests/test_cross_sdk/ -v --tb=short
+
+      - name: Run golden hash snapshots
+        # Pinned bytes32 outputs for canonical-JSON + builder.compute_hash.
+        # If anyone silently changes serialization, this fails before
+        # integrators see broken transactions.
+        run: |
+          pytest tests/test_golden/ -v --tb=short
 
   # =============================================================================
   # Integration Tests (Requires Anvil - Push only)
@@ -386,3 +408,105 @@ jobs:
           needs.test-security.result == 'failure' ||
           needs.lint.result == 'failure'
         run: exit 1
+
+  # =============================================================================
+  # Live Base sepolia — manual gate only.
+  #
+  # Runs the gated `integration_sepolia` test suite against the real
+  # Base sepolia kernel (0x9d25…0021b). Costs 1-5 sepolia txes per
+  # full run, signed by the wallet whose keystore + password are
+  # supplied as repo secrets.
+  #
+  # Required secrets:
+  #   ACTP_KEY_PASSWORD       — keystore decryption password
+  #   ACTP_KEYSTORE_BASE64    — base64-encoded keystore JSON (committed
+  #                             keystore-file path doesn't exist in CI)
+  # =============================================================================
+  live-sepolia:
+    name: Live Base sepolia integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch'
+    needs: test-fast
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Materialize keystore from secret
+        env:
+          ACTP_KEYSTORE_BASE64: ${{ secrets.ACTP_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ACTP_KEYSTORE_BASE64" ]; then
+            echo "::error::ACTP_KEYSTORE_BASE64 secret not configured; skipping live tests"
+            exit 78  # neutral skip
+          fi
+          mkdir -p ~/.actp/mainnet-deployer
+          echo "$ACTP_KEYSTORE_BASE64" | base64 -d > ~/.actp/mainnet-deployer/deployer
+          chmod 600 ~/.actp/mainnet-deployer/deployer
+
+      - name: Run live sepolia integration
+        env:
+          ACTP_KEY_PASSWORD: ${{ secrets.ACTP_KEY_PASSWORD }}
+        run: |
+          pytest tests/integration_sepolia/ \
+            -m integration_sepolia \
+            -v --tb=short
+
+  # =============================================================================
+  # Mutation testing — weekly schedule + manual.
+  #
+  # mutmut introduces small code mutations (negate condition, swap
+  # operator, etc.) and re-runs the test suite. Each "survived"
+  # mutation means our tests didn't catch a behaviour change — points
+  # at gaps in test coverage that line coverage alone can't see.
+  # Configured in pyproject.toml [tool.mutmut].
+  # =============================================================================
+  mutation-test:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6h cap
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mutation]"
+
+      - name: Run mutmut
+        run: |
+          mutmut run --paths-to-mutate src/agirails/utils/security.py,src/agirails/runtime/mock_runtime.py,src/agirails/protocol/proofs.py || true
+          mutmut results > mutmut_results.txt
+          mutmut junitxml > mutmut_results.xml || true
+          echo "## Mutation Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -40 mutmut_results.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload mutation report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutmut-results
+          path: |
+            mutmut_results.txt
+            mutmut_results.xml
