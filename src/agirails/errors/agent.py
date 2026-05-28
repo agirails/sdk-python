@@ -18,6 +18,10 @@ class NoProviderFoundError(ACTPError):
 
     Example:
         >>> raise NoProviderFoundError("text-generation", timeout_ms=30000)
+
+    @cause AgentRegistry returned no providers for the requested service, or all returned providers failed the filter.
+    @fix Verify the service capability tag matches one declared in /reference/agirails-md-v4. Drop the `filters` constraint or widen budget. If you pinned a provider with `provider: '0x…'`, verify the address is registered.
+    @recovery user-action
     """
 
     def __init__(
@@ -54,6 +58,10 @@ class TimeoutError(ACTPError):
 
     Example:
         >>> raise TimeoutError("request", 30000)
+
+    @cause Operation exceeded its configured timeout. Most commonly: provider didn't respond, paymaster bundling slow, or RPC sluggish.
+    @fix Increase `timeout` (seconds in Python, ms in TS). If repeatedly timing out, check provider health or chain network state.
+    @recovery retry-safe
     """
 
     def __init__(
@@ -86,6 +94,10 @@ class ProviderRejectedError(ACTPError):
         ...     "Price too low",
         ...     service_name="text-generation"
         ... )
+
+    @cause Provider refused your job explicitly: typically budget below `min_acceptable_amount` or service filter failed at their end.
+    @fix Negotiate via AIP-2.1 counter-offer or increase budget. See /recipes/quote-negotiation.
+    @recovery user-action
     """
 
     def __init__(
@@ -120,6 +132,10 @@ class DeliveryFailedError(ACTPError):
 
     Example:
         >>> raise DeliveryFailedError("0xProvider...", "Computation failed")
+
+    @cause Provider's handler threw before submitting the deliverable; the SDK transitioned the tx but no payload was attached.
+    @fix This is a provider-side bug. Requester can transition to DISPUTED. Provider should examine handler logs and ensure the handler returns or throws cleanly.
+    @recovery must-investigate
     """
 
     def __init__(
@@ -154,6 +170,10 @@ class DisputeRaisedError(ACTPError):
 
     Example:
         >>> raise DisputeRaisedError("0x123...", "Invalid output")
+
+    @cause Counterparty raised a dispute on this transaction. Funds remain in escrow pending mediator decision.
+    @fix Not necessarily a bug; it is a protocol path. See /recipes/dispute-flow for evidence submission and resolution. The disputer has posted bond; respond within the dispute window.
+    @recovery must-investigate
     """
 
     def __init__(
@@ -185,6 +205,10 @@ class ServiceConfigError(ACTPError):
 
     Example:
         >>> raise ServiceConfigError("text-generation", "Missing handler")
+
+    @cause Agent or service config is missing or incorrect. Often: missing network, missing keystore, capability tag not recognized, or pricing fields out of order.
+    @fix Run `actp deploy:check --strict`. Compare your config to the V4 schema at /reference/agirails-md-v4.
+    @recovery user-action
     """
 
     def __init__(
@@ -217,6 +241,10 @@ class AgentLifecycleError(ACTPError):
 
     Example:
         >>> raise AgentLifecycleError("start", "Already running")
+
+    @cause start(), stop(), pause(), or resume() called in a state where it is not allowed (e.g. stop() on a never-started agent).
+    @fix Read `agent.status` before lifecycle transitions. Don't call start() twice; the SDK does not idempotent it.
+    @recovery user-action
     """
 
     def __init__(
@@ -256,6 +284,10 @@ class QueryCapExceededError(ACTPError):
 
     Example:
         >>> raise QueryCapExceededError(1000, 100)
+
+    @cause AgentRegistry contains more than the cap (default 1000) agents; on-chain query disabled to prevent DoS.
+    @fix Migrate to an off-chain indexer: The Graph, Goldsky, or Alchemy Subgraphs. Index AgentRegistered, ServiceTypeUpdated, and ActiveStatusUpdated events.
+    @recovery user-action
     """
 
     def __init__(

@@ -19,6 +19,10 @@ class ValidationError(ACTPError):
 
     Example:
         >>> raise ValidationError("Invalid parameter value", field="amount")
+
+    @cause Input failed shape validation (invalid address, malformed CID, amount out of bounds, etc.).
+    @fix Read the error `details` field for the specific failure. Adjust your inputs to match the schema.
+    @recovery user-action
     """
 
     def __init__(

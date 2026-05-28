@@ -18,6 +18,10 @@ class StorageError(ACTPError):
 
     Example:
         >>> raise StorageError("Failed to connect to IPFS gateway")
+
+    @cause IPFS/Arweave upload, download, or pin failed. Could be auth, rate limit, or size cap.
+    @fix For uploads, verify storage credentials and file size. For downloads, the CID may be unreachable; verify pinning status with your provider.
+    @recovery retry-safe
     """
 
     def __init__(

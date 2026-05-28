@@ -25,6 +25,10 @@ class NetworkError(ACTPError):
 
     Example:
         >>> raise NetworkError("RPC endpoint timeout", endpoint="https://rpc.base.org")
+
+    @cause RPC failure, transient connectivity issue, or rate limit on the upstream provider.
+    @fix Retry with backoff; most NetworkErrors are transient. If persistent, switch RPC endpoint (`ACTP_RPC_URL`). Verify Base network status at status.base.org.
+    @recovery retry-safe
     """
 
     def __init__(
@@ -61,6 +65,10 @@ class TransactionRevertedError(ACTPError):
         ...     "0x123...",
         ...     revert_reason="Insufficient balance"
         ... )
+
+    @cause A kernel call reverted on-chain. Common: state guard violation, address mismatch, or fee param out of bounds.
+    @fix Read the `revert_reason` field on the error. Use `cast call --trace` or the Basescan tx trace to see the revert reason from the kernel.
+    @recovery must-investigate
     """
 
     def __init__(
@@ -143,6 +151,10 @@ class SignatureVerificationError(ACTPError):
         ...     expected_signer="0xProvider...",
         ...     actual_signer="0xAttacker..."
         ... )
+
+    @cause An EIP-712 signed message (quote, counter-offer, receipt) does not recover to the expected signer address.
+    @fix Verify the signer's keystore is loaded and that chainId in your EIP-712 domain matches the network. Cross-SDK byte-identical encoding is a CI invariant; if it fails it is almost always a config drift on your side.
+    @recovery must-investigate
     """
 
     def __init__(

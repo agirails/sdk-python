@@ -18,6 +18,10 @@ class TransactionNotFoundError(ACTPError):
 
     Example:
         >>> raise TransactionNotFoundError("0x123...")
+
+    @cause The provided txId does not match any transaction in the kernel, or you are querying on the wrong network.
+    @fix Verify `network:` matches the chain the transaction was created on. Re-check txId from the original create_transaction() return value.
+    @recovery must-investigate
     """
 
     def __init__(
@@ -45,6 +49,10 @@ class InvalidStateTransitionError(ACTPError):
 
     Example:
         >>> raise InvalidStateTransitionError("INITIATED", "SETTLED")
+
+    @cause Attempted state transition not allowed by the ACTP state machine from the current state.
+    @fix Call get_transaction(tx_id) to see the actual state. The error message lists valid transitions. Don't cache transaction state locally; the on-chain state is canonical.
+    @recovery must-investigate
     """
 
     def __init__(
@@ -133,6 +141,10 @@ class DeadlinePassedError(ACTPError):
 
     Example:
         >>> raise DeadlinePassedError(1700000000, 1699999000)
+
+    @cause The transaction's deadline (set at create_transaction, default 600s) has passed without delivery.
+    @fix For new transactions, increase `deadline_seconds`. For an expired one, the requester can transition to CANCELLED. See /recipes/dispute-flow.
+    @recovery must-investigate
     """
 
     def __init__(
