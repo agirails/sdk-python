@@ -100,7 +100,7 @@ class CounterOfferJustification:
 
 @dataclass
 class CounterOfferMessage:
-    """Counter-offer message — buyer's reply to a provider quote.
+    """Counter-offer message: buyer's reply to a provider quote.
 
     Field shape mirrors the TS CounterOfferMessage. quoteAmount is
     preserved verbatim from the provider's quote for unambiguous
