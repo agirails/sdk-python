@@ -134,7 +134,10 @@ class PaymasterClient:
                     f"Gas sponsorship unavailable: {primary_error}. "
                     "No backup paymaster configured."
                 ) from primary_error
-            logger.warning(
+            # Debug, not warning: a recovered failover (primary slow -> backup
+            # sponsors) is normal resilience, not a user-facing error. Mirrors
+            # TS PaymasterClient.ts:116-122.
+            logger.debug(
                 "Primary paymaster failed, trying backup: method=%s error=%s",
                 method,
                 str(primary_error),

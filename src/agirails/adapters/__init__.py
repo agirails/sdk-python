@@ -48,6 +48,8 @@ from agirails.adapters.standard import (
     TransactionDetails,
 )
 from agirails.adapters.x402_adapter import (
+    LegacyX402Adapter,
+    LegacyX402AdapterConfig,
     X402Adapter,
     X402AdapterConfig,
     X402PayParams,
@@ -81,11 +83,14 @@ __all__ = [
     "StandardAdapter",
     "StandardTransactionParams",
     "TransactionDetails",
-    # X402
+    # X402 (v2 native — TS parity)
     "X402Adapter",
     "X402AdapterConfig",
     "X402PayParams",
     "X402PayResult",
+    # X402 (legacy direct-transfer — backward compat)
+    "LegacyX402Adapter",
+    "LegacyX402AdapterConfig",
     # Types
     "AdapterMetadata",
     "AdapterSelectionResult",

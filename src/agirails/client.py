@@ -488,21 +488,22 @@ class ACTPClient:
     ) -> None:
         """Best-effort X402Adapter auto-registration.
 
-        Mirrors TS SDK ACTPClient where ``X402Adapter`` is auto-registered
-        when the wallet provider supports EIP-712 signing. Python's
-        X402Adapter is the legacy direct-transfer variant, so we wire a
-        transfer closure that builds ``USDC.transfer(to, amount)`` calldata
-        and submits it via ``wallet_provider.send_transaction``.
+        Mirrors TS SDK ACTPClient, which auto-registers ``X402Adapter`` when the
+        wallet provider supports EIP-712 signing (``signTypedData``). When the
+        provider exposes ``sign_typed_data`` we wire the NATIVE x402 v2 adapter
+        (EIP-3009 / Permit2). Providers that only expose ``send_transaction``
+        fall back to the legacy direct-transfer adapter for backward compat.
 
         Failures are logged and swallowed so the SDK still works without
         x402 routing — users can always register their own X402Adapter
         instance via :py:meth:`register_adapter`.
         """
         try:
-            if not hasattr(wallet_provider, "send_transaction"):
+            has_sign_typed = callable(getattr(wallet_provider, "sign_typed_data", None))
+            if not has_sign_typed and not hasattr(wallet_provider, "send_transaction"):
                 _logger.debug(
                     "X402Adapter auto-registration skipped: wallet provider "
-                    "does not implement send_transaction"
+                    "implements neither sign_typed_data nor send_transaction"
                 )
                 return
 
@@ -515,6 +516,24 @@ class ACTPClient:
             network_name = (
                 "base-sepolia" if config.mode == "testnet" else "base-mainnet"
             )
+
+            if has_sign_typed:
+                # Native x402 v2 (TS parity). Defaults keep the opt-in safety
+                # gate (empty allowed_hosts => per-call opt-in required) and the
+                # canonical-USDC asset allowlist, so this NEVER auto-pays an
+                # arbitrary HTTPS URL.
+                adapter = X402Adapter(
+                    requester_address=requester_address,
+                    config=X402AdapterConfig(wallet_provider=wallet_provider),
+                )
+                client.register_adapter(adapter)
+                _logger.debug(
+                    f"x402 v2 X402Adapter auto-registered for {network_name} "
+                    "(native EIP-3009/Permit2)"
+                )
+                return
+
+            # Legacy fallback: direct USDC.transfer via send_transaction.
             network = get_network(network_name)
             usdc_address = network.contracts.usdc
             rpc_url = config.rpc_url or network.rpc_url
@@ -532,7 +551,7 @@ class ACTPClient:
             )
             client.register_adapter(adapter)
             _logger.debug(
-                f"X402Adapter auto-registered for {network_name} "
+                f"Legacy X402Adapter auto-registered for {network_name} "
                 f"(usdc={usdc_address})"
             )
         except Exception as exc:

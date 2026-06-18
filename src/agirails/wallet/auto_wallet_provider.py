@@ -31,7 +31,14 @@ from agirails.wallet.aa.user_op_builder import (
 from agirails.wallet.aa.bundler_client import BundlerClient, BundlerConfig
 from agirails.wallet.aa.paymaster_client import PaymasterClient, PaymasterConfig
 from agirails.wallet.aa.dual_nonce_manager import DualNonceManager, EnqueueResult
-from agirails.wallet.aa.transaction_batcher import build_actp_pay_batch
+from agirails.wallet.aa.transaction_batcher import (
+    build_actp_pay_batch,
+    compute_transaction_id,
+)
+
+# Max ACTP-nonce bumps when retrying past "Escrow ID already used" collisions.
+# Mirrors TS AutoWalletProvider.ts:369 (MAX_NONCE_BUMPS = 12).
+MAX_NONCE_BUMPS = 12
 
 logger = logging.getLogger("agirails.wallet.auto")
 
@@ -113,6 +120,38 @@ class BatchedPayParams:
 
 
 @dataclass
+class CreateACTPTransactionParams:
+    """Parameters for creating an ACTP transaction via Smart Wallet (without escrow).
+
+    Mirrors TS ``CreateACTPTransactionParams`` (IWalletProvider.ts:74-86).
+    """
+
+    provider: str
+    requester: str
+    amount: str
+    deadline: int
+    dispute_window: int
+    service_hash: str
+    agent_id: str
+    requester_agent_id: str = "0"
+    contracts: Any = None  # {actp_kernel: str} — ContractAddresses or compatible
+
+
+@dataclass(frozen=True)
+class CreateACTPTransactionResult:
+    """Result of creating an ACTP transaction via Smart Wallet.
+
+    Mirrors TS ``CreateACTPTransactionResult`` (IWalletProvider.ts:91-96).
+    """
+
+    tx_id: str
+    """Pre-computed ACTP transaction ID (bytes32)."""
+
+    receipt: TransactionReceipt
+    """Transaction receipt."""
+
+
+@dataclass
 class AutoWalletConfig:
     """Configuration for AutoWalletProvider."""
 
@@ -128,7 +167,10 @@ class AutoWalletConfig:
     actp_kernel_address: str
     """ACTPKernel contract address (for ACTP nonce reads)."""
 
-    bundler_primary_url: str
+    actp_kernel_deployment_block: Optional[int] = None
+    """Known deployment block of ACTPKernel (skips binary search in DualNonceManager)."""
+
+    bundler_primary_url: str = ""
     """Primary bundler URL (Coinbase CDP)."""
 
     bundler_backup_url: Optional[str] = None
@@ -170,6 +212,14 @@ class IWalletProvider(Protocol):
 
     def get_wallet_info(self) -> WalletInfo:
         """Get wallet metadata."""
+        ...
+
+    def sign_typed_data(self, typed_data: dict) -> str:
+        """EIP-712 sign a typed-data ``full_message`` dict (native x402 v2).
+
+        Optional: providers that implement it become eligible for x402 v2
+        auto-registration (mirrors the TS signTypedData gate).
+        """
         ...
 
 
@@ -218,6 +268,7 @@ class AutoWalletProvider:
             w3=config.w3,
             sender_address=smart_wallet_address,
             actp_kernel_address=config.actp_kernel_address,
+            known_deployment_block=config.actp_kernel_deployment_block,
         )
 
     @classmethod
@@ -256,6 +307,22 @@ class AutoWalletProvider:
     def get_address(self) -> str:
         """Get the Smart Wallet address (used as requester in ACTP)."""
         return self._smart_wallet_address
+
+    def sign_typed_data(self, typed_data: dict) -> str:
+        """EIP-712 sign a typed-data ``full_message`` dict with the owner EOA.
+
+        Enables the native x402 v2 flow (TS IWalletProvider.signTypedData). The
+        controlling EOA signs; for Smart-Wallet (Tier-1) buyers the x402 adapter
+        uses the Permit2 path where this owner signature is validated on-chain
+        via ERC-1271 / ERC-6492.
+        """
+        from eth_account import Account
+        from eth_account.messages import encode_typed_data
+
+        account = Account.from_key(self._private_key)
+        signable = encode_typed_data(full_message=typed_data)
+        sig = account.sign_message(signable).signature.hex()
+        return sig if sig.startswith("0x") else "0x" + sig
 
     async def send_transaction(self, tx: TransactionRequest) -> TransactionReceipt:
         """Send a single transaction via Smart Wallet UserOp."""
@@ -331,41 +398,171 @@ class AutoWalletProvider:
         async def _execute(nonces: Any) -> EnqueueResult[BatchedPayResult]:
             from agirails.wallet.aa.transaction_batcher import ACTPBatchParams
 
-            batch = build_actp_pay_batch(
-                ACTPBatchParams(
-                    provider=params.provider,
-                    requester=params.requester,
-                    amount=params.amount,
-                    deadline=params.deadline,
-                    dispute_window=params.dispute_window,
-                    service_hash=params.service_hash,
-                    agent_id=params.agent_id,
-                    requester_agent_id=getattr(params, "requester_agent_id", "0") or "0",
-                    actp_nonce=nonces.actp_nonce,
-                    contracts=params.contracts,
+            candidate_nonce = nonces.actp_nonce
+
+            for i in range(MAX_NONCE_BUMPS + 1):
+                batch = build_actp_pay_batch(
+                    ACTPBatchParams(
+                        provider=params.provider,
+                        requester=params.requester,
+                        amount=params.amount,
+                        deadline=params.deadline,
+                        dispute_window=params.dispute_window,
+                        service_hash=params.service_hash,
+                        agent_id=params.agent_id,
+                        requester_agent_id=getattr(params, "requester_agent_id", "0") or "0",
+                        actp_nonce=candidate_nonce,
+                        contracts=params.contracts,
+                    )
                 )
+
+                # Combine activation calls (if any) with payment calls.
+                all_calls = (
+                    list(prepend_calls) + batch.calls
+                    if prepend_calls
+                    else batch.calls
+                )
+
+                # On retry, re-read EntryPoint nonce — the previous UserOp consumed
+                # it even if the inner ACTP call reverted.
+                current_ep_nonce = (
+                    nonces.entry_point_nonce
+                    if i == 0
+                    else await self._nonce_manager.read_entry_point_nonce()
+                )
+
+                try:
+                    receipt = await self._submit_user_op(all_calls, current_ep_nonce)
+
+                    if not receipt.success:
+                        return EnqueueResult(
+                            result=BatchedPayResult(
+                                tx_id=batch.tx_id,
+                                hash=receipt.hash,
+                                success=False,
+                            ),
+                            success=False,
+                        )
+
+                    # Keep local nonce cache aligned with the nonce that succeeded.
+                    self._nonce_manager.set_cached_actp_nonce(candidate_nonce + 1)
+
+                    return EnqueueResult(
+                        result=BatchedPayResult(
+                            tx_id=batch.tx_id,
+                            hash=receipt.hash,
+                            success=receipt.success,
+                        ),
+                        success=receipt.success,
+                    )
+                except Exception as error:  # noqa: BLE001 — must inspect revert text
+                    message = str(error)
+                    # Bundlers may return plain revert text or ABI-encoded revert data.
+                    lowered = message.lower()
+                    nonce_collision = (
+                        "escrow id already used" in lowered
+                        or "457363726f7720494420616c72656164792075736564" in lowered
+                    )
+
+                    if not nonce_collision or i == MAX_NONCE_BUMPS:
+                        raise
+
+                    candidate_nonce += 1
+                    logger.warning(
+                        "ACTP nonce collision detected during batched pay; "
+                        "retrying with incremented nonce: nextActpNonce=%d",
+                        candidate_nonce,
+                    )
+
+            raise RuntimeError(
+                "Unable to submit batched ACTP payment after nonce retries"
             )
 
-            all_calls = (
-                list(prepend_calls) + batch.calls
-                if prepend_calls
-                else batch.calls
+        return await self._nonce_manager.enqueue(
+            fn=_execute,
+            # pay_actp_batched controls the ACTP nonce cache explicitly via
+            # set_cached_actp_nonce, so the manager must not auto-increment.
+            increments_actp_nonce=False,
+        )
+
+    async def create_actp_transaction(
+        self, params: CreateACTPTransactionParams
+    ) -> CreateACTPTransactionResult:
+        """Create an ACTP transaction via Smart Wallet (without escrow linking).
+
+        Encodes just ``ACTPKernel.createTransaction()`` as a single-call UserOp.
+        Pre-computes the txId using the same keccak256 formula as the contract.
+        Manages the ACTP nonce inside the mutex queue for concurrent safety.
+
+        Mirrors TS ``createACTPTransaction`` (AutoWalletProvider.ts:446-483).
+
+        Args:
+            params: CreateACTPTransactionParams with provider/requester/amount/etc.
+
+        Returns:
+            CreateACTPTransactionResult with the pre-computed txId and receipt.
+        """
+        from eth_abi import encode as abi_encode
+
+        kernel_address = (
+            params.contracts.actp_kernel
+            if hasattr(params.contracts, "actp_kernel")
+            else params.contracts["actp_kernel"]
+        )
+
+        create_tx_selector = Web3.keccak(
+            text=(
+                "createTransaction(address,address,uint256,uint256,uint256,"
+                "bytes32,uint256,uint256)"
+            )
+        )[:4].hex()
+
+        async def _execute(nonces: Any) -> EnqueueResult[CreateACTPTransactionResult]:
+            tx_id = compute_transaction_id(
+                params.requester,
+                params.provider,
+                params.amount,
+                params.service_hash,
+                nonces.actp_nonce,
             )
 
-            receipt = await self._submit_user_op(all_calls, nonces.entry_point_nonce)
+            create_tx_data = "0x" + create_tx_selector + abi_encode(
+                [
+                    "address",
+                    "address",
+                    "uint256",
+                    "uint256",
+                    "uint256",
+                    "bytes32",
+                    "uint256",
+                    "uint256",
+                ],
+                [
+                    Web3.to_checksum_address(params.provider),
+                    Web3.to_checksum_address(params.requester),
+                    int(params.amount),
+                    params.deadline,
+                    params.dispute_window,
+                    bytes.fromhex(params.service_hash.replace("0x", "")),
+                    int(params.agent_id or "0"),
+                    int(getattr(params, "requester_agent_id", "0") or "0"),
+                ],
+            ).hex()
+
+            calls = [
+                SmartWalletCall(target=kernel_address, value=0, data=create_tx_data),
+            ]
+
+            receipt = await self._submit_user_op(calls, nonces.entry_point_nonce)
 
             return EnqueueResult(
-                result=BatchedPayResult(
-                    tx_id=batch.tx_id,
-                    hash=receipt.hash,
-                    success=receipt.success,
-                ),
+                result=CreateACTPTransactionResult(tx_id=tx_id, receipt=receipt),
                 success=receipt.success,
             )
 
         return await self._nonce_manager.enqueue(
             fn=_execute,
-            increments_actp_nonce=True,
+            increments_actp_nonce=True,  # createTransaction increments ACTP nonce
         )
 
     # ==========================================================================

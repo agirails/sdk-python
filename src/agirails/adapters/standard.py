@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
+from web3 import Web3
+
 from agirails.adapters.base import (
     BaseAdapter,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
@@ -216,7 +218,51 @@ class StandardAdapter(BaseAdapter):
         else:
             service_hash = ServiceHash.ZERO
 
-        # Create transaction
+        # AIP-12: route through Smart Wallet when available (gasless).
+        # Submits createTransaction as a UserOp so msg.sender == Smart Wallet ==
+        # requester (passes kernel _requesterCheck). The txId is pre-computed from
+        # the ACTP nonce inside the DualNonceManager mutex.
+        # Mirrors TS StandardAdapter.createTransaction (StandardAdapter.ts:176-194).
+        router = self._smart_wallet_router
+        wallet_provider = self._wallet_provider
+        if (
+            router is not None
+            and router.should_route()
+            and wallet_provider is not None
+            and hasattr(wallet_provider, "create_actp_transaction")
+            and self._contract_addresses is not None
+        ):
+            # Service hash must match BlockchainRuntime.validateServiceHash:
+            # empty -> ZeroHash, valid bytes32 -> pass-through, raw string ->
+            # keccak256(utf8). This differs from the ServiceMetadata wrapper above,
+            # which the routed kernel call must NOT use.
+            routed_service_hash = _compute_service_hash(
+                params.service_hash or params.description
+            )
+
+            from agirails.wallet.auto_wallet_provider import (
+                CreateACTPTransactionParams,
+            )
+
+            result = await wallet_provider.create_actp_transaction(
+                CreateACTPTransactionParams(
+                    provider=provider,
+                    requester=self._requester_address,
+                    amount=amount_wei,
+                    deadline=deadline,
+                    dispute_window=dispute_window,
+                    service_hash=routed_service_hash,
+                    agent_id=getattr(params, "agent_id", None) or "0",
+                    contracts=self._contract_addresses,
+                )
+            )
+            if not result.receipt.success:
+                raise RuntimeError(
+                    f"createTransaction UserOp failed: {result.receipt.hash}"
+                )
+            return result.tx_id
+
+        # Fallback: EOA / mock path
         tx_params = CreateTransactionParams(
             requester=self._requester_address,
             provider=provider,
@@ -362,47 +408,86 @@ class StandardAdapter(BaseAdapter):
         This releases the locked funds to the provider, transitioning
         the transaction to SETTLED state.
 
-        SECURITY: If attestation_uid is provided and EAS helper is available,
-        verifies the attestation before releasing funds (replay attack protection).
+        SECURITY: MANDATORY attestation verification before release.
+        When EAS is required (the runtime mandates it, or an EAS helper is
+        available in testnet/mainnet modes), attestation verification is
+        REQUIRED — not optional. A missing ``attestation_uid`` raises instead
+        of silently releasing funds without delivery proof. Mirrors TS
+        ``releaseEscrow`` (StandardAdapter.ts:362-428).
+
+        Verifications performed:
+        - Attestation exists and is not revoked (replay-attack protection)
+        - Attestation belongs to this transaction (txId cross-check)
 
         Args:
             escrow_id: Escrow ID to release
-            attestation_uid: Optional EAS attestation UID
+            attestation_uid: EAS attestation UID (REQUIRED when EAS available)
 
         Raises:
             EscrowNotFoundError: If escrow doesn't exist
             DisputeWindowActiveError: If dispute window is still active
             InvalidStateTransitionError: If transaction is not in DELIVERED state
+            RuntimeError: If EAS is required but ``attestation_uid`` is omitted
             ValueError: If attestation verification fails
         """
+        from agirails.wallet.smart_wallet_router import SmartWalletRouter
+
+        # Determine whether the underlying runtime requires attestation.
+        # BlockchainRuntime may expose isAttestationRequired(); otherwise fall
+        # back to EAS-helper presence (TS StandardAdapter.ts:366-374).
+        runtime_supports_attestation_flag = callable(
+            getattr(self._runtime, "is_attestation_required", None)
+        )
+        if runtime_supports_attestation_flag:
+            attestation_required = bool(self._runtime.is_attestation_required())
+        else:
+            attestation_required = bool(self._eas_helper)
+
+        attestation_verified_locally = False
+
+        # MANDATORY gate: if attestation is required, a uid MUST be supplied.
+        if attestation_required and not attestation_uid:
+            raise RuntimeError(
+                "Attestation verification is REQUIRED for escrow release. "
+                "Provide attestation_uid."
+            )
+
+        tx_id_from_escrow = SmartWalletRouter.extract_tx_id(escrow_id)
+
+        # If a uid was supplied and the runtime does NOT handle EAS internally but
+        # the adapter has a helper, verify (and bind to txId) here. Otherwise the
+        # uid is passed down so the runtime/router can enforce/record it.
+        if attestation_uid:
+            runtime_has_eas = bool(
+                getattr(self._runtime, "eas_helper", None)
+            )
+            if not runtime_supports_attestation_flag and self._eas_helper and not runtime_has_eas:
+                from agirails.protocol.eas import EASHelper
+
+                if isinstance(self._eas_helper, EASHelper):
+                    await self._eas_helper.verify_and_record_for_release(
+                        tx_id_from_escrow,
+                        attestation_uid,
+                    )
+                    attestation_verified_locally = True
+
         # AIP-12: route through Smart Wallet — validate preconditions +
         # attestation in-process, then send transitionState(SETTLED) so
         # msg.sender == Smart Wallet (kernel _requesterCheck on release).
         router = self._smart_wallet_router
         if router is not None and router.should_route():
-            from agirails.wallet.smart_wallet_router import SmartWalletRouter
-
-            tx_id_from_escrow = SmartWalletRouter.extract_tx_id(escrow_id)
+            if attestation_required and not self._eas_helper:
+                raise RuntimeError(
+                    "Attestation verification is required but EAS helper is "
+                    "not initialized."
+                )
             await router.validate_release_preconditions(tx_id_from_escrow)
-            await router.verify_release_attestation(
-                tx_id_from_escrow, attestation_uid
-            )
+            if attestation_uid and self._eas_helper and not attestation_verified_locally:
+                await router.verify_release_attestation(
+                    tx_id_from_escrow, attestation_uid
+                )
             await router.send_settle(tx_id_from_escrow)
             return
-
-        # Check if runtime has EAS helper (BlockchainRuntime)
-        runtime_has_eas = hasattr(self._runtime, "eas_helper") and self._runtime.eas_helper
-
-        # If runtime doesn't handle EAS but adapter has helper, verify here
-        if attestation_uid and not runtime_has_eas and self._eas_helper:
-            # Import here to avoid circular imports
-            from agirails.protocol.eas import EASHelper
-
-            if isinstance(self._eas_helper, EASHelper):
-                await self._eas_helper.verify_and_record_for_release(
-                    escrow_id,  # tx_id is same as escrow_id in current model
-                    attestation_uid,
-                )
 
         await self._runtime.release_escrow(
             escrow_id=escrow_id,
@@ -519,3 +604,21 @@ class StandardAdapter(BaseAdapter):
             if details:
                 result.append(details)
         return result
+
+
+def _compute_service_hash(service_description: Optional[str]) -> str:
+    """Compute a bytes32 serviceHash from a service description string.
+
+    Mirrors TS ``computeServiceHash`` (StandardAdapter.ts:702-710), which in turn
+    mirrors ``BlockchainRuntime.validateServiceHash``:
+
+    - ``None`` / empty -> ZeroHash
+    - already a valid bytes32 hash -> pass through unchanged
+    - raw string -> ``keccak256(utf8Bytes(description))``
+    """
+    if not service_description:
+        return ServiceHash.ZERO
+    if ServiceHash.is_valid_hash(service_description):
+        return service_description
+    digest = Web3.keccak(text=service_description).hex()
+    return digest if digest.startswith("0x") else "0x" + digest

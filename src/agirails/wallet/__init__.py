@@ -21,6 +21,8 @@ from agirails.wallet.auto_wallet_provider import (
     AutoWalletProvider,
     BatchedPayParams,
     BatchedPayResult,
+    CreateACTPTransactionParams,
+    CreateACTPTransactionResult,
     IWalletProvider,
     TransactionReceipt,
     TransactionRequest,
@@ -42,6 +44,8 @@ __all__ = [
     # Types
     "BatchedPayParams",
     "BatchedPayResult",
+    "CreateACTPTransactionParams",
+    "CreateACTPTransactionResult",
     "IWalletProvider",
     "TransactionReceipt",
     "TransactionRequest",

@@ -123,3 +123,16 @@ class EOAWalletProvider:
             gas_sponsored=False,
             chain_id=self._chain_id,
         )
+
+    def sign_typed_data(self, typed_data: dict) -> str:
+        """EIP-712 sign a typed-data ``full_message`` dict (TS IWalletProvider.signTypedData).
+
+        Enables the native x402 v2 EIP-3009 / Permit2 flow. The EOA signs the
+        full ``{domain, types, primaryType, message}`` structure; the signature
+        is byte-identical to ethers/viem (proven for EIP-712 in the parity suite).
+        """
+        from eth_account.messages import encode_typed_data
+
+        signable = encode_typed_data(full_message=typed_data)
+        sig = self._account.sign_message(signable).signature.hex()
+        return sig if sig.startswith("0x") else "0x" + sig

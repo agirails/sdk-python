@@ -1,7 +1,13 @@
 """
-Tests for X402Adapter.
+Tests for the LEGACY X402Adapter (custom ``x-payment-*`` flow).
 
-Tests the X402 atomic payment protocol adapter:
+The canonical x402 v2 (EIP-3009 / Permit2) adapter is covered in
+test_x402_v2_adapter.py and the cross-SDK oracle test_cross_sdk/test_wave3_x402.py.
+This file pins the backward-compatible legacy custom-header flow, which now lives
+in ``LegacyX402Adapter`` + ``LegacyX402AdapterConfig``. Constructing
+``X402Adapter`` with a legacy config transparently returns a ``LegacyX402Adapter``
+(see X402Adapter.__new__), so the legacy public entry point still works.
+
 - can_handle() - HTTPS URL detection
 - validate() - Security validations
 - pay() - Atomic payment flow (direct + relay)
@@ -23,8 +29,8 @@ import pytest
 
 from agirails.adapters import UnifiedPayParams
 from agirails.adapters.x402_adapter import (
-    X402Adapter,
-    X402AdapterConfig,
+    LegacyX402Adapter as X402Adapter,
+    LegacyX402AdapterConfig as X402AdapterConfig,
     X402PayParams,
     X402PayResult,
 )

@@ -46,8 +46,9 @@ class BundlerConfig:
     base_delay_s: float = 1.0
     """Base delay for exponential backoff (seconds)."""
 
-    timeout_s: float = 30.0
-    """Timeout for individual requests (seconds)."""
+    timeout_s: float = 20.0
+    """Timeout for individual requests (seconds). Mirrors TS BundlerClient.ts:71
+    (timeoutMs ?? 20_000) — a slow primary fails over fast instead of hanging."""
 
 
 @dataclass(frozen=True)
@@ -194,7 +195,11 @@ class BundlerClient:
         except Exception as primary_error:
             if not self._backup_url:
                 raise
-            logger.warning(
+            # Debug, not warning: a recovered failover (primary slow -> backup
+            # works) is normal resilience, not a user-facing error. Surfacing it
+            # mid-flow just alarms users. A total failure still raises below.
+            # Mirrors TS BundlerClient.ts:172-180.
+            logger.debug(
                 "Primary bundler failed, trying backup: method=%s error=%s",
                 method,
                 str(primary_error),
@@ -289,15 +294,35 @@ class BundlerRPCError(Exception):
 def _is_non_transient(error: Exception) -> bool:
     """Detect non-transient errors that should not be retried.
 
-    AA errors from bundler (invalid signature, insufficient funds, etc.)
-    and JSON-RPC parse/invalid request errors are non-transient.
+    Mirrors TS ``isNonTransient`` (BundlerClient.ts:270-289):
+
+    - A timed-out / aborted request means THIS provider is hung. Don't burn the
+      remaining retries hammering it (an occasionally-slow CDP would otherwise
+      become a ~90s wait before failover) — treat a timeout as non-transient so
+      ``_call_with_fallback`` flips to the backup provider immediately.
+    - JSON-RPC protocol errors (-32700..-32600).
+    - ERC-4337 AA validation errors (-32521..-32500).
+    - AA validation errors by message pattern.
     """
+    # A timed-out / aborted request means THIS provider is hung -> immediate
+    # failover (fast). Match the httpx timeout signal and the "aborted" message
+    # pattern (mirrors TS AbortError / message.includes('aborted')), but NOT the
+    # bare word "timeout" so a generic connection-error string stays transient.
+    if isinstance(error, httpx.TimeoutException):
+        return True
+    msg = str(error).lower()
+    if "aborted" in msg:
+        return True
+
     if isinstance(error, BundlerRPCError):
-        # JSON-RPC parse/invalid request errors
-        if -32700 <= error.code <= -32600:
+        code = error.code
+        # JSON-RPC parse/invalid request errors.
+        if -32700 <= code <= -32600:
             return True
-        # AA validation errors
-        msg = str(error).lower()
-        if "aa" in msg and ("invalid" in msg or "rejected" in msg):
+        # ERC-4337 AA validation errors.
+        if -32521 <= code <= -32500:
             return True
+    # AA validation errors by message pattern.
+    if "aa" in msg and ("invalid" in msg or "rejected" in msg):
+        return True
     return False

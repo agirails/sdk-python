@@ -179,6 +179,9 @@ class TestStandardAdapterSmartWalletRouting:
         runtime.release_escrow = AsyncMock(
             side_effect=AssertionError("runtime.release_escrow MUST NOT be called")
         )
+        # Real runtimes (mock mode) do NOT mandate attestation; the bare
+        # MagicMock would otherwise auto-vivify a truthy is_attestation_required.
+        runtime.is_attestation_required = MagicMock(return_value=False)
         # tx record for link_escrow lookup + release preconditions
         tx_record = MagicMock()
         tx_record.amount = "1000000"
@@ -256,3 +259,229 @@ class TestStandardAdapterSmartWalletRouting:
         )
         await adapter.accept_quote(TX_ID, "1.00")
         assert runtime.accept_quote.call_count == 1
+
+
+class TestStandardCreateTransactionSmartWalletRouting:
+    """StandardAdapter.create_transaction routes through Smart Wallet (AIP-12).
+
+    Mirrors sdk-js/src/adapters/StandardAdapter.gasless.test.ts (createTransaction).
+    """
+
+    def _make_adapter(self, wallet, create_result):
+        from web3 import Web3
+
+        wallet.create_actp_transaction = AsyncMock(return_value=create_result)
+        runtime = MagicMock()
+        runtime.create_transaction = AsyncMock(
+            side_effect=AssertionError("runtime.create_transaction MUST NOT be called")
+        )
+        runtime.maxTransactionAmount = None
+        runtime.is_attestation_required = MagicMock(return_value=False)
+        contracts = ContractAddresses(
+            usdc=USDC, actp_kernel=KERNEL, escrow_vault=ESCROW_VAULT
+        )
+        adapter = StandardAdapter(
+            runtime, REQUESTER, None,
+            wallet_provider=wallet, contract_addresses=contracts,
+        )
+        return adapter, runtime
+
+    def _result(self, tx_id="0x" + "aa" * 32, success=True, hash_="0xuserop"):
+        result = MagicMock()
+        result.tx_id = tx_id
+        result.receipt = MagicMock()
+        result.receipt.success = success
+        result.receipt.hash = hash_
+        return result
+
+    @pytest.mark.asyncio
+    async def test_routes_through_create_actp_transaction(self):
+        wallet = _make_aa_wallet()
+        fake_tx_id = "0x" + "aa" * 32
+        adapter, runtime = self._make_adapter(wallet, self._result(fake_tx_id))
+
+        tx_id = await adapter.create_transaction(
+            {"provider": PROVIDER, "amount": "100"}
+        )
+
+        assert tx_id == fake_tx_id
+        assert wallet.create_actp_transaction.await_count == 1
+        params = wallet.create_actp_transaction.await_args.args[0]
+        assert params.provider == PROVIDER
+        assert params.requester == REQUESTER
+        assert params.amount == "100000000"  # parsed from "100"
+        assert params.contracts.actp_kernel == KERNEL
+
+    @pytest.mark.asyncio
+    async def test_routed_service_hash_from_description(self):
+        from web3 import Web3
+
+        wallet = _make_aa_wallet()
+        adapter, _ = self._make_adapter(wallet, self._result())
+
+        await adapter.create_transaction(
+            {"provider": PROVIDER, "amount": "50", "description": "translation service"}
+        )
+
+        params = wallet.create_actp_transaction.await_args.args[0]
+        expected = Web3.keccak(text="translation service").hex()
+        expected = expected if expected.startswith("0x") else "0x" + expected
+        assert params.service_hash == expected
+
+    @pytest.mark.asyncio
+    async def test_routed_service_hash_passthrough_bytes32(self):
+        from web3 import Web3
+
+        wallet = _make_aa_wallet()
+        adapter, _ = self._make_adapter(wallet, self._result())
+        precomputed = Web3.keccak(text="pre-hashed").hex()
+        precomputed = precomputed if precomputed.startswith("0x") else "0x" + precomputed
+
+        await adapter.create_transaction(
+            {"provider": PROVIDER, "amount": "50", "service_hash": precomputed}
+        )
+
+        params = wallet.create_actp_transaction.await_args.args[0]
+        assert params.service_hash == precomputed
+
+    @pytest.mark.asyncio
+    async def test_routed_service_hash_zero_when_omitted(self):
+        from agirails.utils.helpers import ServiceHash
+
+        wallet = _make_aa_wallet()
+        adapter, _ = self._make_adapter(wallet, self._result())
+
+        await adapter.create_transaction({"provider": PROVIDER, "amount": "50"})
+
+        params = wallet.create_actp_transaction.await_args.args[0]
+        assert params.service_hash == ServiceHash.ZERO
+
+    @pytest.mark.asyncio
+    async def test_raises_on_failed_user_op(self):
+        wallet = _make_aa_wallet()
+        adapter, _ = self._make_adapter(
+            wallet, self._result(success=False, hash_="0xfailed")
+        )
+
+        with pytest.raises(RuntimeError, match="createTransaction UserOp failed"):
+            await adapter.create_transaction({"provider": PROVIDER, "amount": "100"})
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_runtime_without_create_actp_transaction(self):
+        """Wallet lacking create_actp_transaction → legacy runtime path."""
+        wallet = MagicMock(
+            spec=[
+                "pay_actp_batched",
+                "send_transaction",
+                "send_batch_transaction",
+                "get_address",
+            ]
+        )
+        wallet.get_address = MagicMock(return_value=REQUESTER)
+        runtime = MagicMock()
+        runtime.create_transaction = AsyncMock(return_value=TX_ID)
+        runtime.maxTransactionAmount = None
+        contracts = ContractAddresses(
+            usdc=USDC, actp_kernel=KERNEL, escrow_vault=ESCROW_VAULT
+        )
+        adapter = StandardAdapter(
+            runtime, REQUESTER, None,
+            wallet_provider=wallet, contract_addresses=contracts,
+        )
+
+        tx_id = await adapter.create_transaction({"provider": PROVIDER, "amount": "100"})
+        assert tx_id == TX_ID
+        assert runtime.create_transaction.await_count == 1
+
+
+class TestStandardReleaseAttestationGate:
+    """StandardAdapter.release_escrow mandatory-attestation gate.
+
+    Mirrors TS StandardAdapter.ts:362-428 + StandardAdapter.test.ts:556-587.
+    """
+
+    def _delivered_tx(self):
+        tx = MagicMock()
+        tx.state = State.DELIVERED
+        tx.requester = REQUESTER
+        tx.completed_at = None
+        tx.dispute_window = 0
+        tx.id = TX_ID
+        return tx
+
+    @pytest.mark.asyncio
+    async def test_routed_release_requires_attestation_when_runtime_mandates(self):
+        wallet = _make_aa_wallet()
+        runtime = MagicMock()
+        runtime.get_transaction = AsyncMock(return_value=self._delivered_tx())
+        runtime.is_attestation_required = MagicMock(return_value=True)
+        runtime.maxTransactionAmount = None
+        eas_helper = MagicMock()
+        eas_helper.verify_and_record_for_release = AsyncMock()
+        contracts = ContractAddresses(
+            usdc=USDC, actp_kernel=KERNEL, escrow_vault=ESCROW_VAULT
+        )
+        adapter = StandardAdapter(
+            runtime, REQUESTER, eas_helper,
+            wallet_provider=wallet, contract_addresses=contracts,
+        )
+
+        with pytest.raises(RuntimeError, match="REQUIRED for escrow release"):
+            await adapter.release_escrow(TX_ID)
+        # No settle UserOp must be sent when attestation is missing.
+        assert wallet.send_transaction.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_non_routed_release_requires_attestation_when_eas_present(self):
+        """Without a Smart Wallet, EAS-helper presence still mandates attestation."""
+        runtime = MagicMock()
+        runtime.release_escrow = AsyncMock(
+            side_effect=AssertionError("must not release without attestation")
+        )
+        # Real runtimes lack is_attestation_required → falls back to eas_helper presence.
+        del runtime.is_attestation_required
+        runtime.eas_helper = None
+        runtime.maxTransactionAmount = None
+        eas_helper = MagicMock()
+
+        adapter = StandardAdapter(runtime, REQUESTER, eas_helper)
+
+        with pytest.raises(RuntimeError, match="REQUIRED for escrow release"):
+            await adapter.release_escrow(TX_ID)
+
+    @pytest.mark.asyncio
+    async def test_routed_release_with_attestation_verifies_and_settles(self):
+        wallet = _make_aa_wallet()
+        runtime = MagicMock()
+        runtime.get_transaction = AsyncMock(return_value=self._delivered_tx())
+        runtime.is_attestation_required = MagicMock(return_value=True)
+        runtime.eas_helper = None
+        runtime.maxTransactionAmount = None
+        eas_helper = MagicMock()
+        eas_helper.verify_and_record_for_release = AsyncMock()
+        contracts = ContractAddresses(
+            usdc=USDC, actp_kernel=KERNEL, escrow_vault=ESCROW_VAULT
+        )
+        adapter = StandardAdapter(
+            runtime, REQUESTER, eas_helper,
+            wallet_provider=wallet, contract_addresses=contracts,
+        )
+
+        await adapter.release_escrow(TX_ID, attestation_uid="0x" + "cd" * 32)
+
+        # Attestation verified, then settle UserOp sent.
+        assert eas_helper.verify_and_record_for_release.await_count == 1
+        assert wallet.send_transaction.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_mock_mode_release_without_attestation_allowed(self):
+        """No EAS helper (mock mode) → attestation not required, release proceeds."""
+        runtime = MagicMock()
+        runtime.release_escrow = AsyncMock(return_value=None)
+        del runtime.is_attestation_required
+        runtime.eas_helper = None
+        runtime.maxTransactionAmount = None
+
+        adapter = StandardAdapter(runtime, REQUESTER)  # no eas_helper, no wallet
+        await adapter.release_escrow(TX_ID)
+        assert runtime.release_escrow.await_count == 1
