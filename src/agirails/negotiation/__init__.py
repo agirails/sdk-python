@@ -96,6 +96,7 @@ from agirails.negotiation.session_store import (
 # ============================================================================
 
 from agirails.negotiation.buyer_orchestrator import (
+    BuyerNegotiationContext,
     BuyerOrchestrator,
     CompleteEvent,
     DiscoveryEvent,
@@ -109,6 +110,35 @@ from agirails.negotiation.buyer_orchestrator import (
     RoundStartEvent,
     ScoringEvent,
     WaitingQuoteEvent,
+)
+
+# ============================================================================
+# Provider-side orchestrator (AIP-2.1) + negotiation channel transport
+# ============================================================================
+
+from agirails.negotiation.provider_orchestrator import (
+    ProviderOrchestrator,
+    ProviderOrchestratorConfig,
+    QuoteDecision,
+    QuoteDecisionViolation,
+    QuoteResult,
+)
+from agirails.negotiation.negotiation_channel import (
+    COUNTERACCEPT_ENVELOPE,
+    COUNTEROFFER_ENVELOPE,
+    QUOTE_ENVELOPE,
+    DeliveredMessage,
+    MockChannel,
+    MockChannelConfig,
+    NegotiationChannel,
+    NegotiationMessage,
+    NegotiationMessageType,
+    Subscription,
+    envelope_chain_id,
+    envelope_tx_id,
+    is_counter_accept_envelope,
+    is_counter_offer_envelope,
+    is_quote_envelope,
 )
 
 # ============================================================================
@@ -200,4 +230,27 @@ __all__ = [
     "CounterDecider",
     "CounterContext",
     "CounterDecision",
+    # Provider orchestrator (AIP-2.1)
+    "ProviderOrchestrator",
+    "ProviderOrchestratorConfig",
+    "QuoteDecision",
+    "QuoteDecisionViolation",
+    "QuoteResult",
+    "BuyerNegotiationContext",
+    # Negotiation channel transport
+    "NegotiationChannel",
+    "MockChannel",
+    "MockChannelConfig",
+    "NegotiationMessage",
+    "NegotiationMessageType",
+    "DeliveredMessage",
+    "Subscription",
+    "QUOTE_ENVELOPE",
+    "COUNTEROFFER_ENVELOPE",
+    "COUNTERACCEPT_ENVELOPE",
+    "is_quote_envelope",
+    "is_counter_offer_envelope",
+    "is_counter_accept_envelope",
+    "envelope_tx_id",
+    "envelope_chain_id",
 ]

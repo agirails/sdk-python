@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from agirails.cli.lib.run_request import (
     DeliveryTimeoutError,
     QuoteTimeoutError,
+    RunRequestResult,
     run_request,
 )
 from agirails.cli.main import app
@@ -24,6 +25,10 @@ runner = CliRunner()
 PROVIDER = "0x" + "5" * 40
 SERVICE = "onboarding"
 REQUESTER = "0x" + "1" * 40
+
+# Deterministic test key (NOT a real account). Its checksummed address is used
+# as the on-chain requester for the AIP-16 setup signature.
+_TEST_PRIVKEY = "0x" + "22" * 32
 
 
 # ============================================================================
@@ -327,8 +332,6 @@ class TestRequestCli:
         assert body["payload"] == {"reflection": "ok"}
 
     def test_quiet_mode_emits_only_tx_id(self):
-        from agirails.cli.lib.run_request import RunRequestResult
-
         async def fake_run_request(**kwargs):
             return RunRequestResult(
                 tx_id="0x" + "f" * 64,
@@ -356,3 +359,176 @@ class TestRequestCli:
             )
         assert result.exit_code == 0
         assert result.output.strip() == "0x" + "f" * 64
+
+
+# ============================================================================
+# AIP-16 delivery surface (run_request — parity with runRequest.ts:371-689)
+# ============================================================================
+
+
+TX_ID = "0x" + "ab" * 32
+KERNEL = "0x" + "11" * 20
+CHAIN_ID = 84532
+
+
+def _fake_client_factory(runtime, requester_address):
+    """Build a fake ACTPClient wired to ``runtime`` with an info accessor."""
+    from agirails.client import ACTPClient, ACTPClientInfo
+
+    async def fake_create(**kwargs):
+        client = ACTPClient.__new__(ACTPClient)
+        client._runtime = runtime
+        client._requester_address = requester_address
+        # client.info.address feeds the AIP-16 setup signature (on-chain
+        # participant address).
+        client._info = ACTPClientInfo(mode="mock", address=requester_address)
+        standard = AsyncMock()
+        standard.create_transaction = AsyncMock(return_value=TX_ID)
+        standard.link_escrow = AsyncMock(return_value=TX_ID)
+        standard.release_escrow = AsyncMock(return_value=None)
+        client._standard = standard
+        return client
+
+    return fake_create
+
+
+def _publish_public_envelope(channel, payload, provider_addr):
+    """Provider-side: sign + publish a public-v1 envelope onto ``channel``."""
+    from eth_account import Account
+
+    from agirails.delivery import (
+        BuildPublicEnvelopeParams,
+        DeliveryEnvelopeBuilder,
+    )
+
+    provider_signer = Account.from_key("0x" + "33" * 32)
+    builder = DeliveryEnvelopeBuilder(provider_signer)
+    result = builder.build_public(
+        BuildPublicEnvelopeParams(
+            tx_id=TX_ID,
+            chain_id=CHAIN_ID,
+            kernel_address=KERNEL,
+            provider_address=provider_addr,
+            signer_address=provider_signer.address,
+            payload=payload,
+        )
+    )
+    return result["wire"]
+
+
+class TestRunRequestDelivery:
+    @pytest.mark.asyncio
+    async def test_public_envelope_decoded_into_payload(self):
+        """AIP-16: a public-v1 envelope on the channel becomes result.payload."""
+        from agirails.delivery import MockDeliveryChannel
+
+        runtime = _StubRuntime(
+            schedule=[
+                (0.1, "COMMITTED"),
+                (0.3, "IN_PROGRESS"),
+                # No tx.delivery_proof — payload MUST come from the envelope.
+                (0.5, "DELIVERED"),
+            ]
+        )
+        channel = MockDeliveryChannel()
+        # Provider publishes its reflection envelope onto the same channel.
+        wire = _publish_public_envelope(
+            channel, {"reflection": "from-channel"}, PROVIDER
+        )
+        await channel.publish_envelope(wire)
+
+        with patch(
+            "agirails.cli.lib.run_request.ACTPClient.create",
+            side_effect=_fake_client_factory(runtime, REQUESTER),
+        ), patch("agirails.cli.lib.run_request._POLL_INTERVAL_S", 0.05):
+            result = await run_request(
+                provider=PROVIDER,
+                amount="10",
+                service=SERVICE,
+                network="mock",
+                private_key=_TEST_PRIVKEY,
+                delivery_channel=channel,
+                expected_kernel_address=KERNEL,
+                expected_chain_id=CHAIN_ID,
+                delivery_privacy="public",
+                quote_timeout_ms=2_000,
+                delivery_timeout_ms=5_000,
+                envelope_wait_ms=2_000,
+            )
+
+        # Payload sourced from the AIP-16 envelope, not tx.delivery_proof.
+        assert result.payload == {"reflection": "from-channel"}
+        assert result.final_state == "SETTLED"
+        # No delivery error on the happy path.
+        assert result.delivery_error is None
+
+    @pytest.mark.asyncio
+    async def test_envelope_missing_sets_delivery_error_but_settles(self):
+        """No envelope within the grace window → envelope_missing (non-fatal)."""
+        from agirails.delivery import MockDeliveryChannel
+
+        runtime = _StubRuntime(
+            schedule=[
+                (0.1, "COMMITTED"),
+                (0.3, "IN_PROGRESS"),
+                (0.5, "DELIVERED", '{"reflection":"legacy-proof"}'),
+            ]
+        )
+        channel = MockDeliveryChannel()  # nothing published
+
+        with patch(
+            "agirails.cli.lib.run_request.ACTPClient.create",
+            side_effect=_fake_client_factory(runtime, REQUESTER),
+        ), patch("agirails.cli.lib.run_request._POLL_INTERVAL_S", 0.05):
+            result = await run_request(
+                provider=PROVIDER,
+                amount="10",
+                service=SERVICE,
+                network="mock",
+                private_key=_TEST_PRIVKEY,
+                delivery_channel=channel,
+                expected_kernel_address=KERNEL,
+                expected_chain_id=CHAIN_ID,
+                delivery_privacy="public",
+                quote_timeout_ms=2_000,
+                delivery_timeout_ms=5_000,
+                envelope_wait_ms=400,  # short grace
+            )
+
+        # Settlement is never blocked by a missing envelope.
+        assert result.settled is True
+        # Falls back to the legacy tx.delivery_proof payload.
+        assert result.payload == {"reflection": "legacy-proof"}
+        # The informational delivery_error is surfaced.
+        assert result.delivery_error is not None
+        assert result.delivery_error["code"] == "envelope_missing"
+
+    @pytest.mark.asyncio
+    async def test_delivery_surface_off_without_channel(self):
+        """Omitting the channel → legacy poll-only path, no delivery_error."""
+        runtime = _StubRuntime(
+            schedule=[
+                (0.1, "COMMITTED"),
+                (0.3, "IN_PROGRESS"),
+                (0.5, "DELIVERED", '{"reflection":"legacy"}'),
+            ]
+        )
+
+        with patch(
+            "agirails.cli.lib.run_request.ACTPClient.create",
+            side_effect=_fake_client_factory(runtime, REQUESTER),
+        ), patch("agirails.cli.lib.run_request._POLL_INTERVAL_S", 0.05):
+            result = await run_request(
+                provider=PROVIDER,
+                amount="10",
+                service=SERVICE,
+                network="mock",
+                private_key=_TEST_PRIVKEY,
+                quote_timeout_ms=2_000,
+                delivery_timeout_ms=5_000,
+            )
+
+        assert result.payload == {"reflection": "legacy"}
+        # delivery_error is NEVER set when AIP-16 was off.
+        assert result.delivery_error is None
+        assert result.receipt_url is None

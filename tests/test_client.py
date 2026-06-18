@@ -455,3 +455,327 @@ class TestACTPClientRepr:
 
         repr_str = repr(client)
         assert "..." in repr_str  # Address is truncated
+
+
+# ============================================================================
+# ACTPClient public method parity (core-client) — mirrors TS ACTPClient.ts
+# ============================================================================
+
+
+def _tx_id_of(result):
+    """Extract txId from a pay() result (BasicPayResult dataclass or dict).
+
+    client.pay() in mock mode (no wallet provider) routes through the router,
+    which selects StandardAdapter (priority 60) returning a dict; with a Smart
+    Wallet it routes to BasicAdapter returning BasicPayResult. This mirrors the
+    SDK's own _extract_tx_id helper.
+    """
+    tx_id = getattr(result, "tx_id", None)
+    if tx_id:
+        return tx_id
+    if isinstance(result, dict):
+        return result.get("tx_id") or result.get("txId")
+    return None
+
+
+class _FakeReceipt:
+    def __init__(self, success=True, hash="0xreceipt"):
+        self.success = success
+        self.hash = hash
+
+
+class _FakeAAWalletProvider:
+    """Minimal AA-capable wallet provider.
+
+    Has ``pay_actp_batched`` so ``should_route()`` is True. Records each
+    ``send_transaction`` / ``send_batch_transaction`` call so routing can be
+    asserted without a real bundler.
+    """
+
+    def __init__(self, address="0x" + "c" * 40):
+        self._address = address
+        self.sent = []
+        self.batches = []
+
+    def get_address(self):
+        return self._address
+
+    async def pay_actp_batched(self, params):  # pragma: no cover - not exercised
+        raise NotImplementedError
+
+    async def send_transaction(self, tx):
+        self.sent.append(tx)
+        return _FakeReceipt()
+
+    async def send_batch_transaction(self, calls):
+        self.batches.append(calls)
+        return _FakeReceipt()
+
+
+def _aa_contracts():
+    from agirails.wallet.aa.transaction_batcher import ContractAddresses
+
+    return ContractAddresses(
+        usdc="0x" + "1" * 40,
+        actp_kernel="0x" + "2" * 40,
+        escrow_vault="0x" + "3" * 40,
+    )
+
+
+class TestClientLifecycleMethods:
+    """client.start_work / deliver / release route correctly on mock."""
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock", requester_address="0x" + "a" * 40
+        )
+
+    @pytest.fixture
+    def provider_address(self):
+        return "0x" + "b" * 40
+
+    @pytest.mark.asyncio
+    async def test_start_work_deliver_release_full_flow(self, client, provider_address):
+        result = await client.pay({"to": provider_address, "amount": 100})
+        tx_id = _tx_id_of(result)
+
+        await client.start_work(tx_id)
+        tx = await client.runtime.get_transaction(tx_id)
+        assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "IN_PROGRESS"
+
+        await client.deliver(tx_id)
+        tx = await client.runtime.get_transaction(tx_id)
+        assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "DELIVERED"
+
+        await client.runtime.time.advance_time(172800 + 1)
+        await client.release(tx_id)
+        tx = await client.runtime.get_transaction(tx_id)
+        assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "SETTLED"
+
+    @pytest.mark.asyncio
+    async def test_deliver_from_committed_two_step(self, client, provider_address):
+        """deliver() from COMMITTED auto-runs IN_PROGRESS then DELIVERED (mock)."""
+        result = await client.pay({"to": provider_address, "amount": 100})
+        tx_id = _tx_id_of(result)
+        await client.deliver(tx_id)
+        tx = await client.runtime.get_transaction(tx_id)
+        assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "DELIVERED"
+
+    @pytest.mark.asyncio
+    async def test_deliver_not_found_raises(self, client):
+        with pytest.raises(RuntimeError, match="not found"):
+            await client.deliver("0x" + "f" * 64)
+
+
+class TestClientGetStatus:
+    """client.get_status routes via the txAdapter map then falls back."""
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock", requester_address="0x" + "a" * 40
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_status_tracked_after_pay(self, client):
+        result = await client.pay({"to": "0x" + "b" * 40, "amount": 100})
+        tx_id = _tx_id_of(result)
+        # pay() tracked the adapter (dict result path proves _extract_tx_id works).
+        assert tx_id in client._tx_adapter_map
+        status = await client.get_status(tx_id)
+        assert status.state == "COMMITTED"
+
+    @pytest.mark.asyncio
+    async def test_get_status_fallback_standard(self, client):
+        """A txId not in the map still resolves via the standard adapter."""
+        tx_id = await client.standard.create_transaction(
+            {"provider": "0x" + "b" * 40, "amount": 100}
+        )
+        # Not tracked (created directly via standard adapter).
+        assert tx_id not in client._tx_adapter_map
+        status = await client.get_status(tx_id)
+        assert status.state == "INITIATED"
+
+    @pytest.mark.asyncio
+    async def test_get_status_not_found_raises(self, client):
+        with pytest.raises(Exception):
+            await client.get_status("0x" + "f" * 64)
+
+
+class TestClientAccessors:
+    """get_registered_adapters / get_reputation_reporter / get_wallet_provider / to_json."""
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock", requester_address="0x" + "a" * 40
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_registered_adapters(self, client):
+        ids = client.get_registered_adapters()
+        assert "basic" in ids
+        assert "standard" in ids
+
+    @pytest.mark.asyncio
+    async def test_reputation_reporter_none_in_mock(self, client):
+        assert client.get_reputation_reporter() is None
+
+    @pytest.mark.asyncio
+    async def test_wallet_provider_none_in_mock(self, client):
+        assert client.get_wallet_provider() is None
+
+    @pytest.mark.asyncio
+    async def test_to_json_excludes_secrets(self, client):
+        data = client.to_json()
+        assert data["mode"] == "mock"
+        assert data["address"] == "0x" + "a" * 40
+        assert data["isInitialized"] is True
+        assert "privateKey" not in data
+        assert "private_key" not in data
+        # Sanity: serialized warning present
+        assert "_warning" in data
+
+    @pytest.mark.asyncio
+    async def test_check_config_drift_noop_in_mock(self, client):
+        # Mock mode short-circuits — must not raise.
+        await client.check_config_drift()
+
+
+class TestClientRouteUrlPayment:
+    """route_url_payment raises when no URL-capable adapter is registered."""
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock", requester_address="0x" + "a" * 40
+        )
+
+    @pytest.mark.asyncio
+    async def test_route_url_payment_no_adapter_raises(self, client):
+        # An HTTPS endpoint with no x402 adapter registered cannot be routed.
+        # The router raises (no URL-capable adapter) before any settlement.
+        with pytest.raises((ValidationError, RuntimeError)):
+            await client.route_url_payment(
+                {"to": "https://api.example.com/pay", "amount": 100}
+            )
+
+
+class TestClientGetActivationCalls:
+    """get_activation_calls mirrors TS lazy-publish behaviour."""
+
+    @pytest.fixture
+    async def mock_client(self):
+        from agirails.client import ACTPClient as _C, ACTPClientInfo
+
+        runtime = (
+            await _C.create(mode="mock", requester_address="0x" + "a" * 40)
+        ).runtime
+        return runtime
+
+    @pytest.mark.asyncio
+    async def test_no_pending_returns_empty(self, mock_client):
+        from agirails.client import ACTPClient, ACTPClientInfo
+
+        client = ACTPClient(
+            mock_client,
+            "0x" + "a" * 40,
+            ACTPClientInfo(mode="mock", address="0x" + "a" * 40),
+        )
+        out = client.get_activation_calls()
+        assert out["calls"] == []
+        # on_success is a callable no-op
+        assert out["on_success"]() is None
+
+    @pytest.mark.asyncio
+    async def test_scenario_b2_builds_publish_config_call(self, mock_client):
+        from agirails.client import ACTPClient, ACTPClientInfo
+        from agirails.config.pending_publish import PendingPublishData
+
+        pending = PendingPublishData(
+            config_hash="0x" + "ab" * 32,
+            cid="bafyTESTCID",
+            endpoint="https://example.com",
+        )
+        client = ACTPClient(
+            mock_client,
+            "0x" + "a" * 40,
+            ACTPClientInfo(mode="mock", address="0x" + "a" * 40),
+            lazy_scenario="B2",
+            pending_publish=pending,
+            agent_registry_address="0x" + "9" * 40,
+            network_id="base-sepolia",
+        )
+        out = client.get_activation_calls()
+        # B2 == publishConfig only (1 call)
+        assert len(out["calls"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_stale_pending_returns_empty(self, mock_client):
+        from agirails.client import ACTPClient, ACTPClientInfo
+        from agirails.config.pending_publish import PendingPublishData
+
+        pending = PendingPublishData(
+            config_hash="0x" + "ab" * 32, cid="bafyX", endpoint="https://e.com"
+        )
+        client = ACTPClient(
+            mock_client,
+            "0x" + "a" * 40,
+            ACTPClientInfo(mode="mock", address="0x" + "a" * 40),
+            lazy_scenario="B2",
+            pending_publish=pending,
+            agent_registry_address="0x" + "9" * 40,
+            network_id="base-sepolia",
+        )
+        client._pending_is_stale = True
+        out = client.get_activation_calls()
+        assert out["calls"] == []
+
+
+class TestClientSmartWalletDeliverBatch:
+    """deliver() batches startWork+deliver when Smart Wallet is wired + COMMITTED."""
+
+    @pytest.fixture
+    async def runtime(self):
+        c = await ACTPClient.create(mode="mock", requester_address="0x" + "a" * 40)
+        return c.runtime
+
+    @pytest.mark.asyncio
+    async def test_deliver_batches_when_committed(self, runtime):
+        from agirails.client import ACTPClient, ACTPClientInfo
+
+        provider = "0x" + "b" * 40
+        # Create + commit a transaction via the runtime directly.
+        from agirails.runtime.base import CreateTransactionParams
+
+        tx_id = await runtime.create_transaction(
+            CreateTransactionParams(
+                requester="0x" + "a" * 40,
+                provider=provider,
+                amount="100000000",
+                deadline=runtime.time.now() + 86400,
+                dispute_window=172800,
+                service_description="0x" + "0" * 64,
+            )
+        )
+        await runtime.link_escrow(tx_id=tx_id, amount="100000000")
+
+        wp = _FakeAAWalletProvider(address="0x" + "a" * 40)
+        client = ACTPClient(
+            runtime,
+            "0x" + "a" * 40,
+            ACTPClientInfo(mode="testnet", address="0x" + "a" * 40),
+            wallet_provider=wp,
+            contract_addresses=_aa_contracts(),
+        )
+        # Router must be active.
+        assert client._smart_wallet_router is not None
+        assert client._smart_wallet_router.should_route() is True
+
+        await client.deliver(tx_id)
+        # One batch of exactly 2 calls (startWork + deliver).
+        assert len(wp.batches) == 1
+        assert len(wp.batches[0]) == 2
+        # No single sends used for the COMMITTED batch path.
+        assert wp.sent == []

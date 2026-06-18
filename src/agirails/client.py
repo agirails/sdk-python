@@ -50,6 +50,23 @@ if TYPE_CHECKING:
 ACTPClientMode = Literal["mock", "testnet", "mainnet"]
 
 
+def _extract_tx_id(result: Any) -> Optional[str]:
+    """Pull a txId out of an adapter pay() result (dataclass or dict).
+
+    BasicAdapter returns ``BasicPayResult`` (``.tx_id``); StandardAdapter and
+    x402 return dicts keyed ``"tx_id"`` / ``"txId"``. Returns ``None`` when no
+    id is present (the tracker no-ops on falsy ids, matching TS).
+    """
+    if result is None:
+        return None
+    tx_id = getattr(result, "tx_id", None)
+    if tx_id:
+        return tx_id
+    if isinstance(result, dict):
+        return result.get("tx_id") or result.get("txId")
+    return None
+
+
 @dataclass
 class ACTPClientInfo:
     """
@@ -118,6 +135,9 @@ class ACTPClient:
     Use the async create() factory method to instantiate.
     """
 
+    # Cap for the txId -> adapter map (mirrors TS MAX_TX_MAP_SIZE).
+    _MAX_TX_MAP_SIZE = 10_000
+
     def __init__(
         self,
         runtime: IACTPRuntime,
@@ -126,6 +146,12 @@ class ACTPClient:
         eas_helper: Optional[object] = None,
         wallet_provider: Optional[object] = None,
         contract_addresses: Optional[object] = None,
+        reputation_reporter: Optional[object] = None,
+        lazy_scenario: str = "none",
+        pending_publish: Optional[object] = None,
+        agent_registry_address: Optional[str] = None,
+        network_id: Optional[str] = None,
+        erc8004_identity_registry_address: Optional[str] = None,
     ) -> None:
         """
         Initialize ACTPClient.
@@ -147,6 +173,16 @@ class ACTPClient:
                 ``agirails.wallet.aa.transaction_batcher``) holding ``usdc``,
                 ``actp_kernel``, ``escrow_vault``. Required alongside
                 ``wallet_provider`` to enable the batched ACTP payment path.
+            reputation_reporter: Optional ERC-8004 ReputationReporter. When
+                present, ``release()`` reports settlement outcomes (non-blocking).
+            lazy_scenario: Lazy-publish activation scenario ("A"/"B1"/"B2"/
+                "C"/"none"). Consumed by ``get_activation_calls()``.
+            pending_publish: Cached :class:`PendingPublishData` for lazy publish.
+            agent_registry_address: AgentRegistry address (lazy activation).
+            network_id: Network identifier ("base-sepolia"/"base-mainnet") for
+                chain-scoped pending-publish operations.
+            erc8004_identity_registry_address: ERC-8004 Identity Registry
+                address (first-time identity mint, scenario A).
         """
         self._runtime = runtime
         self._requester_address = requester_address.lower()
@@ -154,6 +190,19 @@ class ACTPClient:
         self._eas_helper = eas_helper
         self._wallet_provider = wallet_provider
         self._contract_addresses = contract_addresses
+        self._reputation_reporter = reputation_reporter
+
+        # Lazy-publish state (consumed by get_activation_calls()).
+        self._lazy_scenario = lazy_scenario
+        self._pending_publish = pending_publish
+        self._agent_registry_address = agent_registry_address
+        self._network_id = network_id
+        self._erc8004_identity_registry_address = erc8004_identity_registry_address
+        self._pending_is_stale = False
+
+        # Maps txId -> adapter that handled it, for adapter-aware get_status
+        # routing. Bounded at _MAX_TX_MAP_SIZE (mirrors TS txAdapterMap).
+        self._tx_adapter_map: "dict[str, Any]" = {}
 
         # Initialize adapters — wire wallet_provider + contract_addresses
         # into BasicAdapter so AIP-12 batched payments are used when
@@ -172,6 +221,25 @@ class ACTPClient:
             wallet_provider=wallet_provider,
             contract_addresses=contract_addresses,
         )
+
+        # Smart Wallet router for encoding/sending state transitions via UserOps.
+        # None when the wallet provider doesn't support batching (EOA / mock).
+        # Mirrors TS createSmartWalletRouter on the client itself.
+        from agirails.wallet.smart_wallet_router import (
+            SmartWalletContractAddresses,
+            create_smart_wallet_router,
+        )
+
+        self._smart_wallet_router: Optional[object] = None
+        if wallet_provider is not None and contract_addresses is not None:
+            router_contracts = SmartWalletContractAddresses(
+                usdc=contract_addresses.usdc,
+                actp_kernel=contract_addresses.actp_kernel,
+                escrow_vault=contract_addresses.escrow_vault,
+            )
+            self._smart_wallet_router = create_smart_wallet_router(
+                wallet_provider, router_contracts, runtime, eas_helper
+            )
 
         # Initialize registry and router
         self._registry = AdapterRegistry()
@@ -344,12 +412,29 @@ class ACTPClient:
         # linkEscrow). Only meaningful on testnet/mainnet — mock mode has
         # no on-chain contracts to address.
         contract_addresses: Optional[object] = None
+        network_id: Optional[str] = None
+        agent_registry_address: Optional[str] = None
+        erc8004_identity_registry_address: Optional[str] = None
+        if config.mode in ("testnet", "mainnet"):
+            from agirails.config.networks import get_network
+
+            network_id = (
+                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
+            )
+            network = get_network(network_id)
+            agent_registry_address = getattr(
+                network.contracts, "agent_registry", None
+            )
+            erc8004_identity_registry_address = getattr(
+                network.contracts, "erc8004_identity_registry", None
+            )
+
         if wallet_provider is not None and config.mode in ("testnet", "mainnet"):
             from agirails.config.networks import get_network
             from agirails.wallet.aa.transaction_batcher import (
                 ContractAddresses as AAContractAddresses,
             )
-            network_name = (
+            network_name = network_id or (
                 "base-sepolia" if config.mode == "testnet" else "base-mainnet"
             )
             network = get_network(network_name)
@@ -359,6 +444,26 @@ class ACTPClient:
                 escrow_vault=network.contracts.escrow_vault,
             )
 
+        # ERC-8004 REPUTATION: wire a reporter for settlement-outcome reporting
+        # on real networks. Mirrors TS ACTPClient.create() (ACTPClient.ts:1054-1058):
+        # network derived from mode (testnet -> base-sepolia, else -> base-mainnet),
+        # signed with the same private key. Best-effort — never blocks create().
+        reputation_reporter: Optional[object] = None
+        if config.mode in ("testnet", "mainnet") and config.private_key:
+            try:
+                from agirails.erc8004.reputation_reporter import ReputationReporter
+                from agirails.types.erc8004 import ReputationReporterConfig
+
+                reputation_reporter = ReputationReporter(
+                    ReputationReporterConfig(
+                        network=network_id,  # type: ignore[arg-type]
+                        private_key=config.private_key,
+                        rpc_url=config.rpc_url,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - best-effort
+                _logger.warn(f"ReputationReporter wiring skipped: {exc}")
+
         client = cls(
             runtime,
             requester,
@@ -366,6 +471,10 @@ class ACTPClient:
             eas_helper,
             wallet_provider=wallet_provider,
             contract_addresses=contract_addresses,
+            reputation_reporter=reputation_reporter,
+            agent_registry_address=agent_registry_address,
+            network_id=network_id,
+            erc8004_identity_registry_address=erc8004_identity_registry_address,
         )
 
         # AIP-12 parity: Auto-register X402Adapter when wallet_provider is
@@ -740,9 +849,503 @@ class ACTPClient:
             and hasattr(self._wallet_provider, 'pay_actp_batched')
         )
         if has_batched and self._basic.can_handle(resolved):
-            return await self._basic.pay(resolved)
+            result = await self._basic.pay(resolved)
+            self._track_tx_adapter(_extract_tx_id(result), self._basic)
+            return result
 
-        return await adapter.pay(resolved)
+        result = await adapter.pay(resolved)
+        self._track_tx_adapter(_extract_tx_id(result), adapter)
+        return result
+
+    async def route_url_payment(
+        self, params: Union[UnifiedPayParams, dict]
+    ) -> Any:
+        """
+        Route URL recipients through non-basic adapters (e.g. x402).
+
+        Used by BasicAdapter to avoid validating URLs as Ethereum addresses.
+        Mirrors TS ``ACTPClient.routeUrlPayment`` (ACTPClient.ts:1394-1407).
+
+        Args:
+            params: UnifiedPayParams (or dict) with an HTTPS ``to`` endpoint.
+
+        Returns:
+            Payment result from the URL-capable adapter.
+
+        Raises:
+            ValidationError: If no URL-capable adapter is registered.
+        """
+        if isinstance(params, dict):
+            params = UnifiedPayParams(**params)
+
+        selection = await self._router.select_and_resolve(params)
+        adapter = selection.adapter
+        resolved = selection.resolved_params
+
+        if adapter.metadata.id == "basic":
+            raise ValidationError(
+                message=(
+                    f'No URL-capable adapter found for "{params.to}". '
+                    "Register X402Adapter and use an HTTPS endpoint."
+                ),
+                details={"to": params.to},
+            )
+
+        url_result = await adapter.pay(resolved)
+        self._track_tx_adapter(_extract_tx_id(url_result), adapter)
+        return url_result
+
+    def _track_tx_adapter(self, tx_id: Optional[str], adapter: Any) -> None:
+        """Track which adapter handled a txId, with bounded eviction.
+
+        Mirrors TS ``trackTxAdapter`` (ACTPClient.ts:1444-1451).
+        """
+        if not tx_id:
+            return
+        self._tx_adapter_map[tx_id] = adapter
+        if len(self._tx_adapter_map) > self._MAX_TX_MAP_SIZE:
+            # Evict the oldest insertion (dicts preserve insertion order).
+            oldest = next(iter(self._tx_adapter_map))
+            self._tx_adapter_map.pop(oldest, None)
+
+    async def get_status(self, tx_id: str) -> Any:
+        """
+        Get transaction status by ID.
+
+        Routes to the adapter that originally handled the payment. Falls back
+        to StandardAdapter for txIds created in prior sessions (not in map).
+        If StandardAdapter reports "not found" AND x402 is registered, appends
+        a hint that the txId may be a stateless x402 payment from a prior run.
+
+        Mirrors TS ``ACTPClient.getStatus`` (ACTPClient.ts:1419-1441).
+
+        Args:
+            tx_id: Transaction ID.
+
+        Returns:
+            TransactionStatus.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        adapter = self._tx_adapter_map.get(tx_id)
+        if adapter is not None:
+            return await adapter.get_status(tx_id)
+
+        try:
+            return await self._standard.get_status(tx_id)
+        except Exception as err:
+            msg = str(err)
+            if "not found" in msg.lower() and self._registry.has("x402"):
+                raise RuntimeError(
+                    f"Transaction {tx_id} not found. "
+                    "x402 payments are stateless — status is not retained "
+                    "across SDK process restarts. If this txId originated in "
+                    "a previous run, query the on-chain receipt directly."
+                )
+            raise
+
+    async def start_work(self, tx_id: str) -> None:
+        """
+        Transition to IN_PROGRESS (provider starts work).
+
+        When Smart Wallet is active, routes through the wallet provider so
+        msg.sender == Smart Wallet. Mirrors TS ``ACTPClient.startWork``
+        (ACTPClient.ts:1475-1482).
+
+        Args:
+            tx_id: Transaction ID.
+        """
+        self._settle_on_interact.trigger()
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            from agirails.runtime.types import State
+
+            await router.send_transition(
+                tx_id, State.IN_PROGRESS.value, "0x", label="startWork"
+            )
+            return
+        await self._runtime.transition_state(tx_id, "IN_PROGRESS")
+
+    async def deliver(
+        self, tx_id: str, dispute_window_seconds: Optional[int] = None
+    ) -> None:
+        """
+        Transition to DELIVERED (provider completes work).
+
+        When no ``dispute_window_seconds`` is provided, uses the transaction's
+        actual disputeWindow from creation time. When Smart Wallet is active and
+        the tx is still COMMITTED, batches startWork + deliver in one UserOp.
+        Mirrors TS ``ACTPClient.deliver`` (ACTPClient.ts:1507-1551).
+
+        Args:
+            tx_id: Transaction ID.
+            dispute_window_seconds: Optional dispute-window override (seconds).
+
+        Raises:
+            RuntimeError: If transaction not found, or DELIVERED step fails.
+        """
+        self._settle_on_interact.trigger()
+
+        tx = await self._runtime.get_transaction(tx_id)
+        if tx is None:
+            raise RuntimeError(f"Transaction {tx_id} not found")
+
+        from eth_abi import encode as abi_encode
+
+        from agirails.runtime.types import State
+
+        effective_dispute_window = (
+            dispute_window_seconds
+            if dispute_window_seconds is not None
+            else tx.dispute_window
+        )
+        proof = "0x" + abi_encode(["uint256"], [int(effective_dispute_window)]).hex()
+
+        state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
+
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            # When using Smart Wallet, batch startWork + deliver if still COMMITTED.
+            if state_str == "COMMITTED":
+                start_work_tx = router.encode_transition_state_tx(
+                    tx_id, State.IN_PROGRESS.value
+                )
+                deliver_tx = router.encode_transition_state_tx(
+                    tx_id, State.DELIVERED.value, proof
+                )
+                receipt = await self._wallet_provider.send_batch_transaction(
+                    [start_work_tx, deliver_tx]
+                )
+                if not receipt.success:
+                    raise RuntimeError(f"deliver (batch) UserOp failed: {receipt.hash}")
+            else:
+                await router.send_transition(
+                    tx_id, State.DELIVERED.value, proof, label="deliver"
+                )
+            return
+
+        # Legacy EOA/mock flow — two-step: COMMITTED -> IN_PROGRESS -> DELIVERED
+        if state_str == "COMMITTED":
+            await self._runtime.transition_state(tx_id, "IN_PROGRESS")
+        try:
+            await self._runtime.transition_state(tx_id, "DELIVERED", proof)
+        except Exception as e:
+            raise RuntimeError(
+                f"deliver() failed at DELIVERED step — transaction {tx_id} is "
+                f"now IN_PROGRESS. Call deliver() again to complete. "
+                f"Original error: {e}"
+            )
+
+    async def release(
+        self, escrow_id: str, attestation_uid: Optional[str] = None
+    ) -> None:
+        """
+        Release escrow funds (EXPLICIT settlement).
+
+        MUST be called after the dispute window expires or the requester
+        approves. This is the ONLY way to settle — NO auto-settle. If an
+        ERC-8004 agent ID was set during transaction creation, also reports
+        the settlement to the Reputation Registry (non-blocking).
+
+        When Smart Wallet is active, routes through the wallet provider.
+        Mirrors TS ``ACTPClient.release`` (ACTPClient.ts:1577-1614).
+
+        Args:
+            escrow_id: Escrow ID (usually same as txId).
+            attestation_uid: Optional attestation UID for verification.
+        """
+        from agirails.wallet.smart_wallet_router import SmartWalletRouter
+
+        tx_id = SmartWalletRouter.extract_tx_id(escrow_id)
+
+        # Get transaction to find agentId (for reputation reporting).
+        tx = await self._runtime.get_transaction(tx_id)
+        agent_id = getattr(tx, "agent_id", None) if tx is not None else None
+
+        # Release escrow (the critical operation).
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.validate_release_preconditions(tx if tx is not None else tx_id)
+            await router.verify_release_attestation(tx_id, attestation_uid)
+            await router.send_settle(tx_id)
+        else:
+            await self._runtime.release_escrow(escrow_id, attestation_uid or "")
+
+        # ERC-8004 REPUTATION: report settlement if an agent ID exists.
+        # Non-blocking — fire and forget (settlement already succeeded).
+        if (
+            self._reputation_reporter is not None
+            and agent_id is not None
+            and str(agent_id) != "0"
+        ):
+            try:
+                result = await self._reputation_reporter.report_settlement(
+                    agent_id=str(agent_id),
+                    tx_id=tx_id,
+                )
+                if result:
+                    _logger.info(
+                        f"[ERC8004] Settlement reported for agent {agent_id}: "
+                        f"{getattr(result, 'tx_hash', '')}"
+                    )
+            except Exception:
+                # Errors already logged by the reporter — silently ignore.
+                pass
+
+    def get_registered_adapters(self) -> list:
+        """
+        Get all registered adapter IDs.
+
+        Mirrors TS ``ACTPClient.getRegisteredAdapters`` (ACTPClient.ts:1645-1647).
+
+        Returns:
+            List of adapter IDs, e.g. ``["basic", "standard", "x402"]``.
+        """
+        return self._registry.get_ids()
+
+    def get_reputation_reporter(self) -> Optional[object]:
+        """
+        Get the ERC-8004 Reputation Reporter instance.
+
+        Only wired in testnet/mainnet modes; returns ``None`` in mock mode.
+        Mirrors TS ``ACTPClient.getReputationReporter`` (ACTPClient.ts:1670-1672).
+
+        Returns:
+            ReputationReporter or ``None``.
+        """
+        return self._reputation_reporter
+
+    def get_wallet_provider(self) -> Optional[object]:
+        """
+        Get the wallet provider instance (AIP-12).
+
+        Only set in testnet/mainnet modes; returns ``None`` in mock mode.
+        Mirrors TS ``ACTPClient.getWalletProvider`` (ACTPClient.ts:1683-1685).
+
+        Returns:
+            IWalletProvider (Auto or EOA) or ``None``.
+        """
+        return self._wallet_provider
+
+    def get_activation_calls(self) -> Dict[str, Any]:
+        """
+        Get activation calls for lazy publish.
+
+        Returns ``SmartWalletCall[]`` to prepend to the first payment UserOp,
+        plus an ``on_success`` callback that deletes pending-publish.json.
+        Returns empty calls when no activation is needed (scenario C/none) or
+        the pending config is stale. Mirrors TS ``ACTPClient.getActivationCalls``
+        (ACTPClient.ts:1696-1736).
+
+        Returns:
+            Dict with ``calls`` (List[SmartWalletCall]) and ``on_success`` (callable).
+        """
+        def _noop() -> None:
+            return None
+
+        if (
+            self._lazy_scenario in ("none", "C")
+            or not self._agent_registry_address
+        ):
+            return {"calls": [], "on_success": _noop}
+
+        # Staleness check: AGIRAILS.md changed since last publish -> skip.
+        if self._pending_is_stale:
+            return {"calls": [], "on_success": _noop}
+
+        pending = self._pending_publish
+        if not pending:
+            return {"calls": [], "on_success": _noop}
+
+        from agirails.wallet.aa.transaction_batcher import (
+            ActivationBatchParams,
+            ServiceDescriptor,
+            build_activation_batch,
+        )
+
+        params = ActivationBatchParams(
+            scenario=self._lazy_scenario,  # type: ignore[arg-type]
+            agent_registry_address=self._agent_registry_address,
+            cid=pending.cid,
+            config_hash=pending.config_hash,
+            listed=True,
+        )
+
+        # For scenario A, thread registration params from pending publish.
+        if self._lazy_scenario == "A":
+            params.endpoint = pending.endpoint
+            params.service_descriptors = [
+                ServiceDescriptor(
+                    service_type_hash=sd.service_type_hash,
+                    service_type=sd.service_type,
+                    schema_uri=sd.schema_uri,
+                    min_price=int(sd.min_price),
+                    max_price=int(sd.max_price),
+                    avg_completion_time=sd.avg_completion_time,
+                    metadata_cid=sd.metadata_cid,
+                )
+                for sd in (pending.service_descriptors or [])
+            ]
+
+        calls = build_activation_batch(params)
+
+        def _on_success() -> None:
+            try:
+                from agirails.config.pending_publish import delete_pending_publish
+
+                delete_pending_publish(network=self._network_id)
+            except Exception:
+                pass
+            self._lazy_scenario = "none"
+            self._pending_publish = None
+
+        return {"calls": calls, "on_success": _on_success}
+
+    def to_json(self) -> Dict[str, Any]:
+        """
+        Custom JSON serialization that excludes sensitive data.
+
+        Prevents accidental private-key exposure when the client is serialized.
+        Mirrors TS ``ACTPClient.toJSON`` (ACTPClient.ts:1236-1245).
+
+        Returns:
+            Safe serializable dict with sensitive data removed.
+        """
+        return {
+            "mode": self._info.mode,
+            "address": self._info.address,
+            "stateDirectory": (
+                str(self._info.state_directory)
+                if self._info.state_directory is not None
+                else None
+            ),
+            "isInitialized": True,
+            "_warning": (
+                "Sensitive data (privateKey, signer) excluded for security"
+            ),
+        }
+
+    async def check_config_drift(
+        self, config: Optional[ACTPClientConfig] = None
+    ) -> None:
+        """
+        Non-blocking config sync / drift detection on startup (Faza B).
+
+        Best-effort: pulls a newer web edit into the local identity file when
+        auto-sync is enabled and the file carries a slug; otherwise emits a
+        warning-only drift notice. Never blocks agent operation and swallows
+        all errors. Mirrors TS ``ACTPClient.checkConfigDrift``
+        (ACTPClient.ts:1753-1869) in its safe (read-only) direction.
+
+        Args:
+            config: Optional client config (for requester_address / mode).
+        """
+        try:
+            import os
+            from pathlib import Path
+
+            if config is None:
+                config = ACTPClientConfig(
+                    mode=self._info.mode,
+                    requester_address=self._info.address,
+                )
+
+            if config.mode == "mock":
+                return
+
+            # Resolve the identity file the agent publishes ({slug}.md) via the
+            # .actp identity pointer, falling back to AGIRAILS.md.
+            cwd = Path.cwd()
+            identity_path = cwd / "AGIRAILS.md"
+            try:
+                import json as _json
+
+                actp_dir = Path(os.environ.get("ACTP_DIR") or (cwd / ".actp"))
+                cfg_path = actp_dir / "config.json"
+                if cfg_path.exists():
+                    cfg = _json.loads(cfg_path.read_text())
+                    identity = cfg.get("identity")
+                    if identity:
+                        p = cwd / identity
+                        if p.exists():
+                            identity_path = p
+            except Exception:
+                pass
+
+            if not identity_path.exists():
+                return
+
+            from agirails.config.networks import get_network
+
+            network_name = (
+                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
+            )
+            network = get_network(network_name)
+            if not getattr(network.contracts, "agent_registry", None):
+                return  # No registry on this network.
+
+            content = identity_path.read_text()
+            from agirails.config.agirailsmd import (
+                compute_config_hash,
+                parse_agirails_md,
+            )
+
+            parsed = parse_agirails_md(content)
+            frontmatter = getattr(parsed, "frontmatter", {}) or {}
+
+            # AIP-18 DEC-3: a pure buyer (intent: pay) is never anchored
+            # on-chain — chain drift/reconcile does not apply, so skip.
+            agent_block = frontmatter.get("agent") if isinstance(frontmatter, dict) else None
+            intent_val = None
+            if isinstance(frontmatter, dict):
+                intent_val = frontmatter.get("intent")
+            if not intent_val and isinstance(agent_block, dict):
+                intent_val = agent_block.get("intent")
+            if isinstance(intent_val, str) and intent_val.lower() == "pay":
+                return
+
+            # Warning-only drift detection (the push direction stays with
+            # `actp publish` — we never auto-spend gas at startup).
+            hash_result = compute_config_hash(content)
+            local_hash = getattr(hash_result, "config_hash", None) or (
+                hash_result.get("config_hash") if isinstance(hash_result, dict) else None
+            )
+            has_config_hash = bool(
+                frontmatter.get("config_hash") if isinstance(frontmatter, dict) else None
+            )
+            is_template = not has_config_hash
+
+            from agirails.config.on_chain_state import get_on_chain_config_state
+
+            agent_address = config.requester_address or self._info.address
+            on_chain_state = await asyncio.to_thread(
+                get_on_chain_config_state,
+                agent_address,
+                network_name,
+                config.rpc_url,
+            )
+            on_chain_hash = on_chain_state.config_hash
+
+            zero_hash = "0x" + "0" * 64
+            if not on_chain_hash or on_chain_hash == zero_hash:
+                if is_template:
+                    _logger.info(
+                        "[AGIRAILS] AGIRAILS.md loaded (template mode). "
+                        'Run "actp publish" to register and sync on-chain.'
+                    )
+                else:
+                    _logger.warn(
+                        "[AGIRAILS] Config not published on-chain. Run: actp publish"
+                    )
+            elif on_chain_hash != local_hash:
+                _logger.warn(
+                    "[AGIRAILS] Local identity file differs from on-chain. "
+                    "Run: actp diff"
+                )
+        except Exception:
+            # Silently ignore — drift detection is best-effort.
+            pass
 
     @property
     def advanced(self) -> IACTPRuntime:

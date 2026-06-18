@@ -18,6 +18,7 @@ from agirails.cli.utils.client import (
     get_config_path,
     get_state_directory,
 )
+from agirails.cli.utils.identity import resolve_identity_path
 
 __all__ = [
     # Output
@@ -36,4 +37,6 @@ __all__ = [
     "save_config",
     "get_config_path",
     "get_state_directory",
+    # Identity pointer
+    "resolve_identity_path",
 ]

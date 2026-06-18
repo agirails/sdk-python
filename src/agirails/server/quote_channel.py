@@ -24,16 +24,19 @@ framework / proxy level (nginx, fastapi-limiter, Cloudflare).
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
+from urllib.parse import urlsplit
 
 from agirails.builders.counter_offer import (
     CounterOfferBuilder,
     CounterOfferJustification,
     CounterOfferMessage,
 )
+from agirails.builders.quote import QuoteMessage
 from agirails.errors import SignatureVerificationError
 
 
@@ -48,6 +51,195 @@ DEDUP_TTL_SECONDS = 90_000  # 25h covers max quote TTL + grace
 def build_channel_path(chain_id: int, tx_id: str) -> str:
     """Canonical URL path for AIP-2.1 quote channel POSTs."""
     return f"/quote-channel/{chain_id}/{tx_id}"
+
+
+# ============================================================================
+# Client (send side) — mirror of TS QuoteChannelClient
+# ============================================================================
+
+
+def _strip_trailing_slash(url: str) -> str:
+    return url[:-1] if url.endswith("/") else url
+
+
+def assert_safe_peer_url(url: str, allow_insecure_targets: bool) -> None:
+    """Reject peer URLs that could SSRF into local / internal infrastructure.
+
+    Python port of TS ``assertSafePeerUrl`` (QuoteChannel.ts:385-469),
+    semantically identical. Rules (default, ``allow_insecure_targets=False``):
+
+      - scheme MUST be https
+      - hostname MUST NOT be ``localhost`` (or ``*.localhost``)
+      - hostname MUST NOT be loopback (127.x, ::1)
+      - hostname MUST NOT be link-local (169.254.x, fe80::/10) — covers AWS
+        metadata at 169.254.169.254
+      - hostname MUST NOT be RFC1918 private (10.x, 172.16-31.x, 192.168.x)
+        or IPv6 ULA (fc00::/7)
+
+    Dev mode (``allow_insecure_targets=True``): no restrictions.
+
+    Raises ``ValueError`` if the URL fails the checks (deliberately specific
+    messages so callers / tests can assert on them).
+    """
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ValueError(f"Invalid peer URL: {url}") from exc
+    if not parsed.scheme or not parsed.hostname:
+        raise ValueError(f"Invalid peer URL: {url}")
+
+    if allow_insecure_targets:
+        return
+
+    if parsed.scheme != "https":
+        raise ValueError(
+            f"Peer URL must use https:// (got {parsed.scheme}://). "
+            "Set allow_insecure_targets=True on the QuoteChannelClient "
+            "for dev/test only."
+        )
+
+    # urlsplit().hostname already strips IPv6 brackets and lowercases.
+    host = parsed.hostname
+
+    # IPv4-mapped IPv6 (::ffff:127.0.0.1 / ::ffff:7f00:1) folds to its v4 form
+    # via ipaddress; re-extract so the dotted-quad rules below catch it.
+    mapped_dotted = re.match(
+        r"^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$", host
+    )
+    mapped_hex = re.match(r"^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$", host)
+    if mapped_dotted:
+        host = mapped_dotted.group(1)
+    elif mapped_hex:
+        hi = int(mapped_hex.group(1), 16)
+        lo = int(mapped_hex.group(2), 16)
+        host = f"{(hi >> 8) & 0xFF}.{hi & 0xFF}.{(lo >> 8) & 0xFF}.{lo & 0xFF}"
+
+    if host == "localhost" or host.endswith(".localhost"):
+        raise ValueError(
+            f"Peer URL points at localhost ({host}) — refusing (SSRF guard)"
+        )
+
+    # IPv4 literals
+    ipv4 = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", host)
+    if ipv4:
+        a, b = int(ipv4.group(1)), int(ipv4.group(2))
+        if a == 127:
+            raise ValueError(
+                f"Peer URL points at loopback IP ({host}) — refusing (SSRF guard)"
+            )
+        if a == 169 and b == 254:
+            raise ValueError(
+                f"Peer URL points at link-local / cloud-metadata IP ({host}) "
+                "— refusing (SSRF guard)"
+            )
+        if a == 10:
+            raise ValueError(
+                f"Peer URL points at RFC1918 10.x.x.x ({host}) — refusing (SSRF guard)"
+            )
+        if a == 192 and b == 168:
+            raise ValueError(
+                f"Peer URL points at RFC1918 192.168.x.x ({host}) — refusing (SSRF guard)"
+            )
+        if a == 172 and 16 <= b <= 31:
+            raise ValueError(
+                f"Peer URL points at RFC1918 172.16-31.x ({host}) — refusing (SSRF guard)"
+            )
+
+    # IPv6 literals
+    if host == "::1":
+        raise ValueError(
+            f"Peer URL points at IPv6 loopback ({host}) — refusing (SSRF guard)"
+        )
+    if host.startswith("fe80:") or host.startswith("fe80::"):
+        raise ValueError(
+            f"Peer URL points at IPv6 link-local ({host}) — refusing (SSRF guard)"
+        )
+    if host.startswith("fc") or host.startswith("fd"):
+        if re.match(r"^(fc|fd)[0-9a-f]{0,2}:", host):
+            raise ValueError(
+                f"Peer URL points at IPv6 ULA ({host}) — refusing (SSRF guard)"
+            )
+
+
+@dataclass
+class QuoteChannelClientConfig:
+    """Configuration for :class:`QuoteChannelClient` (mirrors TS config)."""
+
+    #: Per-request timeout in seconds. Default 10s (TS uses ms; we use s).
+    timeout_seconds: float = 10.0
+    #: Allow insecure targets (http://, localhost, RFC1918, link-local).
+    #: Default False (production hardening). True ONLY for local dev / tests.
+    allow_insecure_targets: bool = False
+
+
+class QuoteChannelClient:
+    """HTTPS transport for sending AIP-2.1 quote + counter-offer messages.
+
+    Python port of TS ``QuoteChannelClient`` (QuoteChannel.ts:159-222). Used
+    by buyers (posting counter-offers to the provider) and providers (posting
+    quotes to the buyer). SSRF-guarded + timeout-bounded.
+
+    Async (``httpx.AsyncClient``) so it composes with the orchestrators'
+    asyncio negotiation loops.
+    """
+
+    def __init__(self, config: Optional[QuoteChannelClientConfig] = None) -> None:
+        cfg = config or QuoteChannelClientConfig()
+        self._timeout = cfg.timeout_seconds
+        self._allow_insecure = cfg.allow_insecure_targets
+
+    async def send_quote(self, peer_endpoint: str, quote: QuoteMessage) -> None:
+        """POST a provider quote to the buyer's endpoint."""
+        await self._post(
+            peer_endpoint,
+            quote.chain_id,
+            quote.tx_id,
+            {"type": "agirails.quote.v1", "message": quote.to_dict()},
+        )
+
+    async def send_counter(
+        self, peer_endpoint: str, counter: CounterOfferMessage
+    ) -> None:
+        """POST a buyer counter-offer to the provider's endpoint."""
+        await self._post(
+            peer_endpoint,
+            counter.chainId,
+            counter.txId,
+            {"type": "agirails.counteroffer.v1", "message": counter.to_dict()},
+        )
+
+    async def _post(
+        self,
+        peer_endpoint: str,
+        chain_id: int,
+        tx_id: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        url = f"{_strip_trailing_slash(peer_endpoint)}{build_channel_path(chain_id, tx_id)}"
+
+        # SSRF guard. Peer endpoints come from on-chain AgentRegistry / the
+        # agirails.app DB — both technically adversary-writable. Fail fast.
+        assert_safe_peer_url(url, self._allow_insecure)
+
+        import httpx
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            res = await client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            if res.status_code >= 400:
+                text = ""
+                try:
+                    text = res.text
+                except Exception:  # noqa: BLE001
+                    text = ""
+                suffix = f" — {text}" if text else ""
+                raise RuntimeError(
+                    f"Quote channel POST failed: {res.status_code} "
+                    f"{res.reason_phrase}{suffix}"
+                )
 
 
 # ============================================================================
@@ -304,6 +496,9 @@ __all__ = [
     "HandlerResult",
     "InMemoryDedupStore",
     "QuoteChannelHandler",
+    "QuoteChannelClient",
+    "QuoteChannelClientConfig",
+    "assert_safe_peer_url",
     "TTL_GRACE_SECONDS",
     "build_channel_path",
 ]

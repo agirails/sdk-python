@@ -23,9 +23,25 @@ import inspect
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
-from agirails.builders.quote import QuoteMessage
+from agirails.builders.counter_offer import (
+    CounterOfferBuilder,
+    CounterOfferParams,
+    MessageNonceManager,
+)
+from agirails.builders.quote import QuoteBuilder, QuoteMessage
+from agirails.negotiation.negotiation_channel import (
+    COUNTERACCEPT_ENVELOPE,
+    COUNTEROFFER_ENVELOPE,
+    QUOTE_ENVELOPE,
+    DeliveredMessage,
+    NegotiationChannel,
+    NegotiationMessage,
+    Subscription,
+    is_counter_accept_envelope,
+    is_quote_envelope,
+)
 from agirails.negotiation.verify_quote_on_chain import (
     VerifyOnChainResult,
     verify_quote_hash_on_chain,
@@ -165,6 +181,49 @@ class OrchestratorConfig:
 
 
 # ============================================================================
+# BuyerNegotiationContext (AIP-2.1 §6 channel-driven multi-round)
+# ============================================================================
+
+
+@dataclass
+class BuyerNegotiationContext:
+    """AIP-2.1 negotiation context: wires the orchestrator into the
+    :class:`NegotiationChannel` transport. All fields optional: without them
+    the orchestrator runs the legacy fixed-price / poll-only flow (no
+    counters). Mirrors TS ``BuyerNegotiationContext``
+    (BuyerOrchestrator.ts:104-126).
+
+    To enable multi-round negotiation, supply ALL of:
+      - ``private_key`` (signs CounterOfferMessages)
+      - ``kernel_address`` (EIP-712 domain)
+      - ``chain_id``
+      - ``negotiation_channel`` (transport: MockChannel for tests, an HTTP
+        channel in production)
+    """
+
+    #: Buyer's signer private key (hex). Signs CounterOfferMessages. (TS passes
+    #: an ethers ``Signer``; Python's CounterOfferBuilder takes a private key.)
+    private_key: Optional[str] = None
+    #: ACTPKernel address for the chain. Required for counter signing.
+    kernel_address: Optional[str] = None
+    #: Chain id (84532 / 8453). Required for counter signing.
+    chain_id: Optional[int] = None
+    #: Nonce manager for counter messages. Defaults to an in-memory one.
+    nonce_manager: Optional[MessageNonceManager] = None
+    #: Transport for receiving quotes / acceptances + sending counters.
+    #: Required for any negotiation feature; without it the orchestrator is
+    #: fixed-price only.
+    negotiation_channel: Optional[NegotiationChannel] = None
+    #: BYO-brain: override the per-quote accept/counter/reject decision. When
+    #: omitted, the built-in DecisionEngine is used. Only consulted on the
+    #: channel negotiation path. Async-tolerant for LLM deciders.
+    decide_quote: Optional[BuyerQuoteDecider] = None
+    #: Buyer's signer address (lowercased into the consumer DID). When omitted,
+    #: derived from ``private_key``.
+    signer_address: Optional[str] = None
+
+
+# ============================================================================
 # BuyerOrchestrator
 # ============================================================================
 
@@ -178,8 +237,34 @@ class BuyerOrchestrator:
         runtime: IACTPRuntime,
         requester_address: str,
         actp_dir: Optional[str] = None,
+        negotiation: Optional[BuyerNegotiationContext] = None,
+        client: Optional[Any] = None,
         decide_quote: Optional[BuyerQuoteDecider] = None,
     ) -> None:
+        # Fail-fast on partial negotiation context. Pre-fix bug: a developer who
+        # set ``negotiation_channel`` but forgot private_key / chain_id got NO
+        # error — every tx silently fell through to fixed-price flow with the
+        # channel subscription opened-and-immediately-closed for nothing.
+        # Mirrors TS BuyerOrchestrator.ts:180-192 (P1 audit finding G).
+        negotiation = negotiation or BuyerNegotiationContext()
+        if negotiation.negotiation_channel is not None:
+            missing: List[str] = []
+            if not negotiation.private_key:
+                missing.append("private_key")
+            if not negotiation.kernel_address:
+                missing.append("kernel_address")
+            if not negotiation.chain_id:
+                missing.append("chain_id")
+            if missing:
+                raise ValueError(
+                    "BuyerNegotiationContext: negotiation_channel was provided "
+                    "but the following required field(s) are missing: "
+                    f"{', '.join(missing)}. Multi-round negotiation needs all "
+                    "of: private_key, kernel_address, chain_id, "
+                    "negotiation_channel. Omit negotiation_channel for "
+                    "fixed-price-only flow."
+                )
+
         self._policy = policy
         self._runtime = runtime
         self._requester_address = requester_address
@@ -190,19 +275,115 @@ class BuyerOrchestrator:
             weights = ScoringWeights(**{k: v for k, v in weights.items() if k in ("quality", "price", "speed", "reliability")})
         self._decision_engine = DecisionEngine(weights)
         self._session_store = SessionStore(actp_dir)
+        self._negotiation = negotiation
+        self._client = client
 
         # BYO-brain: the default decider delegates to the built-in
         # DecisionEngine, so when ``decide_quote`` is absent the per-quote
         # accept/counter/reject decision is byte-for-byte identical to the
-        # zero-config path. Mirrors TS BuyerOrchestrator.ts:199-201
-        # (``this.decider = negotiation.decideQuote ?? (...)`).
+        # zero-config path. ``negotiation.decide_quote`` takes precedence over
+        # the legacy top-level ``decide_quote`` kwarg (back-compat). Mirrors TS
+        # BuyerOrchestrator.ts:199-201.
+        effective_decider = (
+            negotiation.decide_quote
+            if negotiation.decide_quote is not None
+            else decide_quote
+        )
         self._decider: BuyerQuoteDecider = (
-            decide_quote
-            if decide_quote is not None
+            effective_decider
+            if effective_decider is not None
             else (
                 lambda q, p, r: self._decision_engine.evaluate_quote(q, p, r)
             )
         )
+
+        # Counter builder is only wired when a signer is present.
+        self._counter_builder: Optional[CounterOfferBuilder] = None
+        if negotiation.private_key:
+            self._counter_builder = CounterOfferBuilder(
+                private_key=negotiation.private_key,
+                nonce_manager=negotiation.nonce_manager or MessageNonceManager(),
+            )
+
+        # Per-txId inbound message queue + resolver + active subscriptions
+        # (mirror TS inboundQueues / inboundResolvers / activeSubscriptions).
+        self._inbound_queues: Dict[str, List[NegotiationMessage]] = {}
+        self._inbound_resolvers: Dict[str, "asyncio.Future[NegotiationMessage]"] = {}
+        self._active_subscriptions: Dict[str, Subscription] = {}
+
+    # --------------------------------------------------------------------------
+    # Channel inbound dispatch
+    # --------------------------------------------------------------------------
+
+    def _on_channel_message(self, tx_id: str, delivered: DeliveredMessage) -> None:
+        """Channel delivered a verified message for ``tx_id``. If a round is
+        awaiting the next message, hand it directly; otherwise queue.
+
+        The channel has already verified EIP-712 signature + chainId before
+        invoking us — this handler is concerned only with routing. Mirror of
+        TS ``_onChannelMessage`` (BuyerOrchestrator.ts:225-235).
+        """
+        resolver = self._inbound_resolvers.get(tx_id)
+        if resolver is not None and not resolver.done():
+            self._inbound_resolvers.pop(tx_id, None)
+            resolver.set_result(delivered.envelope)
+            return
+        queue = self._inbound_queues.get(tx_id, [])
+        queue.append(delivered.envelope)
+        self._inbound_queues[tx_id] = queue
+
+    async def _wait_for_next_message(
+        self,
+        tx_id: str,
+        accepted_types: Tuple[str, ...],
+        timeout_ms: int,
+    ) -> Optional[NegotiationMessage]:
+        """Await the next inbound message matching one of ``accepted_types``.
+        Returns ``None`` on timeout. Drains the queue first so messages
+        buffered while we were busy processing the previous round are picked up
+        immediately. Mirror of TS ``_waitForNextMessage``
+        (BuyerOrchestrator.ts:245-296).
+        """
+        # Drain queue first — non-matching types stay queued for later.
+        queue = self._inbound_queues.get(tx_id, [])
+        for idx, m in enumerate(queue):
+            if m.type in accepted_types:
+                queue.pop(idx)
+                if not queue:
+                    self._inbound_queues.pop(tx_id, None)
+                else:
+                    self._inbound_queues[tx_id] = queue
+                return m
+
+        loop = asyncio.get_event_loop()
+        while True:
+            fut: "asyncio.Future[NegotiationMessage]" = loop.create_future()
+            self._inbound_resolvers[tx_id] = fut
+            try:
+                msg = await asyncio.wait_for(
+                    asyncio.shield(fut), timeout=timeout_ms / 1000.0
+                )
+            except asyncio.TimeoutError:
+                if self._inbound_resolvers.get(tx_id) is fut:
+                    self._inbound_resolvers.pop(tx_id, None)
+                return None
+            if msg.type in accepted_types:
+                return msg
+            # Wrong type — push back to queue and keep waiting. Re-drain the
+            # queue BEFORE re-registering so a correct-type message that landed
+            # in the same tick isn't lost (TS pre-fix race H).
+            q = self._inbound_queues.get(tx_id, [])
+            q.append(msg)
+            for idx, m in enumerate(q):
+                if m.type in accepted_types:
+                    q.pop(idx)
+                    if not q:
+                        self._inbound_queues.pop(tx_id, None)
+                    else:
+                        self._inbound_queues[tx_id] = q
+                    return m
+            self._inbound_queues[tx_id] = q
+            # loop: re-register resolver for the next message.
 
     async def negotiate(
         self, config: Optional[OrchestratorConfig] = None
@@ -443,6 +624,22 @@ class BuyerOrchestrator:
                 )
                 continue
 
+            # Open negotiation channel subscription for this txId. All inbound
+            # quote / counteraccept messages from the provider will land in our
+            # internal queue (via _on_channel_message) for the negotiation round
+            # loop to consume. Subscription is closed in _cleanup_tx_state.
+            # Mirror of TS BuyerOrchestrator.ts:467-473.
+            if self._negotiation.negotiation_channel is not None:
+                captured_tx = tx_id
+
+                def _cb(delivered: DeliveredMessage, _tx: str = captured_tx) -> None:
+                    self._on_channel_message(_tx, delivered)
+
+                sub = self._negotiation.negotiation_channel.subscribe_tx_id(
+                    tx_id, _cb
+                )
+                self._active_subscriptions[tx_id] = sub
+
             # 3c. Wait for quote or direct commit (ACTP allows INITIATED -> COMMITTED fast path)
             emit(
                 WaitingQuoteEvent(
@@ -480,6 +677,10 @@ class BuyerOrchestrator:
                         reason="Quote TTL expired",
                     )
                 )
+                # External caller may have pushed a quote between
+                # createTransaction and timeout — clear so a long-running daemon
+                # doesn't accumulate channel state.
+                self._cleanup_tx_state(tx_id)
                 continue
 
             emit(QuoteReceivedEvent(tx_id=tx_id))
@@ -498,6 +699,49 @@ class BuyerOrchestrator:
                         deadlock_detected = True
             except Exception:
                 pass  # Non-fatal — price tracking is best-effort
+
+            # 3d-bis. AIP-2.1 negotiation branch: if the orchestrator has a
+            # negotiation_channel configured, drain the inbound queue for any
+            # quote that arrived via the channel and run the multi-round
+            # counter-offer loop. The branch ONLY triggers when reached_state ==
+            # 'QUOTED' — the COMMITTED fast-path below bypasses negotiation
+            # entirely because the provider already locked the deal at buyer's
+            # offered amount. Mirror of TS BuyerOrchestrator.ts:534-568.
+            if (
+                reached_state == "QUOTED"
+                and self._negotiation.negotiation_channel is not None
+            ):
+                neg_done, neg_success, neg_reason = await self._run_negotiation_round(
+                    tx_id=tx_id,
+                    candidate_slug=candidate.slug,
+                    provider_address=provider_address,
+                    offer=offer,
+                    round_idx=round_idx,
+                    rounds=rounds,
+                    emit=emit,
+                )
+                if neg_done:
+                    # Negotiation reached a terminal decision (accept or reject)
+                    # — short-circuit the existing escrow logic below.
+                    if neg_success:
+                        self._session_store.link_transaction(
+                            session.commerce_session_id, tx_id, candidate.slug
+                        )
+                        neg_reason_str = neg_reason or "Negotiation complete"
+                        emit(CompleteEvent(success=True, reason=neg_reason_str))
+                        return NegotiationResult(
+                            success=True,
+                            commerce_session_id=session.commerce_session_id,
+                            actp_tx_id=tx_id,
+                            selected_provider=candidate.slug,
+                            rounds_used=round_idx + 1,
+                            reason=neg_reason_str,
+                            rounds=rounds,
+                            deadlock_detected=deadlock_detected,
+                        )
+                    # neg_success is False → candidate rejected; continue outer
+                    # loop to try the next one.
+                    continue
 
             # 3e. Reserve budget and link escrow (or recognize already-committed).
             # ACTP invariant: tx.amount is immutable (set at createTransaction).
@@ -544,6 +788,11 @@ class BuyerOrchestrator:
                         success=True, reason="Negotiation complete"
                     )
                 )
+
+                # COMMITTED fast-path bypassed _run_negotiation_round (the usual
+                # cleanup site) — drop any stashed channel state so daemon
+                # callers don't leak across negotiations.
+                self._cleanup_tx_state(tx_id)
 
                 return NegotiationResult(
                     success=True,
@@ -595,6 +844,10 @@ class BuyerOrchestrator:
                     )
                 )
 
+                # Symmetric to the COMMITTED fast-path above — this success exit
+                # also bypassed _run_negotiation_round's cleanup site.
+                self._cleanup_tx_state(tx_id)
+
                 return NegotiationResult(
                     success=True,
                     commerce_session_id=session.commerce_session_id,
@@ -625,6 +878,8 @@ class BuyerOrchestrator:
                         round=round_idx + 1, action="error", reason=reason
                     )
                 )
+                # Same daemon-leak rationale as the timeout `continue` above.
+                self._cleanup_tx_state(tx_id)
                 continue
 
         # All rounds exhausted
@@ -651,6 +906,504 @@ class BuyerOrchestrator:
             rounds=rounds,
             deadlock_detected=deadlock_detected,
         )
+
+    # ============================================================================
+    # AIP-2.1 negotiation round
+    # ============================================================================
+
+    async def _run_negotiation_round(
+        self,
+        tx_id: str,
+        candidate_slug: str,
+        provider_address: str,
+        offer: QuoteOffer,
+        round_idx: int,
+        rounds: List[RoundResult],
+        emit: Callable[[ProgressEvent], None],
+    ) -> Tuple[bool, bool, Optional[str]]:
+        """Run the multi-round AIP-2.1 negotiation flow for one provider/txId.
+
+        Channel-driven: never reads ``set_received_quote`` state; all inbound
+        messages flow through the orchestrator's NegotiationChannel
+        subscription (opened in ``_negotiate`` after createTransaction).
+
+        Returns ``(done, success, reason)``:
+          - ``(False, _, _)`` — channel has no quote but the tx reached QUOTED
+            via raw transitionState (legacy/poll-only provider). Caller falls
+            through to fixed-price flow.
+          - ``(True, success, reason)`` — terminal outcome (accept/reject).
+
+        Mirror of TS ``_runNegotiationRound`` (BuyerOrchestrator.ts:721-965).
+        """
+
+        def terminate(success: bool, reason: str) -> Tuple[bool, bool, Optional[str]]:
+            # Cleanup hook fires on any done=True return — closes the channel
+            # subscription opened in _negotiate so daemon callers don't leak.
+            self._cleanup_tx_state(tx_id)
+            return (True, success, reason)
+
+        if (
+            self._counter_builder is None
+            or not self._negotiation.kernel_address
+            or not self._negotiation.chain_id
+        ):
+            # Channel was provided but not the rest of the negotiation context.
+            # Fall through to fixed-price flow rather than try to negotiate.
+            self._cleanup_tx_state(tx_id)
+            return (False, False, None)
+
+        counter_ttl_sec = getattr(
+            self._policy.negotiation, "counter_response_ttl_seconds", None
+        )
+        if counter_ttl_sec is None:
+            counter_ttl_sec = PolicyEngine.parse_ttl(self._policy.negotiation.quote_ttl)
+        counter_ttl_ms = counter_ttl_sec * 1000
+        rounds_budget = getattr(self._policy.negotiation, "rounds_per_provider", None)
+        if rounds_budget is None:
+            rounds_budget = 1
+
+        # Wait for the FIRST quote on the channel.
+        first_quote_env = await self._wait_for_next_message(
+            tx_id, (QUOTE_ENVELOPE,), counter_ttl_ms
+        )
+        if first_quote_env is None or not is_quote_envelope(first_quote_env):
+            # No quote arrived on the channel within TTL — fall through to
+            # fixed-price (the on-chain hash + waitForState already proved the
+            # tx hit QUOTED, so this is a legacy-provider scenario).
+            self._cleanup_tx_state(tx_id)
+            return (False, False, None)
+        first_quote: QuoteMessage = first_quote_env.message  # type: ignore[assignment]
+        current_quote: QuoteMessage = first_quote
+
+        # Multi-round inner loop.
+        hash_source = "aip2"
+        for counter_round in range(rounds_budget):
+            if counter_round == 0:
+                on_chain_tx = await self._runtime.get_transaction(tx_id)
+                on_chain_hash = (
+                    getattr(on_chain_tx, "quote_hash", None)
+                    if on_chain_tx is not None
+                    else None
+                )
+                if not on_chain_hash:
+                    # No anchored quote — fall through to fixed-price.
+                    self._cleanup_tx_state(tx_id)
+                    return (False, False, None)
+                verify = verify_quote_hash_on_chain(
+                    current_quote,
+                    on_chain_hash,
+                    provider_address=provider_address,
+                )
+                if not verify.match:
+                    rounds.append(
+                        RoundResult(
+                            round=round_idx + 1,
+                            provider_slug=candidate_slug,
+                            provider_address=provider_address,
+                            action="error",
+                            reason=(
+                                f"Quote hash mismatch: expected "
+                                f"{verify.canonical_hash}, on-chain {on_chain_hash}"
+                            ),
+                            tx_id=tx_id,
+                        )
+                    )
+                    emit(
+                        RoundEndEvent(
+                            round=round_idx + 1,
+                            action="error",
+                            reason="Quote hash mismatch",
+                        )
+                    )
+                    return terminate(False, "hash mismatch")
+                hash_source = verify.source or "aip2"
+            else:
+                # Subsequent re-quotes: guard against two attacker-controlled
+                # mutations the channel-level EIP-712 verify cannot catch:
+                #   (a) provider DID switched mid-negotiation
+                #   (b) maxPrice inflated mid-negotiation (P0 audit finding)
+                # Both anchor to the FIRST quote (which cross-checked the
+                # on-chain hash on round 0). Mirror BuyerOrchestrator.ts:802-844.
+                if current_quote.provider != first_quote.provider:
+                    try:
+                        await self._transition_state(tx_id, "CANCELLED")
+                    except Exception:
+                        pass
+                    rounds.append(
+                        RoundResult(
+                            round=round_idx + 1,
+                            provider_slug=candidate_slug,
+                            provider_address=provider_address,
+                            action="error",
+                            reason=(
+                                f"Re-quote provider mismatch: {current_quote.provider} "
+                                f"vs original {first_quote.provider}"
+                            ),
+                            tx_id=tx_id,
+                        )
+                    )
+                    emit(
+                        RoundEndEvent(
+                            round=round_idx + 1,
+                            action="error",
+                            reason="provider mismatch on re-quote",
+                        )
+                    )
+                    return terminate(False, "provider mismatch")
+                if current_quote.max_price != first_quote.max_price:
+                    try:
+                        await self._transition_state(tx_id, "CANCELLED")
+                    except Exception:
+                        pass
+                    rounds.append(
+                        RoundResult(
+                            round=round_idx + 1,
+                            provider_slug=candidate_slug,
+                            provider_address=provider_address,
+                            action="error",
+                            reason=(
+                                f"Re-quote maxPrice mismatch: {current_quote.max_price} "
+                                f"vs original {first_quote.max_price} — provider may "
+                                f"not raise the ceiling mid-negotiation"
+                            ),
+                            tx_id=tx_id,
+                        )
+                    )
+                    emit(
+                        RoundEndEvent(
+                            round=round_idx + 1,
+                            action="error",
+                            reason="maxPrice substitution attempt on re-quote",
+                        )
+                    )
+                    return terminate(False, "maxPrice substitution")
+                hash_source = "aip2"
+
+            evaluation = await self._evaluate_current_quote(current_quote, counter_round)
+
+            # ----- reject -----
+            if evaluation.action == "reject":
+                try:
+                    await self._transition_state(tx_id, "CANCELLED")
+                except Exception:
+                    pass
+                rounds.append(
+                    RoundResult(
+                        round=round_idx + 1,
+                        provider_slug=candidate_slug,
+                        provider_address=provider_address,
+                        action="rejected",
+                        reason=(
+                            f"{evaluation.reason} (round {counter_round + 1}/"
+                            f"{rounds_budget}, source: {hash_source})"
+                        ),
+                        tx_id=tx_id,
+                        quoted_price=self._base_units_for_log(
+                            current_quote.quoted_amount
+                        ),
+                    )
+                )
+                emit(
+                    RoundEndEvent(
+                        round=round_idx + 1,
+                        action="rejected",
+                        reason=evaluation.reason,
+                    )
+                )
+                return terminate(False, evaluation.reason)
+
+            # ----- accept (at provider's quoted amount) -----
+            if evaluation.action == "accept":
+                result = await self._commit_at_amount(
+                    tx_id,
+                    current_quote.quoted_amount,
+                    candidate_slug,
+                    provider_address,
+                    offer,
+                    round_idx,
+                    rounds,
+                    emit,
+                    hash_source,
+                    counter_round,
+                )
+                self._cleanup_tx_state(tx_id)
+                return result
+
+            # ----- counter -----
+            try:
+                signer_addr = (
+                    self._negotiation.signer_address
+                    or _address_from_private_key(self._negotiation.private_key)
+                )
+                consumer_did = (
+                    f"did:ethr:{self._negotiation.chain_id}:{signer_addr.lower()}"
+                )
+                now = int(time.time())
+                # inReplyTo is the canonical hash of the quote we're countering
+                # — recompute on every round (re-quotes have their own hash).
+                current_quote_hash = QuoteBuilder().compute_hash(current_quote)
+                counter = self._counter_builder.build(
+                    CounterOfferParams(
+                        txId=tx_id,
+                        consumer=consumer_did,
+                        provider=current_quote.provider,
+                        quoteAmount=current_quote.quoted_amount,
+                        counterAmount=evaluation.amount_base_units,  # type: ignore[arg-type]
+                        maxPrice=current_quote.max_price,
+                        inReplyTo=current_quote_hash,
+                        chainId=self._negotiation.chain_id,
+                        kernelAddress=self._negotiation.kernel_address,
+                        expiresAt=now + counter_ttl_sec,
+                    )
+                )
+            except Exception as err:
+                reason = (
+                    f"Counter build failed on round {counter_round + 1}: {err}"
+                )
+                rounds.append(
+                    RoundResult(
+                        round=round_idx + 1,
+                        provider_slug=candidate_slug,
+                        provider_address=provider_address,
+                        action="error",
+                        reason=reason,
+                        tx_id=tx_id,
+                    )
+                )
+                emit(RoundEndEvent(round=round_idx + 1, action="error", reason=reason))
+                return terminate(False, reason)
+
+            try:
+                await self._negotiation.negotiation_channel.post(  # type: ignore[union-attr]
+                    tx_id,
+                    NegotiationMessage(type=COUNTEROFFER_ENVELOPE, message=counter),
+                )
+            except Exception as err:
+                reason = (
+                    f"Counter post failed on round {counter_round + 1}: {err}"
+                )
+                rounds.append(
+                    RoundResult(
+                        round=round_idx + 1,
+                        provider_slug=candidate_slug,
+                        provider_address=provider_address,
+                        action="error",
+                        reason=reason,
+                        tx_id=tx_id,
+                    )
+                )
+                emit(RoundEndEvent(round=round_idx + 1, action="error", reason=reason))
+                return terminate(False, reason)
+
+            # Await provider's response: counteraccept (deal closed) or new quote
+            # (provider re-quote → next round).
+            nxt = await self._wait_for_next_message(
+                tx_id,
+                (COUNTERACCEPT_ENVELOPE, QUOTE_ENVELOPE),
+                counter_ttl_ms,
+            )
+            if nxt is None:
+                try:
+                    await self._transition_state(tx_id, "CANCELLED")
+                except Exception:
+                    pass
+                reason = (
+                    f"No response within {counter_ttl_sec}s on round "
+                    f"{counter_round + 1}"
+                )
+                rounds.append(
+                    RoundResult(
+                        round=round_idx + 1,
+                        provider_slug=candidate_slug,
+                        provider_address=provider_address,
+                        action="timeout",
+                        reason=reason,
+                        tx_id=tx_id,
+                    )
+                )
+                emit(RoundEndEvent(round=round_idx + 1, action="timeout", reason=reason))
+                return terminate(False, reason)
+
+            if is_counter_accept_envelope(nxt):
+                # Provider accepted our counter — bind to the counter WE sent.
+                accept = nxt.message
+                counter_hash = CounterOfferBuilder().compute_hash(counter)
+                if (
+                    accept.txId != tx_id
+                    or accept.inReplyTo != counter_hash
+                    or accept.acceptedAmount != counter.counterAmount
+                ):
+                    reason = (
+                        f"CounterAccept binding mismatch on round {counter_round + 1}"
+                    )
+                    rounds.append(
+                        RoundResult(
+                            round=round_idx + 1,
+                            provider_slug=candidate_slug,
+                            provider_address=provider_address,
+                            action="error",
+                            reason=reason,
+                            tx_id=tx_id,
+                        )
+                    )
+                    emit(
+                        RoundEndEvent(
+                            round=round_idx + 1, action="error", reason=reason
+                        )
+                    )
+                    return terminate(False, reason)
+                result = await self._commit_at_amount(
+                    tx_id,
+                    accept.acceptedAmount,
+                    candidate_slug,
+                    provider_address,
+                    offer,
+                    round_idx,
+                    rounds,
+                    emit,
+                    "counteraccept",
+                    counter_round,
+                )
+                self._cleanup_tx_state(tx_id)
+                return result
+
+            if is_quote_envelope(nxt):
+                # Provider re-quoted — replace current_quote and loop.
+                current_quote = nxt.message  # type: ignore[assignment]
+                continue
+
+        # Budget exhausted without accept.
+        try:
+            await self._transition_state(tx_id, "CANCELLED")
+        except Exception:
+            pass
+        reason = (
+            f"Negotiation budget ({rounds_budget} rounds) exhausted without accept"
+        )
+        rounds.append(
+            RoundResult(
+                round=round_idx + 1,
+                provider_slug=candidate_slug,
+                provider_address=provider_address,
+                action="timeout",
+                reason=reason,
+                tx_id=tx_id,
+            )
+        )
+        emit(RoundEndEvent(round=round_idx + 1, action="timeout", reason=reason))
+        return terminate(False, reason)
+
+    async def _evaluate_current_quote(
+        self, current_quote: QuoteMessage, counter_round: int
+    ) -> QuoteEvaluation:
+        """Consult the installed per-quote decider for a channel quote.
+
+        Mirrors TS ``await this.decider(currentQuote, this.policy, counterRound)``
+        (BuyerOrchestrator.ts:846), adapting the full ``QuoteMessage`` to the
+        minimal ``QuoteForEvaluation`` shape the decider expects.
+        """
+        q = QuoteForEvaluation(
+            quoted_amount=current_quote.quoted_amount,
+            original_amount=current_quote.original_amount,
+            max_price=current_quote.max_price,
+            final_offer=False,
+        )
+        result = self._decider(q, self._policy, counter_round)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def _commit_at_amount(
+        self,
+        tx_id: str,
+        amount_base_units: str,
+        candidate_slug: str,
+        provider_address: str,
+        offer: QuoteOffer,
+        round_idx: int,
+        rounds: List[RoundResult],
+        emit: Callable[[ProgressEvent], None],
+        source_tag: str,
+        counter_round: int,
+    ) -> Tuple[bool, bool, str]:
+        """Shared accept+linkEscrow with atomic rollback. Used by both the
+        "accept the quote" and "accept the counter" terminal branches. Mirror
+        of TS ``_commitAtAmount`` (BuyerOrchestrator.ts:971-1020).
+        """
+        accept_quote_succeeded = False
+        try:
+            await self._accept_quote(tx_id, amount_base_units)
+            accept_quote_succeeded = True
+            await self._link_escrow(tx_id, amount_base_units)
+        except Exception as err:
+            reason = str(err)
+            if accept_quote_succeeded:
+                try:
+                    await self._transition_state(tx_id, "CANCELLED")
+                except Exception:
+                    pass
+            rounds.append(
+                RoundResult(
+                    round=round_idx + 1,
+                    provider_slug=candidate_slug,
+                    provider_address=provider_address,
+                    action="error",
+                    reason=f"Commit failed (round {counter_round + 1}): {reason}",
+                    tx_id=tx_id,
+                )
+            )
+            emit(RoundEndEvent(round=round_idx + 1, action="error", reason=reason))
+            return (True, False, reason)
+
+        try:
+            self._policy_engine.reserve(
+                offer.commerce_session_id or "",
+                self._base_units_for_log(amount_base_units),
+                offer.currency,
+            )
+        except Exception:
+            pass  # best-effort budget bookkeeping
+
+        reason = (
+            f"Committed at {amount_base_units} base units "
+            f"(round {counter_round + 1}, source: {source_tag})"
+        )
+        rounds.append(
+            RoundResult(
+                round=round_idx + 1,
+                provider_slug=candidate_slug,
+                provider_address=provider_address,
+                action="accepted",
+                reason=reason,
+                tx_id=tx_id,
+                quoted_price=self._base_units_for_log(amount_base_units),
+            )
+        )
+        emit(RoundEndEvent(round=round_idx + 1, action="accepted", reason=reason))
+        return (True, True, reason)
+
+    def _cleanup_tx_state(self, tx_id: str) -> None:
+        """Free per-tx negotiation state at terminal outcomes. Closes the
+        channel subscription too so long-running daemon callers don't leak
+        inbound-message resolvers. Idempotent. Mirror of TS ``_cleanupTxState``
+        (BuyerOrchestrator.ts:1029-1047).
+        """
+        self._inbound_queues.pop(tx_id, None)
+        # Detach the resolver reference but do NOT resolve/cancel it: any
+        # in-flight ``_wait_for_next_message`` holds the future locally and will
+        # resolve on its own asyncio.wait_for timeout — mirrors TS, which lets
+        # the setTimeout win on its own clock rather than calling the pending
+        # resolver (BuyerOrchestrator.ts:1031-1041).
+        self._inbound_resolvers.pop(tx_id, None)
+        sub = self._active_subscriptions.pop(tx_id, None)
+        if sub is not None:
+            sub.unsubscribe()
+
+    def _base_units_for_log(self, base_units_str: str) -> float:
+        """Display-only downcast: USDC base-units string → float for the
+        RoundResult.quoted_price log field. Mirror of TS ``_baseUnitsForLog``.
+        """
+        return int(base_units_str) / 1_000_000
 
     # ============================================================================
     # Helpers
@@ -866,9 +1619,72 @@ class BuyerOrchestrator:
         """
         return str(math.floor(amount * 1_000_000 + 0.5))
 
+    # ==========================================================================
+    # AA-aware write routing helpers
+    #
+    # When ``self._client`` is provided, on-chain writes go through the
+    # StandardAdapter which routes via the Smart Wallet when an AGIRAILS Smart
+    # Wallet is active (PRD §5.6 — gasless requesters). Otherwise (legacy
+    # constructors without ``client``, mock-only callers, or EOA testnet without
+    # AA infra) writes fall through to the raw runtime. Mirror of TS
+    # BuyerOrchestrator.ts:1132-1219.
+    # ==========================================================================
+
+    async def _transition_state(
+        self, tx_id: str, new_state: str, proof: Optional[str] = None
+    ) -> None:
+        if self._client is not None:
+            return await self._client.standard.transition_state(
+                tx_id, new_state, proof
+            )
+        return await self._runtime.transition_state(tx_id, new_state, proof)
+
+    async def _link_escrow(self, tx_id: str, amount: str) -> str:
+        if self._client is not None:
+            # StandardAdapter.link_escrow reads tx.amount from runtime and locks
+            # that; by the ACTP invariant tx.amount equals the agreed amount at
+            # the call sites here (createTransaction price or post-accept_quote).
+            return await self._client.standard.link_escrow(tx_id)
+        return await self._runtime.link_escrow(tx_id, amount)
+
+    async def _accept_quote(self, tx_id: str, amount: str) -> None:
+        if self._client is not None:
+            return await self._client.standard.accept_quote(
+                tx_id, self._base_units_to_human(amount)
+            )
+        return await self._runtime.accept_quote(tx_id, amount)
+
+    @staticmethod
+    def _base_units_to_human(base_units: str) -> str:
+        """Convert a USDC base-unit string (e.g. '5000000') to a human-readable
+        decimal string (e.g. '5.000000'). Inverse of :meth:`_to_base_units`,
+        lossless for any non-negative integer input. Mirror of TS
+        ``_baseUnitsToHuman`` (BuyerOrchestrator.ts:1213-1219).
+        """
+        n = int(base_units)
+        if n < 0:
+            raise ValueError(f'_base_units_to_human: negative input "{base_units}"')
+        whole = n // 1_000_000
+        frac = n % 1_000_000
+        return f"{whole}.{str(frac).rjust(6, '0')}"
+
+
+def _address_from_private_key(private_key: Optional[str]) -> str:
+    """Derive the 0x EOA address from a hex private key (for the consumer DID).
+
+    Returns the empty string if no key is set (the caller already gated the
+    counter path on ``private_key`` being present).
+    """
+    if not private_key:
+        return ""
+    from eth_account import Account
+
+    return Account.from_key(private_key).address
+
 
 __all__ = [
     "BuyerOrchestrator",
+    "BuyerNegotiationContext",
     "NegotiationResult",
     "RoundResult",
     "RequoteGuardViolation",

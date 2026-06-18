@@ -362,3 +362,153 @@ class BasicAdapter(BaseAdapter):
             can_complete=can_complete,
             can_dispute=can_dispute,
         )
+
+    # ==========================================================================
+    # IAdapter lifecycle methods
+    # ==========================================================================
+
+    async def get_status(self, tx_id: str) -> "TransactionStatus":
+        """
+        Get transaction status with action hints (IAdapter compliance).
+
+        Mirrors TS ``BasicAdapter.getStatus`` (BasicAdapter.ts:490-522), which
+        is byte-for-byte identical to ``StandardAdapter.getStatus``.
+
+        Args:
+            tx_id: Transaction ID.
+
+        Returns:
+            TransactionStatus with state + action hints.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        from datetime import datetime, timezone
+
+        from agirails.adapters.standard import TransactionStatus
+        from agirails.wallet.smart_wallet_router import compute_dispute_window_ends
+
+        tx = await self._runtime.get_transaction(tx_id)
+        if tx is None:
+            raise RuntimeError(f"Transaction {tx_id} not found")
+
+        now = self._runtime.time.now()
+        state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
+
+        dispute_window_ends: Optional[int] = None
+        if tx.completed_at:
+            dispute_window_ends = compute_dispute_window_ends(
+                tx.completed_at, tx.dispute_window
+            )
+
+        def _iso(ts: int) -> str:
+            return (
+                datetime.fromtimestamp(ts, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+
+        return TransactionStatus(
+            state=state_str,
+            can_start_work=state_str == "COMMITTED",
+            can_deliver=state_str == "IN_PROGRESS",
+            can_release=(
+                state_str == "DELIVERED"
+                and dispute_window_ends is not None
+                and now >= dispute_window_ends
+            ),
+            can_dispute=(
+                state_str == "DELIVERED"
+                and dispute_window_ends is not None
+                and now < dispute_window_ends
+            ),
+            amount=self.format_amount(tx.amount),
+            deadline=_iso(tx.deadline),
+            dispute_window_ends=(
+                _iso(dispute_window_ends)
+                if dispute_window_ends is not None
+                else None
+            ),
+            provider=tx.provider,
+            requester=tx.requester,
+        )
+
+    async def start_work(self, tx_id: str) -> None:
+        """
+        Transition to IN_PROGRESS (provider starts work). IAdapter compliance.
+
+        When Smart Wallet is active, routes through the wallet provider so
+        msg.sender == Smart Wallet. Mirrors TS ``BasicAdapter.startWork``
+        (BasicAdapter.ts:536-542).
+
+        Args:
+            tx_id: Transaction ID.
+        """
+        from agirails.runtime.types import State
+
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, "IN_PROGRESS", "0x", label="startWork"
+            )
+            return
+        await self._runtime.transition_state(tx_id, State.IN_PROGRESS)
+
+    async def deliver(self, tx_id: str, proof: Optional[str] = None) -> None:
+        """
+        Transition to DELIVERED (provider completes work). IAdapter compliance.
+
+        When no proof is provided, fetches the transaction's actual
+        disputeWindow and encodes it. Mirrors TS ``BasicAdapter.deliver``
+        (BasicAdapter.ts:557-573).
+
+        Args:
+            tx_id: Transaction ID.
+            proof: Optional ABI-encoded dispute-window proof. Defaults to the
+                transaction's own disputeWindow.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        from agirails.runtime.types import State
+
+        delivery_proof = proof
+        if not delivery_proof:
+            tx = await self._runtime.get_transaction(tx_id)
+            if tx is None:
+                raise RuntimeError(f"Transaction {tx_id} not found")
+            delivery_proof = self.encode_dispute_window_proof(tx.dispute_window)
+
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, "DELIVERED", delivery_proof, label="deliver"
+            )
+            return
+        await self._runtime.transition_state(tx_id, State.DELIVERED, delivery_proof)
+
+    async def release(
+        self, escrow_id: str, attestation_uid: Optional[str] = None
+    ) -> None:
+        """
+        Release escrow funds (EXPLICIT settlement). IAdapter compliance.
+
+        When Smart Wallet is active, validates preconditions + attestation,
+        then sends transitionState(SETTLED). Otherwise calls
+        ``runtime.release_escrow``. Mirrors TS ``BasicAdapter.release``
+        (BasicAdapter.ts:583-592).
+
+        Args:
+            escrow_id: Escrow ID (usually same as txId).
+            attestation_uid: Optional EAS attestation UID.
+        """
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            from agirails.wallet.smart_wallet_router import SmartWalletRouter
+
+            tx_id = SmartWalletRouter.extract_tx_id(escrow_id)
+            await router.validate_release_preconditions(tx_id)
+            await router.verify_release_attestation(tx_id, attestation_uid)
+            await router.send_settle(tx_id)
+            return
+        await self._runtime.release_escrow(escrow_id, attestation_uid)

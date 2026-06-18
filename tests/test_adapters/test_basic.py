@@ -209,3 +209,72 @@ class TestBasicGetBalance:
         after = float(await client.basic.get_balance())
         assert after < before
         assert before - after == 100
+
+
+class TestBasicLifecycleMethods:
+    """Tests for IAdapter lifecycle methods on BasicAdapter.
+
+    Mirrors TS BasicAdapter.getStatus / startWork / deliver / release
+    (BasicAdapter.ts:490-592).
+    """
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock",
+            requester_address="0x" + "a" * 40,
+        )
+
+    @pytest.fixture
+    def provider_address(self):
+        return "0x" + "b" * 40
+
+    @pytest.mark.asyncio
+    async def test_get_status_after_pay_is_committed(self, client, provider_address):
+        result = await client.basic.pay({"to": provider_address, "amount": 100})
+        status = await client.basic.get_status(result.tx_id)
+        assert status.state == "COMMITTED"
+        assert status.can_start_work is True
+        assert status.can_deliver is False
+
+    @pytest.mark.asyncio
+    async def test_full_lifecycle_start_deliver_release(self, client, provider_address):
+        result = await client.basic.pay(
+            {"to": provider_address, "amount": 100}
+        )
+        tx_id = result.tx_id
+
+        await client.basic.start_work(tx_id)
+        status_ip = await client.basic.get_status(tx_id)
+        assert status_ip.state == "IN_PROGRESS"
+        assert status_ip.can_deliver is True
+
+        await client.basic.deliver(tx_id)
+        status_d = await client.basic.get_status(tx_id)
+        assert status_d.state == "DELIVERED"
+
+        # Default dispute window is 2 days; advance past it.
+        await client.runtime.time.advance_time(172800 + 1)
+        status_r = await client.basic.get_status(tx_id)
+        assert status_r.can_release is True
+
+        await client.basic.release(tx_id)
+        final = await client.basic.get_transaction(tx_id)
+        assert final["state"] == "SETTLED"
+
+    @pytest.mark.asyncio
+    async def test_get_status_not_found_raises(self, client):
+        with pytest.raises(RuntimeError, match="not found"):
+            await client.basic.get_status("0x" + "e" * 64)
+
+    @pytest.mark.asyncio
+    async def test_deliver_explicit_proof(self, client, provider_address):
+        result = await client.basic.pay({"to": provider_address, "amount": 100})
+        tx_id = result.tx_id
+        await client.basic.start_work(tx_id)
+
+        # Pass an explicit ABI-encoded proof.
+        proof = client.basic.encode_dispute_window_proof(7200)
+        await client.basic.deliver(tx_id, proof)
+        tx = await client.basic.get_transaction(tx_id)
+        assert tx["state"] == "DELIVERED"

@@ -76,6 +76,40 @@ class TransactionDetails:
     attestation_uid: Optional[str] = None
 
 
+@dataclass
+class TransactionStatus:
+    """
+    Adapter-agnostic transaction status with action hints.
+
+    Returned by the IAdapter ``get_status()`` lifecycle method. Mirrors the TS
+    ``TransactionStatus`` interface (IAdapter.ts:44-74) field-for-field so the
+    same status shape is produced across adapters and SDKs.
+
+    Attributes:
+        state: Current transaction state string.
+        can_start_work: Provider can start work (COMMITTED -> IN_PROGRESS).
+        can_deliver: Provider can mark delivered (IN_PROGRESS -> DELIVERED).
+        can_release: Escrow can be released (DELIVERED + dispute window expired).
+        can_dispute: Requester can dispute (DELIVERED, within dispute window).
+        amount: Transaction amount (formatted USDC string).
+        provider: Provider address.
+        requester: Requester address.
+        deadline: Deadline as ISO 8601 string (optional).
+        dispute_window_ends: Dispute window end as ISO 8601 string (optional).
+    """
+
+    state: str
+    can_start_work: bool
+    can_deliver: bool
+    can_release: bool
+    can_dispute: bool
+    amount: str
+    provider: str
+    requester: str
+    deadline: Optional[str] = None
+    dispute_window_ends: Optional[str] = None
+
+
 class StandardAdapter(BaseAdapter):
     """
     Standard adapter for granular ACTP transaction control.
@@ -604,6 +638,139 @@ class StandardAdapter(BaseAdapter):
             if details:
                 result.append(details)
         return result
+
+    # ==========================================================================
+    # IAdapter lifecycle methods
+    # ==========================================================================
+
+    async def get_status(self, tx_id: str) -> TransactionStatus:
+        """
+        Get transaction status with action hints (IAdapter compliance).
+
+        Mirrors TS ``StandardAdapter.getStatus`` (StandardAdapter.ts:590-622).
+
+        Args:
+            tx_id: Transaction ID.
+
+        Returns:
+            TransactionStatus with state + action hints.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        from datetime import datetime, timezone
+
+        from agirails.wallet.smart_wallet_router import compute_dispute_window_ends
+
+        tx = await self._runtime.get_transaction(tx_id)
+        if tx is None:
+            raise RuntimeError(f"Transaction {tx_id} not found")
+
+        now = self._runtime.time.now()
+        state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
+
+        dispute_window_ends: Optional[int] = None
+        if tx.completed_at:
+            dispute_window_ends = compute_dispute_window_ends(
+                tx.completed_at, tx.dispute_window
+            )
+
+        def _iso(ts: int) -> str:
+            return (
+                datetime.fromtimestamp(ts, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+
+        return TransactionStatus(
+            state=state_str,
+            can_start_work=state_str == "COMMITTED",
+            can_deliver=state_str == "IN_PROGRESS",
+            can_release=(
+                state_str == "DELIVERED"
+                and dispute_window_ends is not None
+                and now >= dispute_window_ends
+            ),
+            can_dispute=(
+                state_str == "DELIVERED"
+                and dispute_window_ends is not None
+                and now < dispute_window_ends
+            ),
+            amount=self.format_amount(tx.amount),
+            deadline=_iso(tx.deadline),
+            dispute_window_ends=(
+                _iso(dispute_window_ends)
+                if dispute_window_ends is not None
+                else None
+            ),
+            provider=tx.provider,
+            requester=tx.requester,
+        )
+
+    async def start_work(self, tx_id: str) -> None:
+        """
+        Transition to IN_PROGRESS (provider starts work). IAdapter compliance.
+
+        When Smart Wallet is active, routes through the wallet provider so
+        msg.sender == Smart Wallet. Mirrors TS ``StandardAdapter.startWork``
+        (StandardAdapter.ts:635-641).
+
+        Args:
+            tx_id: Transaction ID.
+        """
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, "IN_PROGRESS", "0x", label="startWork"
+            )
+            return
+        await self._runtime.transition_state(tx_id, State.IN_PROGRESS)
+
+    async def deliver(self, tx_id: str, proof: Optional[str] = None) -> None:
+        """
+        Transition to DELIVERED (provider completes work). IAdapter compliance.
+
+        When no proof is provided, fetches the transaction's actual
+        disputeWindow and encodes it as proof. Mirrors TS
+        ``StandardAdapter.deliver`` (StandardAdapter.ts:654-672).
+
+        Args:
+            tx_id: Transaction ID.
+            proof: Optional ABI-encoded dispute-window proof. Defaults to the
+                transaction's own disputeWindow.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        delivery_proof = proof
+        if not delivery_proof:
+            tx = await self._runtime.get_transaction(tx_id)
+            if tx is None:
+                raise RuntimeError(f"Transaction {tx_id} not found")
+            delivery_proof = self.encode_dispute_window_proof(tx.dispute_window)
+
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, "DELIVERED", delivery_proof, label="deliver"
+            )
+            return
+        await self._runtime.transition_state(tx_id, State.DELIVERED, delivery_proof)
+
+    async def release(
+        self, escrow_id: str, attestation_uid: Optional[str] = None
+    ) -> None:
+        """
+        Release escrow funds (EXPLICIT settlement). IAdapter compliance.
+
+        Thin wrapper around ``release_escrow`` for the IAdapter interface.
+        Mirrors TS ``StandardAdapter.release`` (StandardAdapter.ts:683-691).
+
+        Args:
+            escrow_id: Escrow ID (usually same as txId).
+            attestation_uid: Optional EAS attestation UID.
+        """
+        await self.release_escrow(escrow_id, attestation_uid)
 
 
 def _compute_service_hash(service_description: Optional[str]) -> str:

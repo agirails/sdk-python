@@ -447,3 +447,119 @@ class TestStandardGetTransactionsByProvider:
 
         assert len(txs) == 1
         assert txs[0].id == tx1
+
+
+class TestStandardLifecycleMethods:
+    """Tests for the IAdapter lifecycle methods on StandardAdapter.
+
+    Mirrors TS StandardAdapter.getStatus / startWork / deliver / release
+    (StandardAdapter.ts:590-691).
+    """
+
+    @pytest.fixture
+    async def client(self):
+        return await ACTPClient.create(
+            mode="mock",
+            requester_address="0x" + "a" * 40,
+        )
+
+    @pytest.fixture
+    def provider_address(self):
+        return "0x" + "b" * 40
+
+    @pytest.mark.asyncio
+    async def test_get_status_committed_can_start_work(self, client, provider_address):
+        """COMMITTED -> can_start_work True, others False."""
+        tx_id = await client.standard.create_transaction(
+            {"provider": provider_address, "amount": 100}
+        )
+        await client.standard.link_escrow(tx_id)
+
+        status = await client.standard.get_status(tx_id)
+        assert status.state == "COMMITTED"
+        assert status.can_start_work is True
+        assert status.can_deliver is False
+        assert status.can_release is False
+        assert status.can_dispute is False
+        assert status.provider == provider_address
+        # ISO 8601 deadline string ending in Z
+        assert status.deadline is not None and status.deadline.endswith("Z")
+
+    @pytest.mark.asyncio
+    async def test_get_status_in_progress_can_deliver(self, client, provider_address):
+        tx_id = await client.standard.create_transaction(
+            {"provider": provider_address, "amount": 100}
+        )
+        await client.standard.link_escrow(tx_id)
+        await client.standard.start_work(tx_id)
+
+        status = await client.standard.get_status(tx_id)
+        assert status.state == "IN_PROGRESS"
+        assert status.can_deliver is True
+        assert status.can_start_work is False
+
+    @pytest.mark.asyncio
+    async def test_get_status_delivered_dispute_then_release(self, client, provider_address):
+        """DELIVERED within window -> can_dispute; after expiry -> can_release."""
+        tx_id = await client.standard.create_transaction(
+            {"provider": provider_address, "amount": 100, "dispute_window": 3600}
+        )
+        await client.standard.link_escrow(tx_id)
+        await client.standard.start_work(tx_id)
+        await client.standard.deliver(tx_id)
+
+        status = await client.standard.get_status(tx_id)
+        assert status.state == "DELIVERED"
+        assert status.can_dispute is True
+        assert status.can_release is False
+        assert status.dispute_window_ends is not None
+
+        # Advance past the dispute window
+        await client.runtime.time.advance_time(3601)
+        status2 = await client.standard.get_status(tx_id)
+        assert status2.can_release is True
+        assert status2.can_dispute is False
+
+    @pytest.mark.asyncio
+    async def test_get_status_not_found_raises(self, client):
+        with pytest.raises(RuntimeError, match="not found"):
+            await client.standard.get_status("0x" + "f" * 64)
+
+    @pytest.mark.asyncio
+    async def test_start_work_transitions_in_progress(self, client, provider_address):
+        tx_id = await client.standard.create_transaction(
+            {"provider": provider_address, "amount": 100}
+        )
+        await client.standard.link_escrow(tx_id)
+        await client.standard.start_work(tx_id)
+
+        tx = await client.standard.get_transaction(tx_id)
+        assert tx.state == "IN_PROGRESS"
+
+    @pytest.mark.asyncio
+    async def test_deliver_defaults_dispute_window_proof(self, client, provider_address):
+        """deliver() with no proof uses the tx's own disputeWindow."""
+        tx_id = await client.standard.create_transaction(
+            {"provider": provider_address, "amount": 100}
+        )
+        await client.standard.link_escrow(tx_id)
+        await client.standard.start_work(tx_id)
+        await client.standard.deliver(tx_id)
+
+        tx = await client.standard.get_transaction(tx_id)
+        assert tx.state == "DELIVERED"
+        assert tx.delivery_proof is not None
+
+    @pytest.mark.asyncio
+    async def test_release_settles_after_window(self, client, provider_address):
+        tx_id = await client.standard.create_transaction(
+            {"provider": provider_address, "amount": 100, "dispute_window": 3600}
+        )
+        await client.standard.link_escrow(tx_id)
+        await client.standard.start_work(tx_id)
+        await client.standard.deliver(tx_id)
+        await client.runtime.time.advance_time(3601)
+
+        await client.standard.release(tx_id)
+        tx = await client.standard.get_transaction(tx_id)
+        assert tx.state == "SETTLED"

@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import secrets
+import time
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1249,6 +1251,15 @@ class Agent:
             },
         )
 
+        # Security: Use ProofGenerator to create an authenticated, structured
+        # delivery proof (mirror TS Agent.ts:1842-1859). This carries txId,
+        # keccak256 contentHash, timestamp, and metadata (service / completedAt
+        # / size / mimeType) — NOT just the ABI-encoded disputeWindow uint256
+        # the kernel needs for the DELIVERED transition. The structured JSON is
+        # what a buyer reads off ``tx.delivery_proof`` (mock path) and what the
+        # cross-SDK delivery-verification surface expects.
+        delivery_proof_json = self._build_delivery_proof_json(job, output)
+
         # AIP-16 Phase 2e — publish a delivery envelope between handler
         # completion and the on-chain DELIVERED transition. Strictly opt-in
         # (ACTP_DELIVERY_CHANNEL=v1 + all four delivery deps). Failures are
@@ -1279,6 +1290,19 @@ class Agent:
                 )
 
                 await self._client.standard.transition_state(job.id, "DELIVERED", dispute_window_proof)
+
+                # Attach the structured delivery proof to the MockRuntime tx
+                # state so a buyer reads the rich proof (not the disputeWindow
+                # bytes). Mirror TS Agent.ts:1898-1906 — there the agent sets
+                # ``tx.deliveryProof`` BEFORE transitioning and the MockRuntime
+                # guard (MockRuntime.ts:729 ``if (proof && !tx.deliveryProof)``)
+                # prevents the disputeWindow proof param from overwriting it.
+                # The Python MockRuntime lacks that guard, so we instead
+                # re-attach AFTER the transition to reach the identical
+                # observable end-state without touching the runtime. Mock-only;
+                # the real BlockchainRuntime has no ``_state_manager`` and the
+                # on-chain DELIVERED proof is the kernel-submitted bytes.
+                await self._attach_mock_delivery_proof(job.id, delivery_proof_json)
             except Exception as e:
                 _logger.warning(
                     "Failed to transition job to DELIVERED",
@@ -1292,6 +1316,98 @@ class Agent:
         self._job_attempts.delete(job.id)
 
         self._emit("job:completed", job, output)
+
+    def _build_delivery_proof_json(self, job: Job, result: Any) -> str:
+        """Build the structured delivery-proof JSON string (TS Agent.ts:1842-1859).
+
+        Mirrors ``ProofGenerator.generateDeliveryProof`` + the outer
+        ``JSON.stringify({ ...deliveryProof, result })`` wrapper:
+
+          * ``deliverable`` = ``result`` when already a string, else its
+            compact JSON.stringify form (no whitespace).
+          * ``contentHash`` = keccak256(utf8(deliverable)) — keccak256 per
+            Yellow Paper §11.4.1, matching the TS ``ProofGenerator``.
+          * computed ``size`` (UTF-8 byte length) + ``mimeType`` are enforced
+            on top of user metadata so they cannot be spoofed.
+          * the original ``result`` is spread back in for buyer convenience.
+
+        The whole proof is best-effort: a serialization failure degrades to a
+        minimal proof rather than aborting the DELIVERED transition.
+        """
+        from eth_hash.auto import keccak
+
+        try:
+            deliverable = (
+                result
+                if isinstance(result, str)
+                else json.dumps(result, separators=(",", ":"), ensure_ascii=False)
+            )
+        except Exception:
+            deliverable = str(result)
+
+        deliverable_bytes = deliverable.encode("utf-8")
+        content_hash = "0x" + keccak(deliverable_bytes).hex()
+
+        # Spread user metadata first, then enforce computed fields (TS:112-114).
+        user_metadata = dict(job.metadata) if isinstance(job.metadata, dict) else {}
+        user_metadata.pop("size", None)
+        mime_type = user_metadata.pop("mimeType", None) or "application/octet-stream"
+
+        delivery_proof = {
+            "type": "delivery.proof",  # Required per AIP-4 (TS:117)
+            "txId": job.id,
+            "contentHash": content_hash,
+            "timestamp": int(time.time() * 1000),  # Date.now() — ms (TS:120)
+            "metadata": {
+                "service": job.service,
+                "completedAt": int(time.time() * 1000),
+                **user_metadata,
+                "size": len(deliverable_bytes),  # Enforced (TS:124)
+                "mimeType": mime_type,  # Enforced (TS:125)
+            },
+        }
+
+        # Outer wrapper: include the original result for convenience (TS:1856-1859).
+        try:
+            return json.dumps(
+                {**delivery_proof, "result": result},
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except Exception:
+            # Result not JSON-serializable — fall back to the proof alone.
+            return json.dumps(delivery_proof, separators=(",", ":"), ensure_ascii=False)
+
+    async def _attach_mock_delivery_proof(
+        self, tx_id: str, delivery_proof_json: str
+    ) -> None:
+        """Attach the structured proof to the MockRuntime tx (TS Agent.ts:1898-1906).
+
+        Mock-only. The real BlockchainRuntime has no ``_state_manager`` and the
+        on-chain DELIVERED proof is the kernel-submitted disputeWindow bytes, so
+        this is a no-op there. Best-effort: any failure is swallowed so it can
+        never block the (already-completed) DELIVERED transition.
+        """
+        if self._client is None:
+            return
+        runtime = getattr(self._client, "runtime", None)
+        state_manager = getattr(runtime, "_state_manager", None)
+        if state_manager is None:
+            return  # BlockchainRuntime / non-mock — nothing to poke.
+
+        try:
+            async def _update(state: Any) -> Any:
+                tx = state.transactions.get(tx_id)
+                if tx is not None:
+                    tx.delivery_proof = delivery_proof_json
+                return state
+
+            await state_manager.with_lock(_update)
+        except Exception as e:
+            _logger.warning(
+                "Failed to attach structured delivery proof to mock state",
+                extra={"job_id": tx_id, "error": str(e)},
+            )
 
     async def _fail_job(self, job: Job, error: str) -> None:
         """Mark job as failed, applying bounded retry semantics.

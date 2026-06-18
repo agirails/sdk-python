@@ -318,3 +318,21 @@ class BaseAdapter:
         if hasattr(self._runtime, "time") and hasattr(self._runtime.time, "now"):
             return self._runtime.time.now()
         return int(time.time())
+
+    def encode_dispute_window_proof(self, dispute_window_seconds: int) -> str:
+        """
+        Encode dispute window as ABI-encoded proof for the DELIVERED transition.
+
+        Centralizes proof encoding so adapters never drift from the on-chain
+        expectation: a single ``uint256``. Mirrors TS
+        ``BaseAdapter.encodeDisputeWindowProof`` (BaseAdapter.ts:497-504).
+
+        Args:
+            dispute_window_seconds: Dispute window in seconds.
+
+        Returns:
+            ABI-encoded ``0x``-prefixed proof (uint256).
+        """
+        from eth_abi import encode as abi_encode
+
+        return "0x" + abi_encode(["uint256"], [int(dispute_window_seconds)]).hex()
