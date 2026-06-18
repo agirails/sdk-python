@@ -356,6 +356,10 @@ from agirails.receipts import (
     ReceiptUploadResult,
     ReceiptUploadSuccess,
     upload_receipt,
+    push_receipt_on_settled,
+    format_settled_line,
+    PushReceiptArgs,
+    PushReceiptResult,
 )
 
 # Storage Layer (AIP-7 §4 - Hybrid Storage)
@@ -708,6 +712,10 @@ __all__ = [
     "ReceiptUploadResult",
     "ReceiptUploadSuccess",
     "upload_receipt",
+    "push_receipt_on_settled",
+    "format_settled_line",
+    "PushReceiptArgs",
+    "PushReceiptResult",
     # Storage Layer (AIP-7 §4 - Hybrid Storage)
     # Clients
     "FilebaseClient",

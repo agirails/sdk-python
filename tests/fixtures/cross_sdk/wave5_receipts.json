@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "generated_from": "@agirails/sdk dist receipts (TS 4.8.0)",
+    "note": "ReceiptWriteV2 EIP-712 byte-exact oracle. Do not hand-edit."
+  },
+  "receipt_write_v2": {
+    "domain": {
+      "name": "AGIRAILS Receipts",
+      "version": "2",
+      "chainId": 84532
+    },
+    "types": {
+      "ReceiptWriteV2": [
+        {
+          "name": "signerAddress",
+          "type": "address"
+        },
+        {
+          "name": "participantRole",
+          "type": "string"
+        },
+        {
+          "name": "providerAddress",
+          "type": "address"
+        },
+        {
+          "name": "requesterAddress",
+          "type": "address"
+        },
+        {
+          "name": "kernelAddress",
+          "type": "address"
+        },
+        {
+          "name": "txId",
+          "type": "bytes32"
+        },
+        {
+          "name": "network",
+          "type": "string"
+        },
+        {
+          "name": "amountWei",
+          "type": "uint256"
+        },
+        {
+          "name": "feeWei",
+          "type": "uint256"
+        },
+        {
+          "name": "netWei",
+          "type": "uint256"
+        },
+        {
+          "name": "serviceHash",
+          "type": "bytes32"
+        },
+        {
+          "name": "nonce",
+          "type": "string"
+        },
+        {
+          "name": "issuedAt",
+          "type": "uint64"
+        }
+      ]
+    },
+    "privateKey": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "payload": {
+      "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "participantRole": "provider",
+      "providerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "requesterAddress": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "kernelAddress": "0x469CBADbACFFE096270594F0a31f0EEC53753411",
+      "txId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "network": "base-sepolia",
+      "amountWei": "10000000",
+      "feeWei": "100000",
+      "netWei": "9900000",
+      "serviceHash": "0x30aac30d8e1f24996aaf406e85b7281051192346b2dcbea9be2461c29b1bc590",
+      "nonce": "receipt-nonce-abc123",
+      "issuedAt": 1750000000
+    },
+    "digest": "0xc38cc956dcd459472fefd5393647809c57cb1911492be537aaa3e48cd84ec684",
+    "signature": "0xd928107c6352398201da19c45e935b79e3f82e720c9c30a671ae43d20580477b1e5b53ed2dd389e37aa02efc668ef75847f3eb98b96d8952d3cc8488181635331c"
+  },
+  "receipt_url_format": "https://agirails.app/r/r_<id>"
+}

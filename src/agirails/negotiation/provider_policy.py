@@ -27,10 +27,23 @@ module is the canonical TS-parity surface.
 
 from __future__ import annotations
 
+import inspect
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import (
+    TYPE_CHECKING,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Union,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only import, avoids runtime coupling
+    from agirails.builders.counter_offer import CounterOfferMessage
 
 # ============================================================================
 # Types
@@ -156,6 +169,67 @@ class CounterEvaluation:
 
 
 # ============================================================================
+# BYO-brain counter decider hooks (TS ProviderOrchestrator.ts:107-139)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class CounterDecision:
+    """Decision for a buyer counter-offer from a provider counter-decider.
+
+    Discriminated union flattened to a single frozen dataclass (mirrors the
+    TS ``CounterDecision`` union, ProviderOrchestrator.ts:107-110):
+
+    - ``action='accept'``  → provider accepts the buyer's counter amount.
+    - ``action='reject'``  → provider walks; let the tx time out to CANCELLED.
+    - ``action='requote'`` → provider sends a new quote at
+      ``amount_base_units`` (>= the provider floor, else the QuoteBuilder
+      rejects it deep in the re-quote path).
+    """
+
+    action: CounterDecisionAction  # 'accept' | 'reject' | 'requote'
+    reason: str
+    #: Set ONLY when ``action == 'requote'`` (base-unit string). None otherwise.
+    amount_base_units: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class CounterContext:
+    """Context handed to a provider counter-decider.
+
+    Surfaces everything the built-in :meth:`ProviderPolicyEngine.evaluate_counter`
+    reads (floor = pricing.min_acceptable, counter_strategy, concede_pct,
+    max_requotes all live on ``policy``) plus the per-tx baseline, so a BYO
+    decider isn't blind. The counter is ALREADY signature/band/expiry verified
+    before the decider runs. Mirrors TS ``CounterContext``
+    (ProviderOrchestrator.ts:119-128).
+    """
+
+    #: Verified incoming counter (``counter.counterAmount`` = buyer's bid).
+    counter: "CounterOfferMessage"
+    #: Provider's most recent quote amount for this tx (base units).
+    last_quote_amount_base_units: str
+    #: Re-quotes already sent this tx (0 on first counter).
+    requotes_used: int
+    #: Provider policy (floor, counter_strategy, concede_pct, max_requotes).
+    policy: ProviderPolicy
+
+
+# ----------------------------------------------------------------------------
+# BYO-brain hook for the accept/reject/requote decision. Sync OR async
+# (awaitable). Verification is NOT part of the hook — it always runs before
+# the decider. Mirrors TS ``CounterDecider`` (ProviderOrchestrator.ts:137-139).
+#
+# Contract: a 'requote'.amount_base_units MUST be a valid quote amount (>= the
+# provider floor), else the QuoteBuilder rejects it deep in the re-quote path.
+# ----------------------------------------------------------------------------
+CounterDecider = Callable[
+    ["CounterContext"],
+    Union["CounterDecision", Awaitable["CounterDecision"]],
+]
+
+
+# ============================================================================
 # Engine constants / helpers (mirror ProviderPolicy.ts:136-164)
 # ============================================================================
 
@@ -224,7 +298,11 @@ class ProviderPolicyEngine:
     Byte/semantically identical to TS ``ProviderPolicyEngine``.
     """
 
-    def __init__(self, policy: ProviderPolicy) -> None:
+    def __init__(
+        self,
+        policy: ProviderPolicy,
+        counter_decider: Optional[CounterDecider] = None,
+    ) -> None:
         currency = policy.pricing.min_acceptable.currency
         platform_min = PLATFORM_MIN_BASE_UNITS.get(currency.upper())
         if not platform_min:
@@ -253,6 +331,11 @@ class ProviderPolicyEngine:
         self._floor_base_units = floor_bu
         self._ideal_base_units = ideal_bu
         self._currency = currency
+        # BYO-brain: optional injectable counter decider. When None, the
+        # built-in evaluate_counter math is used (zero behavior change).
+        # Mirrors TS ProviderOrchestrator's ``counterDecider`` field
+        # (ProviderOrchestrator.ts:87,169,187).
+        self._counter_decider: Optional[CounterDecider] = counter_decider
 
     def evaluate(self, req: IncomingRequest) -> ProviderPolicyResult:
         """Evaluate an incoming request against policy.
@@ -435,6 +518,66 @@ class ProviderPolicyEngine:
             ),
         )
 
+    async def decide_counter(
+        self,
+        counter: "CounterOfferMessage",
+        last_quote_amount_base_units: Optional[str] = None,
+        requotes_used: int = 0,
+    ) -> CounterDecision:
+        """Consult the installed counter decider (BYO-brain hook).
+
+        Mirrors TS ``ProviderOrchestrator.evaluateCounter``
+        (ProviderOrchestrator.ts:338-362) MINUS the signature/band/expiry
+        verification, which the caller (the orchestrator / serve loop) MUST
+        run BEFORE calling this — verification is intentionally NOT part of
+        the hook (TS comment ProviderOrchestrator.ts:346-347: "a custom
+        decider replaces ONLY the decision (verify above still ran)").
+
+        When no custom ``counter_decider`` was injected at construction, this
+        delegates verbatim to :meth:`evaluate_counter` and maps the
+        :class:`CounterEvaluation` verdict to a :class:`CounterDecision` —
+        zero behavior change. When a custom decider was injected (e.g. an LLM
+        brain), it is invoked instead; the result is awaited if it is a
+        coroutine (async-tolerant, matching the TS
+        ``| Promise<CounterDecision>`` contract).
+
+        ``last_quote_amount_base_units`` — provider's most recent quote
+        amount for this tx. On the first counter pass ``counter.quoteAmount``
+        (matches TS ``lastQuoteAmountBaseUnits ?? counter.quoteAmount``).
+        """
+        last_amount = (
+            last_quote_amount_base_units
+            if last_quote_amount_base_units is not None
+            else counter.quoteAmount
+        )
+
+        # BYO-brain: a custom decider replaces ONLY the decision (the caller's
+        # verification still ran). When absent, the built-in policy engine
+        # runs verbatim.
+        if self._counter_decider is not None:
+            result = self._counter_decider(
+                CounterContext(
+                    counter=counter,
+                    last_quote_amount_base_units=last_amount,
+                    requotes_used=requotes_used,
+                    policy=self._policy,
+                )
+            )
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        verdict = self.evaluate_counter(
+            counter.counterAmount, last_amount, requotes_used
+        )
+        if verdict.decision == "requote":
+            return CounterDecision(
+                action="requote",
+                amount_base_units=verdict.amount_base_units,
+                reason=verdict.reason,
+            )
+        return CounterDecision(action=verdict.decision, reason=verdict.reason)
+
     @property
     def quote_ttl_seconds(self) -> int:
         """Expose ttl as seconds for callers building QuoteMessage.expiresAt."""
@@ -461,6 +604,9 @@ __all__ = [
     "IncomingRequest",
     "CounterEvaluation",
     "CounterDecisionAction",
+    "CounterDecision",
+    "CounterContext",
+    "CounterDecider",
     "ProviderPolicyEngine",
     "BASE_UNITS_PER_USD",
     "PLATFORM_MIN_BASE_UNITS",

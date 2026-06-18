@@ -19,6 +19,7 @@ Accepts IACTPRuntime for on-chain operations. Caller manages lifecycle.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import math
 import time
 from dataclasses import dataclass, field
@@ -31,7 +32,14 @@ from agirails.negotiation.verify_quote_on_chain import (
 )
 
 from agirails.api.discover import DiscoverAgent, DiscoverParams, discover_agents
-from agirails.negotiation.decision_engine import CandidateStats, DecisionEngine, ScoringWeights
+from agirails.negotiation.decision_engine import (
+    BuyerQuoteDecider,
+    CandidateStats,
+    DecisionEngine,
+    QuoteEvaluation,
+    QuoteForEvaluation,
+    ScoringWeights,
+)
 from agirails.negotiation.policy_engine import BuyerPolicy, PolicyEngine, QuoteOffer
 from agirails.negotiation.session_store import SessionStore
 from agirails.runtime.base import CreateTransactionParams, IACTPRuntime
@@ -170,6 +178,7 @@ class BuyerOrchestrator:
         runtime: IACTPRuntime,
         requester_address: str,
         actp_dir: Optional[str] = None,
+        decide_quote: Optional[BuyerQuoteDecider] = None,
     ) -> None:
         self._policy = policy
         self._runtime = runtime
@@ -181,6 +190,19 @@ class BuyerOrchestrator:
             weights = ScoringWeights(**{k: v for k, v in weights.items() if k in ("quality", "price", "speed", "reliability")})
         self._decision_engine = DecisionEngine(weights)
         self._session_store = SessionStore(actp_dir)
+
+        # BYO-brain: the default decider delegates to the built-in
+        # DecisionEngine, so when ``decide_quote`` is absent the per-quote
+        # accept/counter/reject decision is byte-for-byte identical to the
+        # zero-config path. Mirrors TS BuyerOrchestrator.ts:199-201
+        # (``this.decider = negotiation.decideQuote ?? (...)`).
+        self._decider: BuyerQuoteDecider = (
+            decide_quote
+            if decide_quote is not None
+            else (
+                lambda q, p, r: self._decision_engine.evaluate_quote(q, p, r)
+            )
+        )
 
     async def negotiate(
         self, config: Optional[OrchestratorConfig] = None
@@ -738,6 +760,34 @@ class BuyerOrchestrator:
                     return a.stats.reputation_score
                 return None
         return None
+
+    async def decide_quote(
+        self,
+        quote: QuoteForEvaluation,
+        rounds_used_so_far: int = 0,
+    ) -> QuoteEvaluation:
+        """Consult the installed per-quote decider (BYO-brain hook).
+
+        Single point that mirrors TS ``await this.decider(currentQuote,
+        this.policy, counterRound)`` (BuyerOrchestrator.ts:846). When no
+        custom ``decide_quote`` was injected at construction, this delegates
+        verbatim to :meth:`DecisionEngine.evaluate_quote` — zero behavior
+        change. When a custom decider was injected (e.g. an LLM brain), it is
+        invoked instead; the result is awaited if it is a coroutine
+        (async-tolerant, matching the TS ``| Promise<QuoteEvaluation>``
+        contract).
+
+        Contract the caller relies on (same as TS):
+          - ``'counter'.amount_base_units`` MUST be a base-unit string,
+            strictly < ``quote.quoted_amount`` and >= 50_000 ($0.05 platform
+            min), or the CounterOfferBuilder rejects it.
+          - ``'accept'`` commits at ``quote.quoted_amount`` without
+            re-checking affordability.
+        """
+        result = self._decider(quote, self._policy, rounds_used_so_far)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     @staticmethod
     def verify_first_quote_on_chain(

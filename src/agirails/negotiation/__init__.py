@@ -70,9 +70,12 @@ from agirails.negotiation.policy_engine import (
 # ============================================================================
 
 from agirails.negotiation.decision_engine import (
+    BuyerQuoteDecider,
     CandidateStats,
     DEFAULT_WEIGHTS,
     DecisionEngine,
+    QuoteEvaluation,
+    QuoteForEvaluation,
     ScoreBreakdown,
     ScoredCandidate,
     ScoringWeights,
@@ -115,6 +118,9 @@ from agirails.negotiation.buyer_orchestrator import (
 # ============================================================================
 
 from agirails.negotiation.provider_policy import (
+    CounterContext,
+    CounterDecider,
+    CounterDecision,
     CounterEvaluation,
     IncomingRequest,
     PriceTerm,
@@ -187,4 +193,11 @@ __all__ = [
     "verify_quote_hash_on_chain",
     "VerifyOnChainResult",
     "VerifySource",
+    # Injectable decider hooks (BYO-brain)
+    "BuyerQuoteDecider",
+    "QuoteForEvaluation",
+    "QuoteEvaluation",
+    "CounterDecider",
+    "CounterContext",
+    "CounterDecision",
 ]

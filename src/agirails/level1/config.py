@@ -24,6 +24,37 @@ if TYPE_CHECKING:
 NetworkOption = Literal["mock", "testnet", "mainnet"]
 WalletOption = Optional[str]  # Address or private key
 
+# AIP-16 delivery surface (TS delivery/types.ts DeliveryMode / DeliveryPrivacy)
+DeliveryMode = Literal["channel", "none"]
+DeliveryPrivacy = Literal["encrypted", "public"]
+
+
+@dataclass
+class DeliveryServiceConfig:
+    """AIP-16 delivery surface configuration for a service.
+
+    Mirrors TS ``DeliveryServiceConfig`` (level1/types/Options.ts:34-39).
+
+    Declares the transport ``mode`` (channel vs. none) and the privacy posture
+    (``public`` plaintext vs. ``encrypted`` X25519+AES-GCM) the provider will
+    use when emitting the delivery envelope for jobs against this service.
+
+    Attached to :class:`ServiceConfig` as the optional ``delivery`` field. When
+    omitted, the SDK uses :data:`DEFAULT_DELIVERY_CONFIG` (channel + public),
+    which preserves the pre-AIP-16 wire behavior: an envelope is posted to the
+    relay but its body is plaintext UTF-8 JSON.
+    """
+
+    mode: DeliveryMode = "channel"
+    privacy: DeliveryPrivacy = "public"
+
+
+# Backward-compatible default for DeliveryServiceConfig (TS Options.ts:58-61).
+# channel + public preserves the pre-AIP-16 behavior on the wire. Gated by the
+# ``ACTP_DELIVERY_CHANNEL=v1`` env flag at the Agent call-site; with the flag
+# off the hook is a no-op regardless of this config.
+DEFAULT_DELIVERY_CONFIG = DeliveryServiceConfig(mode="channel", privacy="public")
+
 
 @dataclass
 class RetryConfig:
@@ -107,6 +138,37 @@ class AgentConfig:
     behavior: Optional[AgentBehavior] = None
     persistence: Optional[Dict[str, Any]] = None
     logging: Optional[Dict[str, Any]] = None
+
+    # =========================================================================
+    # AIP-16 Phase 2e/3 — Delivery surface (Agent._process_job hook)
+    # =========================================================================
+    #
+    # All five fields below are OPTIONAL and mirror TS AgentConfig
+    # (Agent.ts:201-265). The delivery hook only activates when ALL of
+    # (delivery_channel, delivery_signer, kernel_address, chain_id) are
+    # present AND the ``ACTP_DELIVERY_CHANNEL=v1`` env var is set. Missing
+    # any one of them — the hook is a no-op and the pre-AIP-16 settlement
+    # path runs verbatim. The 4.6.1 zero-config auto-wire lazily fills any
+    # of channel/kernel_address/chain_id/signer that are missing when the
+    # flag is on.
+
+    # AIP-16 delivery channel transport (DeliveryChannel). When provided with
+    # the sibling fields, Agent._process_job builds + publishes a
+    # DeliveryEnvelopeWireV1 for the handler result before DELIVERED.
+    delivery_channel: Optional[Any] = None
+
+    # eth_account LocalAccount used to sign delivery envelopes (EIP-712).
+    delivery_signer: Optional[Any] = None
+
+    # ACTP kernel contract address — EIP-712 verifyingContract for the domain.
+    kernel_address: Optional[str] = None
+
+    # EVM chain id for the kernel (e.g. 8453 mainnet, 84532 Base Sepolia).
+    chain_id: Optional[int] = None
+
+    # CoinbaseSmartWallet factory nonce used to derive provider_address from
+    # the EOA backing delivery_signer (H4 fix). Defaults to 0 when omitted.
+    smart_wallet_nonce: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate configuration."""
@@ -193,6 +255,11 @@ class ServiceConfig:
     pricing: Optional["PricingStrategy"] = None
     capabilities: Optional[List[str]] = None
     timeout: Optional[int] = None
+    # AIP-16 Phase 2e — per-service delivery mode/privacy. When omitted, the
+    # Agent falls back to DEFAULT_DELIVERY_CONFIG (channel + public) at the
+    # call-site. Mirrors the TS declaration-merged ServiceConfig.delivery
+    # field (Options.ts:70-90).
+    delivery: Optional[DeliveryServiceConfig] = None
 
     def __post_init__(self) -> None:
         """Validate configuration."""

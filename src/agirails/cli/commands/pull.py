@@ -28,11 +28,16 @@ from agirails.config.sync_operations import pull_config
 
 
 def pull(
+    path_arg: Optional[str] = typer.Argument(
+        None,
+        metavar="[PATH]",
+        help="Path to write config (default: ./AGIRAILS.md)",
+    ),
     force: bool = typer.Option(
         False, "--force", "-f", help="Overwrite local file without confirmation"
     ),
     network: str = typer.Option(
-        "base-mainnet",
+        "base-sepolia",
         "--network",
         "-n",
         help="Network to pull from (base-sepolia, base-mainnet)",
@@ -47,7 +52,7 @@ def pull(
         None,
         "--path",
         "-p",
-        help="Path to AGIRAILS.md (default: ./AGIRAILS.md)",
+        help="Path to AGIRAILS.md (overrides positional PATH; back-compat)",
     ),
     rpc_url: Optional[str] = typer.Option(
         None,
@@ -57,7 +62,11 @@ def pull(
 ) -> None:
     """Pull on-chain config to local AGIRAILS.md."""
     opts = get_global_options()
-    md_path = str(path or Path(opts.directory or Path.cwd()) / "AGIRAILS.md")
+    # TS takes the path as a positional [path] argument (default ./AGIRAILS.md).
+    # We accept both the positional PATH and the legacy `--path` option for
+    # backward compatibility; `--path` wins when supplied.
+    chosen_path = path or path_arg
+    md_path = str(chosen_path or Path(opts.directory or Path.cwd()) / "AGIRAILS.md")
 
     # Resolve agent address
     agent_address = address

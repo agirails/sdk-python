@@ -27,6 +27,10 @@ from agirails.level1.config import (
     RetryConfig,
     NetworkOption,
     WalletOption,
+    DeliveryServiceConfig,
+    DEFAULT_DELIVERY_CONFIG,
+    DeliveryMode,
+    DeliveryPrivacy,
 )
 from agirails.level1.pricing import (
     PricingStrategy,
@@ -34,6 +38,7 @@ from agirails.level1.pricing import (
     PriceCalculation,
     DEFAULT_PRICING_STRATEGY,
     calculate_price,
+    estimate_units,
 )
 from agirails.level1.agent import (
     Agent,
@@ -56,12 +61,17 @@ __all__ = [
     "RetryConfig",
     "NetworkOption",
     "WalletOption",
+    "DeliveryServiceConfig",
+    "DEFAULT_DELIVERY_CONFIG",
+    "DeliveryMode",
+    "DeliveryPrivacy",
     # Pricing
     "PricingStrategy",
     "CostModel",
     "PriceCalculation",
     "DEFAULT_PRICING_STRATEGY",
     "calculate_price",
+    "estimate_units",
     # Agent
     "Agent",
     "AgentStatus",
