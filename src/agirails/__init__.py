@@ -427,6 +427,22 @@ from agirails.negotiation import (
     VerifyOnChainResult,
 )
 
+# AIP-16 secure delivery channel (encrypted envelopes, EIP-712, Mock/Relay).
+from agirails.delivery import (
+    DeliverySetupBuilder,
+    BuildSetupParams,
+    DeliveryEnvelopeBuilder,
+    BuildPublicEnvelopeParams,
+    BuildEncryptedEnvelopeParams,
+    MockDeliveryChannel,
+    MockDeliveryChannelOptions,
+    RelayDeliveryChannel,
+    RelayDeliveryChannelOptions,
+    DeliveryChannel,
+    DeliverySubscription,
+    build_envelope_aad,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -752,6 +768,19 @@ __all__ = [
     "verify_quote_hash_on_chain",
     "VerifyOnChainResult",
     "RequoteGuardViolation",
+    # AIP-16 delivery channel
+    "DeliverySetupBuilder",
+    "BuildSetupParams",
+    "DeliveryEnvelopeBuilder",
+    "BuildPublicEnvelopeParams",
+    "BuildEncryptedEnvelopeParams",
+    "MockDeliveryChannel",
+    "MockDeliveryChannelOptions",
+    "RelayDeliveryChannel",
+    "RelayDeliveryChannelOptions",
+    "DeliveryChannel",
+    "DeliverySubscription",
+    "build_envelope_aad",
     "NegotiationResult",
     "RoundResult",
     "OrchestratorConfig",
