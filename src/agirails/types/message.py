@@ -44,7 +44,7 @@ class EIP712Domain:
         salt: Optional salt for uniqueness
     """
 
-    name: str = "ACTP"
+    name: str = "AGIRAILS"  # PARITY: TS uses 'AGIRAILS' (was 'ACTP')
     version: str = "1"
     chain_id: int = 84532  # Base Sepolia
     verifying_contract: str = ""

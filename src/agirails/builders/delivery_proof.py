@@ -182,11 +182,12 @@ def compute_output_hash(output: Any) -> str:
         )
 
     if isinstance(output, bytes):
+        # Raw binary deliverable: hashed as-is (no JS/JSON equivalent).
         data = output
-    elif isinstance(output, str):
-        data = output.encode("utf-8")
     else:
-        # Use canonical JSON for objects
+        # PARITY: str and structured data both go through canonical JSON to
+        # match TS computeResultHash, which JSON-quotes a string deliverable
+        # before hashing (computeResultHash("hello") == keccak256('"hello"')).
         data = canonical_json_serialize(output).encode("utf-8")
 
     # Size validation to prevent DoS

@@ -107,19 +107,28 @@ class ProofGenerator:
         >>> output_hash = generator.hash_output({"response": "Hi"})
     """
 
-    def __init__(self, hash_algorithm: str = "sha256") -> None:
+    def __init__(self, hash_algorithm: str = "keccak256") -> None:
         """
         Initialize ProofGenerator.
 
         Args:
-            hash_algorithm: Hash algorithm to use (default: sha256)
+            hash_algorithm: Hash algorithm to use (default: keccak256).
+
+        PARITY: defaults to keccak256 to match the TS SDK's
+        ``ProofGenerator.hashContent`` (``keccak256(utf8(content))``). ``hashlib``
+        has no keccak256 — its ``sha3_256`` is NIST SHA-3, not Ethereum keccak —
+        so keccak256 is routed through ``eth_hash`` in ``_hash``.
         """
-        if hash_algorithm not in hashlib.algorithms_available:
+        if hash_algorithm != "keccak256" and hash_algorithm not in hashlib.algorithms_available:
             raise ValueError(f"Unsupported hash algorithm: {hash_algorithm}")
         self._algorithm = hash_algorithm
 
     def _hash(self, data: bytes) -> str:
         """Compute hash of bytes and return hex string."""
+        if self._algorithm == "keccak256":
+            from eth_hash.auto import keccak
+
+            return "0x" + keccak(data).hex()
         hasher = hashlib.new(self._algorithm)
         hasher.update(data)
         return "0x" + hasher.hexdigest()
@@ -282,7 +291,10 @@ class ProofGenerator:
                 # Sort to make tree consistent regardless of order
                 if left > right:
                     left, right = right, left
-                combined = self._hash(left + right)
+                # Merkle node pairing uses sha256 to stay consistent with
+                # verify_merkle_proof(); independent of the content-hash
+                # algorithm (which is keccak256 for cross-SDK parity).
+                combined = "0x" + hashlib.sha256(left + right).hexdigest()
                 next_level.append(combined)
             levels.append(next_level)
             current_level = next_level

@@ -23,19 +23,27 @@ def canonical_json_dumps(
     ensure_ascii: bool = False,
 ) -> str:
     """
-    Serialize object to canonical JSON string.
+    Serialize object to canonical JSON string, byte-identical to the
+    TypeScript SDK's ``canonicalJsonStringify`` (fast-json-stable-stringify).
 
-    PARITY CRITICAL: Uses ensure_ascii=False to match JavaScript's
-    JSON.stringify() behavior which preserves unicode characters.
+    PARITY CRITICAL: cross-SDK keccak hashes (delivery-proof resultHash,
+    quote computeHash, justificationHash) depend on this being byte-for-byte
+    identical to JavaScript ``JSON.stringify`` over canonically-sorted keys.
 
-    Features:
-    - Sorted keys (deterministic ordering for hashing)
-    - Minimal whitespace (no spaces after separators)
-    - Unicode preserved (not escaped) - matches JS JSON.stringify()
+    Two JS behaviours that Python's ``json.dumps`` gets wrong and which this
+    function reproduces:
+
+    - **Numbers** follow the ECMAScript Number-to-String algorithm, so an
+      integer-valued float renders without a fractional part (``1.0`` -> ``1``),
+      negative zero collapses (``-0.0`` -> ``0``), and the positional vs.
+      exponential boundary matches V8 (``1e16`` -> ``10000000000000000``,
+      ``1e-7`` -> ``1e-7``). Non-finite floats become ``null`` like
+      ``JSON.stringify``.
+    - **Keys** are sorted and the output carries no whitespace.
 
     Args:
         obj: Object to serialize
-        sort_keys: Sort dictionary keys (default: True)
+        sort_keys: Sort dictionary keys (default: True — canonical mode)
         separators: Custom separators (default: (",", ":"))
         ensure_ascii: Escape non-ASCII characters (default: False for JS parity)
 
@@ -45,14 +53,19 @@ def canonical_json_dumps(
     Example:
         >>> canonical_json_dumps({"b": 2, "a": 1})
         '{"a":1,"b":2}'
-        >>> canonical_json_dumps({"nested": {"z": 1, "a": 2}})
-        '{"nested":{"a":2,"z":1}}'
+        >>> canonical_json_dumps({"amount": 1.0})  # integer-valued float
+        '{"amount":1}'
         >>> canonical_json_dumps({"emoji": "🎉"})  # Unicode preserved
         '{"emoji":"🎉"}'
     """
+    # Canonical mode (the only mode any caller uses) goes through the
+    # ECMAScript-faithful encoder. The legacy json.dumps path is retained
+    # only for explicit non-canonical overrides.
+    if sort_keys and ensure_ascii is False and separators in (None, (",", ":")):
+        return _canonical_encode(obj)
+
     if separators is None:
         separators = (",", ":")
-
     return json.dumps(
         _deep_sort(obj) if sort_keys else obj,
         separators=separators,
@@ -61,15 +74,111 @@ def canonical_json_dumps(
     )
 
 
+def _js_number_to_string(x: float) -> Optional[str]:
+    """
+    Format a Python float exactly like ECMAScript ``Number::toString`` /
+    ``JSON.stringify`` (ECMA-262 §6.1.6.1.20).
+
+    Returns ``None`` for non-finite values (``JSON.stringify`` renders NaN and
+    Infinity as ``null``).
+    """
+    if x != x or x in (float("inf"), float("-inf")):
+        return None
+    if x == 0:
+        return "0"  # also collapses -0.0
+    sign = "-" if x < 0 else ""
+    x = -x if x < 0 else x
+
+    # repr() gives the shortest round-tripping decimal (same digit choice class
+    # as V8); re-parse it into ECMA's (digits, n) form.
+    r = repr(x)
+    if "e" in r or "E" in r:
+        mant, _, exp_s = r.replace("E", "e").partition("e")
+        exp = int(exp_s)
+    else:
+        mant, exp = r, 0
+    if "." in mant:
+        int_part, frac_part = mant.split(".")
+    else:
+        int_part, frac_part = mant, ""
+
+    digits = int_part + frac_part  # value = int(digits) * 10**point_exp
+    point_exp = exp - len(frac_part)
+    digits = digits.lstrip("0") or "0"
+    while len(digits) > 1 and digits.endswith("0"):
+        digits = digits[:-1]
+        point_exp += 1
+
+    k = len(digits)
+    n = point_exp + k  # ECMA: value == digits × 10**(n − k)
+
+    if k <= n <= 21:
+        body = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        body = digits[:n] + "." + digits[n:]
+    elif -6 < n <= 0:
+        body = "0." + "0" * (-n) + digits
+    else:
+        e = n - 1
+        exp_str = ("e+" if e >= 0 else "e-") + str(abs(e))
+        body = (digits if k == 1 else digits[0] + "." + digits[1:]) + exp_str
+
+    return sign + body
+
+
+def _canonical_encode(obj: Any) -> str:
+    """
+    Serialize to canonical JSON byte-identical to JS fast-json-stable-stringify:
+    sorted object keys, no whitespace, ECMAScript number formatting, and
+    JSON.stringify-equivalent string escaping (ensure_ascii=False).
+    """
+    if obj is None:
+        return "null"
+    if obj is True:
+        return "true"
+    if obj is False:
+        return "false"
+    if isinstance(obj, str):
+        return json.dumps(obj, ensure_ascii=False)
+    if isinstance(obj, bool):  # defensive; covered above
+        return "true" if obj else "false"
+    if isinstance(obj, int):
+        return str(obj)
+    if isinstance(obj, float):
+        s = _js_number_to_string(obj)
+        return "null" if s is None else s
+    if isinstance(obj, (list, tuple)):
+        return "[" + ",".join(_canonical_encode(v) for v in obj) + "]"
+    if isinstance(obj, dict):
+        parts = []
+        for key, value in sorted(obj.items(), key=lambda kv: str(kv[0])):
+            key_str = key if isinstance(key, str) else _coerce_json_key(key)
+            parts.append(json.dumps(key_str, ensure_ascii=False) + ":" + _canonical_encode(value))
+        return "{" + ",".join(parts) + "}"
+    # Match json.dumps for the remaining JSON-able scalars, else raise like it.
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _coerce_json_key(key: Any) -> str:
+    """Coerce a non-string dict key to its JSON string form (JS JSON.stringify
+    coerces object keys to strings: numbers, booleans, null)."""
+    if key is True:
+        return "true"
+    if key is False:
+        return "false"
+    if key is None:
+        return "null"
+    if isinstance(key, float):
+        s = _js_number_to_string(key)
+        return "null" if s is None else s
+    if isinstance(key, int):
+        return str(key)
+    return str(key)
+
+
 def _deep_sort(obj: Any) -> Any:
     """
-    Recursively sort dictionary keys.
-
-    Args:
-        obj: Object to sort
-
-    Returns:
-        Object with all nested dicts having sorted keys
+    Recursively sort dictionary keys (legacy helper for the non-canonical path).
     """
     if isinstance(obj, dict):
         return {k: _deep_sort(v) for k, v in sorted(obj.items())}

@@ -6,7 +6,7 @@ import pytest
 
 from agirails.builders.quote import (
     Quote,
-    QuoteBuilder,
+    LegacyQuoteBuilder as QuoteBuilder,
     create_quote,
 )
 

@@ -182,8 +182,8 @@ class MessageSigner:
         private_key: Ethereum private key (hex string with or without 0x)
         chain_id: Ethereum chain ID
         verifying_contract: Contract address for domain separator
-        domain_name: Protocol name (default: "ACTP")
-        domain_version: Protocol version (default: "1")
+        domain_name: Protocol name (default: "AGIRAILS" — matches TS MessageSigner)
+        domain_version: Protocol version (default: "1.0" — matches TS MessageSigner)
 
     Example:
         >>> signer = MessageSigner(
@@ -205,8 +205,8 @@ class MessageSigner:
         private_key: str,
         chain_id: int = 84532,
         verifying_contract: str = "",
-        domain_name: str = "ACTP",
-        domain_version: str = "1",
+        domain_name: str = "AGIRAILS",
+        domain_version: str = "1.0",
     ) -> None:
         if not HAS_ETH_ACCOUNT:
             raise ImportError(

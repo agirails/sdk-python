@@ -340,8 +340,12 @@ from agirails.builders import (
     CounterOfferMessage,
     CounterOfferParams,
     DeliveryProofBuilder,
+    LegacyQuoteBuilder,
     MessageNonceManager,
     QuoteBuilder,
+    QuoteMessage,
+    QuoteParams,
+    AIP2QuoteTypes,
 )
 
 # Web Receipts (AIP-7 §6 — agirails.app public receipt artifact)
@@ -665,6 +669,10 @@ __all__ = [
     # Builders
     "DeliveryProofBuilder",
     "QuoteBuilder",
+    "QuoteMessage",
+    "QuoteParams",
+    "AIP2QuoteTypes",
+    "LegacyQuoteBuilder",
     "CounterOfferBuilder",
     "CounterOfferMessage",
     "CounterOfferParams",

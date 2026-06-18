@@ -298,7 +298,7 @@ class TestBuilderPerformance:
 
     def test_quote_builder(self, benchmark: BenchmarkFixture) -> None:
         """Benchmark QuoteBuilder.build()."""
-        from agirails.builders.quote import QuoteBuilder
+        from agirails.builders.quote import LegacyQuoteBuilder as QuoteBuilder
 
         def build_quote() -> Any:
             return (

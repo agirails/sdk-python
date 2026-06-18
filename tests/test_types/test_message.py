@@ -28,7 +28,7 @@ class TestEIP712Domain:
         """Test domain with default values."""
         domain = EIP712Domain()
 
-        assert domain.name == "ACTP"
+        assert domain.name == "AGIRAILS"
         assert domain.version == "1"
         assert domain.chain_id == 84532  # Base Sepolia
         assert domain.verifying_contract == ""
@@ -55,7 +55,7 @@ class TestEIP712Domain:
         domain = EIP712Domain()
         result = domain.to_dict()
 
-        assert result["name"] == "ACTP"
+        assert result["name"] == "AGIRAILS"
         assert result["version"] == "1"
         assert result["chainId"] == 84532
         assert "verifyingContract" not in result
