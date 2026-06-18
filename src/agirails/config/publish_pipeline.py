@@ -99,6 +99,13 @@ def extract_registration_params(
       - ``services``: full ServiceDescriptor objects with pricing.
       - ``capabilities``: simple string list, auto-converted with defaults.
 
+    Pay-only intent (``intent: pay``): returns an empty serviceDescriptors[]
+    regardless of any ``services`` field that may be present. Pay-only agents
+    do not register as providers on AgentRegistry — they only call request().
+    This guard is the protocol-level safeguard; CLI front-ends should also
+    reject the misshape upstream with a clearer error.
+    Mirrors TS extractRegistrationParams (config/publishPipeline.ts:147-156).
+
     Args:
         frontmatter: Parsed YAML frontmatter dict.
 
@@ -106,11 +113,18 @@ def extract_registration_params(
         Tuple of (endpoint, list of ServiceDescriptorInfo).
 
     Raises:
-        ValueError: If neither services nor capabilities are present.
+        ValueError: If intent is earn/both and neither services nor
+            capabilities are present.
     """
     endpoint = frontmatter.get("endpoint", PENDING_ENDPOINT)
     if not isinstance(endpoint, str) or not endpoint:
         endpoint = PENDING_ENDPOINT
+
+    # Pay-only short-circuit: never register as provider on-chain.
+    intent = frontmatter.get("intent")
+    intent = intent.lower() if isinstance(intent, str) else "earn"
+    if intent == "pay":
+        return endpoint, []
 
     # Try explicit services first
     services = frontmatter.get("services")
@@ -302,6 +316,11 @@ def publish_config(
     Uses Filebase if credentials are provided, otherwise falls back
     to the publish proxy.
 
+    AIP-18 DEC-2/DEC-4: a pure buyer (``intent: pay``) publishes NO service
+    file. The IPFS/proxy upload is skipped entirely so the buyer's file —
+    which may carry a private ``budget`` — never leaves the machine. Mirrors TS
+    publishAgirailsMd (config/publishPipeline.ts:345-381).
+
     Args:
         content: Raw AGIRAILS.md file content.
         filebase_credentials: Optional Filebase S3 credentials.
@@ -309,7 +328,8 @@ def publish_config(
         dry_run: If True, compute hash but skip upload.
 
     Returns:
-        PublishResult with CID and config hash.
+        PublishResult with CID and config hash. Pay-only configs return an
+        empty CID (nothing uploaded).
     """
     hash_result = compute_config_hash(content)
 
@@ -318,6 +338,18 @@ def publish_config(
             cid="(dry-run)",
             config_hash=hash_result.config_hash,
             dry_run=True,
+        )
+
+    # AIP-18 pay-only short-circuit: detect intent up front and skip the
+    # IPFS/proxy upload entirely so a buyer's file (which may carry a private
+    # budget) never leaves the machine.
+    intent = parse_agirails_md(content).frontmatter.get("intent")
+    intent = intent.lower() if isinstance(intent, str) else "earn"
+    if intent == "pay":
+        return PublishResult(
+            cid="",
+            config_hash=hash_result.config_hash,
+            dry_run=False,
         )
 
     # Upload to IPFS

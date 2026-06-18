@@ -228,7 +228,11 @@ class TestStripPublishMetadata:
         assert "wallet" in PUBLISH_METADATA_KEYS
         assert "agent_id" in PUBLISH_METADATA_KEYS
         assert "did" in PUBLISH_METADATA_KEYS
-        assert len(PUBLISH_METADATA_KEYS) == 8
+        # AIP-18 DEC-2: budget + claim_code stripped before hashing
+        # (parity with TS PUBLISH_METADATA_KEYS — config/agirailsmd.ts:58-74).
+        assert "claim_code" in PUBLISH_METADATA_KEYS
+        assert "budget" in PUBLISH_METADATA_KEYS
+        assert len(PUBLISH_METADATA_KEYS) == 10
 
 
 # ============================================================================
@@ -562,3 +566,121 @@ class TestEdgeCases:
     def test_handles_empty_objects_and_arrays(self) -> None:
         assert canonicalize({}) == {}
         assert canonicalize([]) == []
+
+
+# ============================================================================
+# AIP-18 buyer-privacy invariant: budget + claim_code stripped before hashing
+# ============================================================================
+
+
+class TestAip18BudgetPrivacyInvariant:
+    """A config carrying budget/claim_code must hash IDENTICALLY to the same
+    config without them (parity with TS config/agirailsmd.ts:58-74).
+
+    If these keys leaked into the canonical hash, the budget/claim_code would
+    (a) change the configHash cross-SDK and (b) end up hashed and published
+    on-chain / to IPFS — an AIP-18 DEC-2 privacy regression.
+    """
+
+    BASE_MD = """---
+name: buyer-agent
+version: "1.0.0"
+intent: pay
+---
+# Buyer
+A pure buyer agent.
+"""
+
+    WITH_BUDGET_MD = """---
+name: buyer-agent
+version: "1.0.0"
+intent: pay
+budget: 250.5
+claim_code: "secret-draft-adoption-code-abc123"
+---
+# Buyer
+A pure buyer agent.
+"""
+
+    def test_budget_and_claim_code_do_not_change_config_hash(self) -> None:
+        base = compute_config_hash(self.BASE_MD)
+        with_secret = compute_config_hash(self.WITH_BUDGET_MD)
+        assert with_secret.config_hash == base.config_hash
+        assert with_secret.structured_hash == base.structured_hash
+        assert with_secret.body_hash == base.body_hash
+
+    def test_strip_publish_metadata_drops_budget_and_claim_code(self) -> None:
+        fm = {
+            "name": "buyer-agent",
+            "budget": 250.5,
+            "claim_code": "secret-abc",
+            "config_hash": "0xdeadbeef",
+        }
+        stripped = strip_publish_metadata(fm)
+        assert "budget" not in stripped
+        assert "claim_code" not in stripped
+        assert stripped == {"name": "buyer-agent"}
+
+    def test_budget_never_reaches_canonical_json(self) -> None:
+        from agirails.config.agirailsmd import canonicalize as _canon
+
+        parsed = parse_agirails_md(self.WITH_BUDGET_MD)
+        stripped = strip_publish_metadata(parsed.frontmatter)
+        canonical = _canon(stripped)
+        assert "budget" not in canonical
+        assert "claim_code" not in canonical
+
+
+# ============================================================================
+# Parse safety bounds: size cap + YAML alias-expansion cap
+# ============================================================================
+
+
+class TestParseSafetyBounds:
+    """MAX_AGIRAILSMD_BYTES + FRONTMATTER_MAX_ALIAS_COUNT
+    (parity with TS config/agirailsmd.ts:108,118,128-136,157).
+    """
+
+    def test_constants_match_ts(self) -> None:
+        from agirails.config.agirailsmd import (
+            FRONTMATTER_MAX_ALIAS_COUNT,
+            MAX_AGIRAILSMD_BYTES,
+        )
+
+        assert MAX_AGIRAILSMD_BYTES == 256_000
+        assert FRONTMATTER_MAX_ALIAS_COUNT == 10
+
+    def test_rejects_oversize_content(self) -> None:
+        from agirails.config.agirailsmd import MAX_AGIRAILSMD_BYTES
+
+        oversize = "---\nname: x\n---\n" + ("a" * (MAX_AGIRAILSMD_BYTES + 1))
+        with pytest.raises(ValueError, match="exceeds 256000 bytes"):
+            parse_agirails_md(oversize)
+
+    def test_accepts_content_at_size_bound(self) -> None:
+        from agirails.config.agirailsmd import MAX_AGIRAILSMD_BYTES
+
+        header = "---\nname: x\n---\n"
+        body = "a" * (MAX_AGIRAILSMD_BYTES - len(header))
+        content = header + body
+        assert len(content) == MAX_AGIRAILSMD_BYTES
+        result = parse_agirails_md(content)
+        assert result.frontmatter["name"] == "x"
+
+    def test_rejects_excessive_yaml_aliases(self) -> None:
+        anchor = "anchor: &a value\n"
+        aliases = "\n".join(f"k{i}: *a" for i in range(11))  # 11 > cap of 10
+        content = f"---\n{anchor}{aliases}\n---\nbody"
+        with pytest.raises(ValueError, match="alias count exceeded"):
+            parse_agirails_md(content)
+
+    def test_accepts_alias_count_within_cap(self) -> None:
+        anchor = "anchor: &a value\n"
+        aliases = "\n".join(f"k{i}: *a" for i in range(9))  # 9 < cap of 10
+        content = f"---\n{anchor}{aliases}\n---\nbody"
+        result = parse_agirails_md(content)
+        assert result.frontmatter["k0"] == "value"
+
+    def test_no_aliases_parses_normally(self) -> None:
+        result = parse_agirails_md(MINIMAL_MD)
+        assert result.frontmatter == {"name": "test-agent", "version": "1.0.0"}

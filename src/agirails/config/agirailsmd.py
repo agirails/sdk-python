@@ -72,7 +72,71 @@ PUBLISH_METADATA_KEYS: List[str] = [
     "wallet",
     "agent_id",
     "did",
+    # Draft-adoption code embedded by the web owner doc — never part of the
+    # canonical config. Mirror in web lib/ipfs/config-hash.ts.
+    # Matches TS PUBLISH_METADATA_KEYS (config/agirailsmd.ts:66-69).
+    "claim_code",
+    # AIP-18 DEC-2: a buyer's budget is a PRIVATE operational cap and must never
+    # appear in any hashed/published artifact. Stripping it from the canonical
+    # hash means budget can never leak on-chain or to IPFS via the configHash.
+    # Matches TS PUBLISH_METADATA_KEYS (config/agirailsmd.ts:70-73).
+    "budget",
 ]
+
+
+# ----------------------------------------------------------------------------
+# Parse safety bounds (mirror TS config/agirailsmd.ts:108,118)
+# ----------------------------------------------------------------------------
+
+# Hard cap on raw AGIRAILS.md content size before YAML parsing.
+#
+# Apex audit FIND-016: the CLI runs in untrusted contexts — CI jobs, cloned
+# repos, PR workspaces, generated project directories. Any of those can
+# contain an attacker-controlled AGIRAILS.md parsed by health/verify/publish/
+# init without ever crossing a network boundary. The size bound is a
+# defence-in-depth wall against the YAML resource-exhaustion class (deep
+# nesting, malicious anchors / aliases). Canonical AGIRAILS.md files are
+# ~2-10 KB; 256 KB leaves headroom for legitimate long-form body content
+# while still tripping on adversarial blobs.
+MAX_AGIRAILSMD_BYTES = 256_000
+
+# Tightened alias-count for the AGIRAILS.md frontmatter parse.
+#
+# Canonical AGIRAILS.md files never use YAML aliases / anchors. We pin the
+# limit to a small constant (matching the TS `parseYaml({maxAliasCount:10})`)
+# so a malicious file that plants aliases trips the parser early instead of
+# consuming CPU walking an expansion graph (billion-laughs class).
+FRONTMATTER_MAX_ALIAS_COUNT = 10
+
+
+class _AliasCappedSafeLoader(yaml.SafeLoader):
+    """SafeLoader subclass that caps the number of YAML aliases resolved.
+
+    PyYAML's default SafeLoader resolves aliases without a low ceiling, leaving
+    the alias-expansion DoS vector open. This loader mirrors the TS
+    `yaml` parser's `maxAliasCount: 10` by counting alias (`*name`) resolutions
+    and raising once the cap is exceeded.
+    """
+
+    _max_alias_count = FRONTMATTER_MAX_ALIAS_COUNT
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._alias_count = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        # An alias event resolves to an existing anchor. Count each one and
+        # trip before the underlying anchor lookup walks the expansion graph.
+        if self.check_event(yaml.events.AliasEvent):
+            self._alias_count += 1
+            if self._alias_count > self._max_alias_count:
+                event = self.peek_event()
+                raise yaml.YAMLError(
+                    f"Maximum YAML alias count exceeded "
+                    f"({self._max_alias_count}); refusing to expand "
+                    f"a file with this many aliases. {event.start_mark}"
+                )
+        return super().compose_node(parent, index)
 
 
 # ============================================================================
@@ -175,8 +239,20 @@ def parse_agirails_md(content: str) -> AgirailsMdConfig:
         AgirailsMdConfig with frontmatter dict and body string.
 
     Raises:
-        ValueError: If content has no valid YAML frontmatter.
+        ValueError: If content has no valid YAML frontmatter, exceeds the size
+            bound, or uses more YAML aliases than the conservative cap.
     """
+    # FIND-016 size bound — must fire before any YAML / regex work so a hostile
+    # file can't burn CPU in normalisation either. Mirrors TS
+    # config/agirailsmd.ts:128-136 (which compares against content.length).
+    if len(content) > MAX_AGIRAILSMD_BYTES:
+        raise ValueError(
+            f"AGIRAILS.md exceeds {MAX_AGIRAILSMD_BYTES} bytes "
+            f"(got {len(content)}). "
+            "Canonical files are typically 2-10 KB; refusing to parse a "
+            "file this large."
+        )
+
     trimmed = content.lstrip()
 
     if not trimmed.startswith("---"):
@@ -190,9 +266,9 @@ def parse_agirails_md(content: str) -> AgirailsMdConfig:
     yaml_content = trimmed[4:closing_index]  # skip opening ---\n
     body = trimmed[closing_index + 4:]  # skip \n---
 
-    # Parse YAML
+    # Parse YAML with a tightened alias-count cap (mirror TS maxAliasCount:10).
     try:
-        frontmatter = yaml.safe_load(yaml_content)
+        frontmatter = yaml.load(yaml_content, Loader=_AliasCappedSafeLoader)
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse YAML frontmatter: {e}") from e
 

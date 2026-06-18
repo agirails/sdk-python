@@ -3,14 +3,25 @@ Filebase Client - IPFS Hot Storage (AIP-7 §4 Tier 1)
 
 S3-compatible IPFS client using Filebase for hot storage.
 Provides automatic pinning, content addressing, and gateway retrieval.
+
+Parity note (TS source of truth: sdk-js/src/storage/FilebaseClient.ts):
+The TypeScript client uses ``@aws-sdk/client-s3`` which signs every PUT/HEAD with
+AWS Signature Version 4. Filebase's S3-compatible endpoint REQUIRES SigV4 and
+rejects HTTP Basic auth with HTTP 403. This module therefore implements SigV4
+natively over ``httpx`` (no boto3/botocore dependency) so uploads actually
+authenticate. The canonical-request / signing-key derivation is verified against
+AWS's published "Signature Version 4 test suite" get-vanilla vector and the
+"derive signing key" worked example in ``tests/test_storage``.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -39,12 +50,197 @@ from agirails.utils.validation import (
 )
 
 
+# AWS region used by Filebase S3-compatible endpoint (mirrors TS DEFAULT_REGION).
+DEFAULT_REGION = "us-east-1"
+# S3 service name for the SigV4 credential scope.
+S3_SERVICE = "s3"
+# SHA256 of an empty payload (precomputed for HEAD/GET requests).
+EMPTY_PAYLOAD_HASH = hashlib.sha256(b"").hexdigest()
+
+
+# ============================================================================
+# AWS Signature Version 4 (native, no boto3)
+# ============================================================================
+#
+# This implements the subset of SigV4 needed for S3 path-style PutObject /
+# HeadObject requests against Filebase. It is intentionally dependency-free.
+#
+# References (verified by unit tests):
+#   - "Signature Version 4 test suite" / get-vanilla example
+#   - AWS docs "Examples of how to derive a signing key for Signature Version 4"
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _hmac_sha256(key: bytes, msg: str) -> bytes:
+    return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _derive_signing_key(
+    secret_key: str, datestamp: str, region: str, service: str
+) -> bytes:
+    """Derive the SigV4 signing key (kSigning).
+
+    Matches the AWS "derive a signing key" worked example byte-for-byte.
+    """
+    k_date = _hmac_sha256(("AWS4" + secret_key).encode("utf-8"), datestamp)
+    k_region = _hmac_sha256(k_date, region)
+    k_service = _hmac_sha256(k_region, service)
+    k_signing = _hmac_sha256(k_service, "aws4_request")
+    return k_signing
+
+
+def _uri_encode_path(path: str) -> str:
+    """URI-encode an S3 object key path for the canonical request.
+
+    S3 does NOT double-encode the path (unlike most other services), so each
+    path segment is percent-encoded but the ``/`` separators are preserved.
+    ``~`` is left unencoded per RFC 3986 (``quote`` already keeps it via safe).
+    """
+    if not path:
+        return "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    # safe="/~" -> keep slashes and tilde; encode everything else.
+    return quote(path, safe="/~")
+
+
+def sign_aws_v4(
+    *,
+    method: str,
+    url: str,
+    region: str,
+    service: str,
+    access_key: str,
+    secret_key: str,
+    headers: Optional[Dict[str, str]] = None,
+    payload: bytes = b"",
+    now: Optional[datetime] = None,
+    sign_content_sha256: bool = True,
+) -> Dict[str, str]:
+    """Compute AWS Signature Version 4 headers for an S3-style request.
+
+    Args:
+        method: HTTP method (GET/PUT/HEAD/...).
+        url: Full request URL (scheme://host[:port]/path[?query]).
+        region: AWS region for the credential scope.
+        service: AWS service name (``s3``).
+        access_key: AWS access key id.
+        secret_key: AWS secret access key.
+        headers: Caller-supplied headers to include in the signature.
+        payload: Raw request body (empty for GET/HEAD).
+        now: Optional fixed timestamp (UTC) — used by tests for determinism.
+        sign_content_sha256: Include ``x-amz-content-sha256`` in the SIGNED
+            header set (True for real S3 / Filebase, which require it). Set
+            False to reproduce the AWS "Signature Version 4 test suite"
+            get-vanilla vector, which predates that header and signs only
+            ``host;x-amz-date``. The header is still RETURNED either way.
+
+    Returns:
+        A new dict of headers including ``Authorization``,
+        ``x-amz-date`` and ``x-amz-content-sha256`` (plus any provided headers).
+    """
+    parts = urlsplit(url)
+    host = parts.netloc
+    canonical_uri = _uri_encode_path(parts.path or "/")
+
+    # Canonical query string: split, percent-encode, and sort by key then value.
+    if parts.query:
+        pairs = []
+        for segment in parts.query.split("&"):
+            if "=" in segment:
+                k, v = segment.split("=", 1)
+            else:
+                k, v = segment, ""
+            pairs.append(
+                (
+                    quote(k, safe="~"),
+                    quote(v, safe="~"),
+                )
+            )
+        pairs.sort()
+        canonical_querystring = "&".join(f"{k}={v}" for k, v in pairs)
+    else:
+        canonical_querystring = ""
+
+    dt = now or datetime.now(timezone.utc)
+    amzdate = dt.strftime("%Y%m%dT%H%M%SZ")
+    datestamp = dt.strftime("%Y%m%d")
+
+    payload_hash = _sha256_hex(payload) if payload else EMPTY_PAYLOAD_HASH
+
+    # Build the set of headers to sign. Host and x-amz-date are always signed;
+    # x-amz-content-sha256 is signed for S3 (required) but can be excluded to
+    # match the AWS test-suite get-vanilla vector. Content-Type is signed when
+    # present (S3 expects it).
+    sign_headers: Dict[str, str] = {
+        "host": host,
+        "x-amz-date": amzdate,
+    }
+    if sign_content_sha256:
+        sign_headers["x-amz-content-sha256"] = payload_hash
+    if headers:
+        for name, value in headers.items():
+            lname = name.lower()
+            # Always sign content-type and any x-amz-* headers.
+            if lname == "content-type" or lname.startswith("x-amz-"):
+                sign_headers[lname] = str(value).strip()
+
+    sorted_names = sorted(sign_headers.keys())
+    canonical_headers = "".join(
+        f"{name}:{sign_headers[name]}\n" for name in sorted_names
+    )
+    signed_headers = ";".join(sorted_names)
+
+    canonical_request = "\n".join(
+        [
+            method.upper(),
+            canonical_uri,
+            canonical_querystring,
+            canonical_headers,
+            signed_headers,
+            payload_hash,
+        ]
+    )
+
+    algorithm = "AWS4-HMAC-SHA256"
+    credential_scope = f"{datestamp}/{region}/{service}/aws4_request"
+    string_to_sign = "\n".join(
+        [
+            algorithm,
+            amzdate,
+            credential_scope,
+            _sha256_hex(canonical_request.encode("utf-8")),
+        ]
+    )
+
+    signing_key = _derive_signing_key(secret_key, datestamp, region, service)
+    signature = hmac.new(
+        signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+    authorization = (
+        f"{algorithm} "
+        f"Credential={access_key}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, "
+        f"Signature={signature}"
+    )
+
+    result_headers: Dict[str, str] = dict(headers or {})
+    result_headers["x-amz-date"] = amzdate
+    result_headers["x-amz-content-sha256"] = payload_hash
+    result_headers["Authorization"] = authorization
+    return result_headers
+
+
 class FilebaseClient:
     """
     IPFS hot storage client using Filebase S3-compatible API.
 
     Features:
-    - S3-compatible uploads to IPFS via Filebase
+    - S3-compatible uploads to IPFS via Filebase (AWS SigV4 signed)
     - Circuit breaker for gateway health tracking
     - Retry with exponential backoff
     - SSRF protection (gateway whitelist)
@@ -76,6 +272,7 @@ class FilebaseClient:
             config: Filebase configuration
         """
         self._config = config
+        self._region = DEFAULT_REGION
         self._circuit_breaker = CircuitBreaker(
             config.circuit_breaker or CircuitBreakerConfig()
         )
@@ -99,6 +296,28 @@ class FilebaseClient:
     def circuit_breaker_state(self) -> str:
         """Get current circuit breaker state."""
         return self._circuit_breaker.state.value
+
+    def _sign(
+        self,
+        method: str,
+        url: str,
+        headers: Dict[str, str],
+        payload: bytes = b"",
+    ) -> Dict[str, str]:
+        """Sign a request to the Filebase S3 endpoint with AWS SigV4.
+
+        Returns a new headers dict that includes the ``Authorization`` header.
+        """
+        return sign_aws_v4(
+            method=method,
+            url=url,
+            region=self._region,
+            service=S3_SERVICE,
+            access_key=self._config.access_key,
+            secret_key=self._config.secret_key,
+            headers=headers,
+            payload=payload,
+        )
 
     async def upload(
         self,
@@ -136,24 +355,26 @@ class FilebaseClient:
             filename = f"{content_hash}.bin"
 
         async def do_upload() -> IPFSUploadResult:
-            # Use httpx with S3 signing
-            # Note: For production, use aioboto3 for proper AWS S3 signing
-            # This is a simplified implementation using httpx
+            # Path-style S3 URL: {endpoint}/{bucket}/{key}
             url = f"{self._config.endpoint}/{self._config.bucket}/{filename}"
 
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout / 1000)
             ) as client:
-                # Filebase S3-compatible upload
-                # In production, use proper AWS Signature V4
-                response = await client.put(
+                # AWS SigV4-signed PUT (Filebase rejects HTTP Basic auth).
+                put_headers = self._sign(
+                    "PUT",
                     url,
-                    content=content,
-                    headers={
+                    {
                         "Content-Type": content_type,
                         "x-amz-acl": "public-read",
                     },
-                    auth=(self._config.access_key, self._config.secret_key),
+                    payload=content,
+                )
+                response = await client.put(
+                    url,
+                    content=content,
+                    headers=put_headers,
                 )
 
                 if response.status_code not in (200, 201):
@@ -166,10 +387,11 @@ class FilebaseClient:
                 # Get CID from response headers
                 cid = response.headers.get("x-amz-meta-cid")
                 if not cid:
-                    # Fallback: Try HEAD request
+                    # Fallback: Try HEAD request (also SigV4-signed)
+                    head_headers = self._sign("HEAD", url, {})
                     head_response = await client.head(
                         url,
-                        auth=(self._config.access_key, self._config.secret_key),
+                        headers=head_headers,
                     )
                     cid = head_response.headers.get("x-amz-meta-cid")
 

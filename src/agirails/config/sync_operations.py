@@ -27,6 +27,7 @@ from agirails.config.agirailsmd import (
     parse_agirails_md,
     serialize_agirails_md,
 )
+from agirails.utils.validation import validate_cid
 
 logger = logging.getLogger("agirails.config.sync")
 
@@ -184,8 +185,19 @@ def fetch_from_ipfs(cid: str) -> str:
         Raw content as string.
 
     Raises:
+        ValueError: If the CID format is invalid (SSRF / URL-injection guard).
         RuntimeError: If all gateways fail.
     """
+    # Validate CID format before hitting any gateway. A malicious/garbage
+    # on-chain CID is otherwise interpolated straight into the gateway URL
+    # (SSRF / path-traversal surface). Mirrors TS fetchFromIPFS's
+    # validateCID(cid, 'onChainCID') guard (config/syncOperations.ts:179-180).
+    if not validate_cid(cid):
+        raise ValueError(
+            f"Invalid on-chain CID format: {cid!r} "
+            "(expected CIDv0 Qm... or CIDv1 bafy...)"
+        )
+
     errors: list[str] = []
 
     for gateway in IPFS_GATEWAYS:

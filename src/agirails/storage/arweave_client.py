@@ -10,32 +10,38 @@ Always write to Arweave FIRST, then anchor TX ID on-chain.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from eth_account import Account
-from eth_account.messages import encode_defunct
 
 from agirails.errors.storage import (
     ArweaveDownloadError,
     ArweaveError,
     ArweaveUploadError,
     CircuitBreakerOpenError,
+    FileSizeLimitError,
     InsufficientFundsError,
+    SSRFProtectionError,
 )
 from agirails.storage.types import (
     ARCHIVE_BUNDLE_TYPE,
+    DEFAULT_ARWEAVE_MAX_DOWNLOAD_SIZE,
     ArchiveBundle,
     ArweaveConfig,
     ArweaveUploadResult,
     CircuitBreakerConfig,
     DownloadResult,
+    is_valid_arweave_tx_id,
 )
 from agirails.utils.circuit_breaker import CircuitBreaker
 from agirails.utils.retry import RetryConfig, retry_async
+from agirails.utils.validation import (
+    is_gateway_allowed,
+    sanitize_for_logging,
+)
 
 
 # Irys node URLs
@@ -95,6 +101,8 @@ class ArweaveClient:
         self._config = config
         self._account = Account.from_key(config.private_key)
         self._node_url = IRYS_NODES[config.network]
+        # P1-1 (DoS): max download size, mirrors TS DEFAULT_MAX_DOWNLOAD_SIZE (10MB).
+        self._max_download_size = DEFAULT_ARWEAVE_MAX_DOWNLOAD_SIZE
         self._circuit_breaker = CircuitBreaker(
             config.circuit_breaker or CircuitBreakerConfig()
         )
@@ -230,6 +238,21 @@ class ArweaveClient:
         """
         Upload content to Arweave via Irys.
 
+        FAIL-CLOSED (parity divergence, AIP-7 §4.3):
+        The TypeScript SDK uses the official ``@irys/sdk`` which signs a valid
+        ANS-104 DataItem (deep-hash over the item headers + tags + data, then
+        the currency signer's signature) and submits it to the Irys node. A
+        previous Python implementation hand-rolled an HTTP POST with an EIP-191
+        ``personal_sign`` over the SHA256 hex of the content — that is NOT a
+        valid ANS-104 DataItem and the real Irys node REJECTS it. Rather than
+        silently produce an invalid/unanchored transaction (which would corrupt
+        the Arweave-first write-order invariant and the on-chain anchor), this
+        method now fails closed with an actionable error.
+
+        Reads (balance, price, download, GraphQL queries) remain fully
+        functional. Only the write path is gated until a byte-exact ANS-104
+        DataItem signer (or an ``irys``/``bundlr`` client) is available.
+
         Args:
             content: Raw bytes to upload
             tags: Optional list of (name, value) tags
@@ -239,9 +262,9 @@ class ArweaveClient:
 
         Raises:
             InsufficientFundsError: If balance too low
-            ArweaveUploadError: If upload fails
+            NotImplementedError: ANS-104 DataItem signing is not yet implemented
         """
-        # Check balance
+        # Check balance first so funding problems surface before the gate.
         price = await self.get_upload_price(len(content))
         balance = await self.get_balance()
 
@@ -252,62 +275,15 @@ class ArweaveClient:
                 currency=self._config.currency,
             )
 
-        async def do_upload() -> ArweaveUploadResult:
-            # Sign the content hash
-            content_hash = hashlib.sha256(content).hexdigest()
-            message = encode_defunct(text=content_hash)
-            signature = self._account.sign_message(message)
-
-            # Build headers with tags
-            headers = {
-                "Content-Type": "application/octet-stream",
-                "x-address": self.address,
-                "x-signature": signature.signature.hex(),
-            }
-
-            # Add tags as headers (Irys format)
-            if tags:
-                for i, (name, value) in enumerate(tags):
-                    headers[f"x-tag-{i}-name"] = name
-                    headers[f"x-tag-{i}-value"] = value
-
-            url = f"{self._node_url}/tx/{self._config.currency}"
-
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(self._config.timeout / 1000)
-            ) as client:
-                response = await client.post(
-                    url,
-                    content=content,
-                    headers=headers,
-                )
-
-                if response.status_code != 200:
-                    error_text = response.text
-                    raise ArweaveUploadError(
-                        f"Upload failed: {error_text}",
-                        node_url=self._node_url,
-                        size_bytes=len(content),
-                    )
-
-                result = response.json()
-
-                return ArweaveUploadResult(
-                    tx_id=result["id"],
-                    size=len(content),
-                    uploaded_at=datetime.now(timezone.utc),
-                    cost=str(price),
-                )
-
-        try:
-            return await self._circuit_breaker.execute(
-                lambda: retry_async(do_upload, self._retry_config)
-            )
-        except CircuitBreakerOpenError:
-            raise CircuitBreakerOpenError(
-                "Arweave gateway circuit breaker is open",
-                gateway=self._node_url,
-            )
+        # FAIL-CLOSED: do not produce an invalid (non-ANS-104) transaction.
+        raise NotImplementedError(
+            "Arweave upload requires a valid ANS-104 DataItem signature which is "
+            "not yet implemented in the Python SDK. The Irys node rejects "
+            "non-ANS-104 payloads, so uploading here would silently fail to "
+            "anchor on Arweave. Use the TypeScript SDK (@irys/sdk) or the Irys "
+            "CLI to upload archive bundles until native ANS-104 signing lands. "
+            "See: https://docs.irys.xyz/build/d/sdk/upload"
+        )
 
     async def upload_json(
         self,
@@ -371,44 +347,95 @@ class ArweaveClient:
         """
         Download content from Arweave by transaction ID.
 
+        Security (parity with TS ArweaveClient.downloadBundle/downloadJSON):
+        - P1-3: validate the TX ID format (43-char base64url) before any fetch.
+        - P0-1: enforce the Arweave gateway allowlist (SSRF protection) — a
+          caller-supplied ``gateway_url`` must be a whitelisted gateway.
+        - P1-1: enforce a 10MB download size limit (Content-Length pre-check
+          and post-read enforcement) to prevent unbounded-download DoS.
+
         Args:
-            tx_id: Arweave transaction ID
-            gateway_url: Optional custom gateway
+            tx_id: Arweave transaction ID (43-char base64url)
+            gateway_url: Optional custom gateway (must be whitelisted)
 
         Returns:
             DownloadResult with data
+
+        Raises:
+            ArweaveDownloadError: If TX ID is malformed or download fails
+            SSRFProtectionError: If gateway is not in the allowlist
+            FileSizeLimitError: If content exceeds the download size limit
         """
+        # P1-3: TX ID validation (matches TS validateArweaveTxId).
+        if not is_valid_arweave_tx_id(tx_id):
+            raise ArweaveDownloadError(
+                f"Invalid Arweave TX ID format: {tx_id} "
+                "(expected 43-character base64url string)",
+                tx_id=tx_id,
+            )
+
+        # P0-1: gateway allowlist (SSRF protection).
         gateway = gateway_url or ARWEAVE_GATEWAYS[0]
-        url = f"{gateway}/{tx_id}"
+        if not is_gateway_allowed(gateway):
+            raise SSRFProtectionError(
+                sanitize_for_logging(gateway),
+                reason="Gateway not in whitelist",
+            )
+
+        url = f"{gateway.rstrip('/')}/{tx_id}"
 
         async def do_download() -> DownloadResult:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._config.timeout / 1000),
                 follow_redirects=True,
             ) as client:
-                response = await client.get(url)
+                # Stream so we can enforce the size limit before buffering.
+                async with client.stream("GET", url) as response:
+                    if response.status_code == 404:
+                        raise ArweaveDownloadError(
+                            f"Transaction not found: {tx_id}",
+                            tx_id=tx_id,
+                            gateway=gateway,
+                        )
 
-                if response.status_code == 404:
-                    raise ArweaveDownloadError(
-                        f"Transaction not found: {tx_id}",
-                        tx_id=tx_id,
-                        gateway=gateway,
+                    if response.status_code != 200:
+                        raise ArweaveDownloadError(
+                            f"Download failed: HTTP {response.status_code}",
+                            tx_id=tx_id,
+                            gateway=gateway,
+                        )
+
+                    # P1-1: Content-Length pre-check.
+                    content_length = response.headers.get("Content-Length")
+                    if content_length:
+                        size = int(content_length)
+                        if size > self._max_download_size:
+                            raise FileSizeLimitError(
+                                f"Content size {size} exceeds limit {self._max_download_size}",
+                                file_size=size,
+                                max_size=self._max_download_size,
+                            )
+
+                    # P1-1: enforce size limit during streaming.
+                    chunks = []
+                    total_size = 0
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        total_size += len(chunk)
+                        if total_size > self._max_download_size:
+                            raise FileSizeLimitError(
+                                f"Content size exceeds limit {self._max_download_size}",
+                                file_size=total_size,
+                                max_size=self._max_download_size,
+                            )
+                        chunks.append(chunk)
+
+                    data = b"".join(chunks)
+
+                    return DownloadResult(
+                        data=data,
+                        size=len(data),
+                        downloaded_at=datetime.now(timezone.utc),
                     )
-
-                if response.status_code != 200:
-                    raise ArweaveDownloadError(
-                        f"Download failed: HTTP {response.status_code}",
-                        tx_id=tx_id,
-                        gateway=gateway,
-                    )
-
-                data = response.content
-
-                return DownloadResult(
-                    data=data,
-                    size=len(data),
-                    downloaded_at=datetime.now(timezone.utc),
-                )
 
         try:
             return await self._circuit_breaker.execute(

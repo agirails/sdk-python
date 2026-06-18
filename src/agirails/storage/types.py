@@ -8,10 +8,38 @@ Type definitions for the AGIRAILS hybrid storage architecture:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal, Optional, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ============================================================================
+# Arweave TX ID validation (AIP-7 §4.3 — SSRF / input-validation parity)
+# ============================================================================
+#
+# Mirrors the TS ARWEAVE_TX_ID_PATTERN in sdk-js/src/utils/validation.ts:34
+# (43-character base64url string). Arweave transaction IDs are the base64url
+# encoding of a 32-byte hash → exactly 43 chars from [A-Za-z0-9_-].
+
+ARWEAVE_TX_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{43}$")
+"""Arweave transaction ID pattern (43 chars, base64url)."""
+
+# Maximum Arweave download size in bytes (10MB for archive bundles).
+# Mirrors TS DEFAULT_MAX_DOWNLOAD_SIZE in sdk-js/src/storage/ArweaveClient.ts:60.
+DEFAULT_ARWEAVE_MAX_DOWNLOAD_SIZE = 10 * 1024 * 1024
+
+
+def is_valid_arweave_tx_id(tx_id: str) -> bool:
+    """Return True if ``tx_id`` is a valid Arweave transaction ID (43-char base64url).
+
+    Mirrors TS ``validateArweaveTxId`` (sdk-js/src/utils/validation.ts:340-351)
+    which rejects any non-43-char or non-base64url string before any network use.
+    """
+    if not tx_id or not isinstance(tx_id, str):
+        return False
+    return bool(ARWEAVE_TX_ID_PATTERN.match(tx_id))
 
 
 # ============================================================================
