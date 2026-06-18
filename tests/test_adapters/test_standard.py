@@ -48,7 +48,7 @@ class TestStandardCreateTransaction:
         params = StandardTransactionParams(
             provider=provider_address,
             amount="50.50",
-            deadline="24h",
+            deadline="+24h",  # TS canonical "+Nh" form
             description="Test transaction",
         )
 

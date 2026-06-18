@@ -56,8 +56,19 @@ def evaluate_counter(
     message: CounterOfferMessage,
     policy: ProviderPolicy,
     last_quote_amount: Optional[int] = None,
+    requotes_used: int = 0,
 ) -> Verdict:
     """Evaluate a buyer counter-offer against the provider policy.
+
+    .. note::
+       This is the LEGACY v1 ``actp serve`` per-message verdict surface
+       (floor/ideal *band* model, returning ``ACCEPT`` / ``COUNTER`` /
+       ``REJECT``). The CANONICAL TS-parity engine is
+       :class:`agirails.negotiation.provider_policy.ProviderPolicyEngine`
+       (``evaluate_counter`` returns ``accept`` / ``reject`` / ``requote``,
+       byte-identical to ``sdk-js/src/negotiation/ProviderPolicy.ts``). New
+       code should prefer that engine. This function is retained so the v1
+       daemon + its tests keep working.
 
     **Policy fields used by v1 counter-evaluation:**
 
@@ -65,6 +76,9 @@ def evaluate_counter(
       - ``pricing.ideal_amount``           (auto-accept threshold)
       - ``counter_strategy``               ('walk' | 'concede')
       - ``concede_pct``                    (governs COUNTER recommendation)
+      - ``max_requotes``                   (defense-in-depth concede cap;
+        enforced here when ``requotes_used`` is supplied — mirrors
+        ProviderPolicy.ts:332-338)
 
     **Policy fields stored but NOT enforced by this function:**
 
@@ -76,9 +90,6 @@ def evaluate_counter(
         deadline (``tx.deadline``), which is not carried in the
         AIP-2.1 counter-offer message. Enforced at quote-time and on
         chain.
-      - ``max_requotes`` — session-level cap on how many times the
-        provider re-quotes. Tracked by the orchestrator state machine
-        (out of scope for this stateless per-message evaluator).
 
     Args:
         message: The verified counter-offer (caller must have already
@@ -88,6 +99,11 @@ def evaluate_counter(
             (USDC base units). Used by the concede strategy to compute
             the next counter. When omitted, falls back to
             ``policy.pricing.ideal_amount``.
+        requotes_used: How many re-quotes the orchestrator has already
+            sent for this tx. When ``>= policy.max_requotes`` an in-band
+            concede is REJECTED (defense-in-depth cap — a misbehaving
+            buyer cannot drive unbounded re-quotes). Defaults to 0 so
+            existing callers are unaffected.
 
     Returns:
         :class:`Verdict` with action + reason + optional recommended_amount.
@@ -120,6 +136,19 @@ def evaluate_counter(
             reason=(
                 f"counter ({counter}) in negotiation band [{floor}, "
                 f"{ideal}) but strategy='walk' — provider declines"
+            ),
+        )
+
+    # 'concede' — defense-in-depth requote cap (ProviderPolicy.ts:332-338):
+    # if the orchestrator has already spent its re-quote budget, stop
+    # responding rather than letting a misbehaving buyer drive unbounded
+    # re-quotes.
+    if requotes_used >= policy.max_requotes:
+        return Verdict(
+            action=VerdictAction.REJECT,
+            reason=(
+                f"counter ({counter}) in negotiation band but requote budget "
+                f"exhausted ({requotes_used}/{policy.max_requotes})"
             ),
         )
 

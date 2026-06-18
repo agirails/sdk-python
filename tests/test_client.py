@@ -168,7 +168,7 @@ class TestBasicAdapterSmartWalletRouting:
             contract_addresses=contracts,
         )
         result = await adapter.pay(
-            BasicPayParams(to="0x" + "4" * 40, amount="1.50", deadline="1h")
+            BasicPayParams(to="0x" + "4" * 40, amount="1.50", deadline="+1h")
         )
 
         assert wallet.pay_actp_batched.call_count == 1
@@ -197,7 +197,7 @@ class TestBasicAdapterSmartWalletRouting:
 
         adapter = BasicAdapter(runtime, "0x" + "5" * 40, None)
         result = await adapter.pay(
-            BasicPayParams(to="0x" + "6" * 40, amount="2.00", deadline="1h")
+            BasicPayParams(to="0x" + "6" * 40, amount="2.00", deadline="+1h")
         )
 
         assert runtime.create_transaction.call_count == 1
@@ -234,7 +234,7 @@ class TestBasicAdapterSmartWalletRouting:
             contract_addresses=contracts,
         )
         await adapter.pay(
-            BasicPayParams(to="0x" + "6" * 40, amount="1.00", deadline="1h")
+            BasicPayParams(to="0x" + "6" * 40, amount="1.00", deadline="+1h")
         )
 
         assert runtime.create_transaction.call_count == 1

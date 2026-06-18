@@ -1058,3 +1058,181 @@ class TestRequestHandleWait:
 
         # Should have progress calls during polling
         assert len(progress_calls) >= 1
+
+
+class TestRequestRoutingKeyParity:
+    """
+    PARITY: request() must emit the bytes32 keccak routing key, not a JSON blob.
+
+    Source of truth: TS level0/request.ts:127-161.
+      - request.ts:145  serviceHash = keccak256(toUtf8Bytes(validatedService))
+      - request.ts:160  createTransaction({ serviceDescription: serviceHash })
+      - BlockchainRuntime.ts:1162-1178 passes a valid bytes32 through unchanged,
+        so the on-chain serviceHash == keccak256(utf8(service)).
+
+    Python path: request() passes the *plain validated service name* as
+    service_description; blockchain_runtime.py:386 then hashes it once with
+    w3.keccak(text=...), landing the identical on-chain serviceHash. Both SDKs
+    must produce the SAME bytes32 — and that value must equal the provider's
+    PRIMARY routing key (provider.py:226-229 / _extract_service_name PRIMARY).
+    """
+
+    @staticmethod
+    def _expected_routing_key(service: str) -> str:
+        """keccak256(utf8(service)) lowercased 0x-hex — the TS routing key."""
+        from eth_hash.auto import keccak
+
+        return ("0x" + keccak(service.encode("utf-8")).hex()).lower()
+
+    @pytest.mark.asyncio
+    async def test_request_emits_plain_name_not_json_blob(self):
+        """
+        request() must NOT pass a JSON blob as service_description.
+
+        Pre-fix it passed json.dumps({service, input, timestamp}); the on-chain
+        hash was keccak256(JSON) which never matched the provider. We now pass
+        the plain service name so the runtime hashes it to the routing key.
+        """
+        set_request_client(None)
+
+        captured = {}
+
+        async def capture_create(params):
+            captured["service_description"] = params.service_description
+            return "0xtxROUTE"
+
+        mock_client = MagicMock()
+        mock_client.runtime = MagicMock()
+        mock_client.runtime.create_transaction = AsyncMock(side_effect=capture_create)
+
+        mock_tx = MagicMock()
+        mock_tx.state = "DELIVERED"
+        mock_tx.provider = "0xp"
+        mock_tx.deliveryProof = json.dumps({"type": "delivery.proof", "result": "ok"})
+        mock_client.runtime.get_transaction = AsyncMock(return_value=mock_tx)
+
+        set_request_client(mock_client)
+        try:
+            await request(
+                "translation",
+                input={"text": "Hello", "from": "en", "to": "de"},
+                budget=1.0,
+                timeout=1000,
+            )
+        finally:
+            set_request_client(None)
+
+        desc = captured["service_description"]
+        # Must be the plain validated service name — NOT a JSON blob.
+        assert desc == "translation"
+        # Explicitly reject the legacy JSON-blob shape.
+        assert not desc.startswith("{")
+        assert '"service"' not in desc
+        assert '"input"' not in desc
+        assert '"timestamp"' not in desc
+
+    @pytest.mark.asyncio
+    async def test_on_chain_hash_equals_provider_primary_key(self):
+        """
+        The serviceHash the chain derives from request()'s service_description
+        must equal the provider's PRIMARY routing key.
+
+        blockchain_runtime hashes service_description with w3.keccak(text=...),
+        so keccak256(utf8(service_description)) must equal the provider's
+        registered keccak256(utf8(name)).
+        """
+        from agirails.level0.provider import Provider
+
+        set_request_client(None)
+
+        captured = {}
+
+        async def capture_create(params):
+            captured["service_description"] = params.service_description
+            return "0xtxHASH"
+
+        mock_client = MagicMock()
+        mock_client.runtime = MagicMock()
+        mock_client.runtime.create_transaction = AsyncMock(side_effect=capture_create)
+
+        mock_tx = MagicMock()
+        mock_tx.state = "DELIVERED"
+        mock_tx.provider = "0xp"
+        mock_tx.deliveryProof = json.dumps({"type": "delivery.proof", "result": "ok"})
+        mock_client.runtime.get_transaction = AsyncMock(return_value=mock_tx)
+
+        set_request_client(mock_client)
+        try:
+            await request("echo", input={"msg": "hi"}, budget=1.0, timeout=1000)
+        finally:
+            set_request_client(None)
+
+        desc = captured["service_description"]
+
+        # Chain derives serviceHash = keccak256(utf8(service_description)).
+        from eth_hash.auto import keccak
+
+        on_chain_hash = ("0x" + keccak(desc.encode("utf-8")).hex()).lower()
+
+        # Provider registers keccak256(utf8(name)) as its PRIMARY routing key.
+        provider = Provider()
+        provider.register_service("echo", lambda job: job)
+        provider_primary_key = next(iter(provider._service_name_by_hash.keys()))
+
+        # Requester-emitted key MUST equal provider PRIMARY key (the whole point).
+        assert on_chain_hash == provider_primary_key
+        # And both equal the canonical TS routing key.
+        assert on_chain_hash == self._expected_routing_key("echo")
+
+    @pytest.mark.asyncio
+    async def test_round_trip_provider_resolves_emitted_key(self):
+        """
+        End-to-end: the bytes32 key request() causes on-chain resolves back to
+        the same service name on the provider's PRIMARY path.
+        """
+        from agirails.level0.provider import Provider
+
+        provider = Provider()
+        provider.register_service("image-gen", lambda job: job)
+
+        # Simulate the on-chain serviceHash a BlockchainRuntime tx would carry:
+        # keccak256(utf8(service_description)) where service_description="image-gen".
+        from eth_hash.auto import keccak
+
+        on_chain_hash = ("0x" + keccak("image-gen".encode("utf-8")).hex()).lower()
+
+        # Provider PRIMARY path (bytes32) must resolve to the registered name.
+        tx = {"serviceDescription": on_chain_hash}
+        assert provider._extract_service_name(tx) == "image-gen"
+
+    @pytest.mark.asyncio
+    async def test_input_not_transported_warns(self):
+        """
+        4.0.0 parity (TS request.ts:139-144): non-None input is not transported;
+        request() warns and the handler will receive job.input = {}.
+        """
+        set_request_client(None)
+
+        mock_client = MagicMock()
+        mock_client.runtime = MagicMock()
+        mock_client.runtime.create_transaction = AsyncMock(return_value="0xtxWARN")
+
+        mock_tx = MagicMock()
+        mock_tx.state = "DELIVERED"
+        mock_tx.provider = "0xp"
+        mock_tx.deliveryProof = json.dumps({"type": "delivery.proof", "result": "ok"})
+        mock_client.runtime.get_transaction = AsyncMock(return_value=mock_tx)
+
+        set_request_client(mock_client)
+        try:
+            with patch("agirails.level0.request._logger") as mock_logger:
+                await request("echo", input={"msg": "hi"}, budget=1.0, timeout=1000)
+                # warning() called at least once mentioning input is not transported
+                warned = any(
+                    "not transported" in str(c.args[0])
+                    for c in mock_logger.warning.call_args_list
+                    if c.args
+                )
+                assert warned
+        finally:
+            set_request_client(None)

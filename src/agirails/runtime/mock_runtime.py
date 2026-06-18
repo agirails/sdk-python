@@ -10,7 +10,10 @@ from __future__ import annotations
 import hashlib
 import time
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from agirails.builders.quote import QuoteMessage
 
 from agirails.errors import (
     TransactionNotFoundError,
@@ -450,6 +453,37 @@ class MockRuntime(IMockRuntime):
             if proof:
                 tx.delivery_proof = proof  # PARITY: TS uses 'deliveryProof'
 
+            # Handle escrow refund on CANCELLED state.
+            # PARITY: MockRuntime.ts:734-773 — refund the requester, zero out
+            # the escrow, and emit EscrowRefunded. The Python escrow model uses
+            # `amount` + `released` (vs TS `balance`/`locked`); an un-released
+            # escrow whose amount > 0 is the effective live balance.
+            if new_state == State.CANCELLED and tx.escrow_id is not None:
+                escrow = state.escrows.get(tx.escrow_id)
+                if escrow is not None and not escrow.released and int(escrow.amount) > 0:
+                    refund_amount = int(escrow.amount)
+
+                    # Return funds to requester (create the balance slot if absent)
+                    requester_key = tx.requester.lower()
+                    requester_balance = int(state.balances.get(requester_key, "0"))
+                    state.balances[requester_key] = str(requester_balance + refund_amount)
+
+                    # Clear escrow balance (released=True ⇒ get_escrow_balance → "0",
+                    # mirroring TS clearing escrow.balance to '0' and locked=False).
+                    escrow.released = True
+
+                    # Record EscrowRefunded event (TS MockEvent shape)
+                    self._emit_event(
+                        state,
+                        "EscrowRefunded",
+                        tx_id,
+                        {
+                            "escrowId": tx.escrow_id,
+                            "requester": tx.requester,
+                            "amount": str(refund_amount),
+                        },
+                    )
+
             # Emit event
             self._emit_event(
                 state,
@@ -532,6 +566,59 @@ class MockRuntime(IMockRuntime):
             return state
 
         await self._state_manager.with_lock(accept)
+
+    async def submit_quote(self, tx_id: str, quote: "QuoteMessage") -> None:
+        """Submit an AIP-2 price quote: INITIATED → QUOTED with the canonical
+        quote hash stored on the transaction.
+
+        PARITY: MockRuntime.ts:862-890. AIP-2.1 designates this as the only
+        sanctioned entry point for reaching QUOTED. The canonical hash is
+        ``keccak256`` of the verifier-authoritative QuoteMessage shape
+        (signature stripped) — reuses the ported :class:`QuoteBuilder`
+        ``compute_hash`` so mock-mode buyers run the exact cross-reference
+        check they'd run against on-chain anchored quote metadata.
+
+        Raw ``transition_state(tx_id, 'QUOTED', custom_proof)`` still works
+        for backward compatibility but produces a hash the buyer-side
+        verifier cannot reconstruct from the QuoteMessage (legacy path).
+
+        Args:
+            tx_id: Transaction ID (must be in INITIATED state).
+            quote: The signer-independent ``QuoteMessage`` to anchor.
+
+        Raises:
+            TransactionNotFoundError: If transaction doesn't exist.
+            InvalidStateTransitionError: If not in INITIATED state.
+        """
+        await self._ensure_initialized()
+
+        # Compute the canonical hash off the verifier-authoritative shape.
+        # compute_hash is signer-independent (strips the signature before
+        # hashing) so a no-arg builder yields the same hash any verifier
+        # computes. PARITY: MockRuntime.ts:867-868.
+        from agirails.builders.quote import QuoteBuilder
+
+        quote_hash = QuoteBuilder().compute_hash(quote)
+
+        async def stamp(state: MockState) -> MockState:
+            tx = state.transactions.get(tx_id)
+            if tx is None:
+                raise TransactionNotFoundError(tx_id)
+            if tx.state != State.INITIATED:
+                raise InvalidStateTransitionError(
+                    tx.state.value,
+                    State.QUOTED.value,
+                    tx_id=tx_id,
+                )
+            tx.quote_hash = quote_hash
+            return state
+
+        await self._state_manager.with_lock(stamp)
+
+        # transition_state handles the actual state bump + event emission.
+        # Passing the hash as `proof` for parity with BlockchainRuntime where
+        # the kernel reads the same bytes. PARITY: MockRuntime.ts:889.
+        await self.transition_state(tx_id, State.QUOTED, quote_hash)
 
     async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
         """Get a transaction by ID."""

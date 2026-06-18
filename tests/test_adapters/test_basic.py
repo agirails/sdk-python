@@ -99,7 +99,7 @@ class TestBasicPay:
         result = await client.basic.pay({
             "to": provider_address,
             "amount": 50,
-            "deadline": "48h",  # 48 hours
+            "deadline": "+48h",  # 48 hours (TS canonical "+Nh" form)
         })
 
         assert result.tx_id is not None

@@ -12,6 +12,7 @@ All adapters inherit from BaseAdapter.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import TYPE_CHECKING, Optional, Union
 
@@ -26,8 +27,16 @@ if TYPE_CHECKING:
 DEFAULT_DEADLINE_SECONDS = 86400  # 24 hours
 DEFAULT_DISPUTE_WINDOW_SECONDS = 172800  # 2 days
 MIN_AMOUNT_WEI = 50_000  # $0.05 USDC
-MAX_DEADLINE_HOURS = 168  # 7 days
-MAX_DEADLINE_DAYS = 30
+
+# Maximum deadline bounds (10 years) — mirrors TS BaseAdapter.ts:62,68.
+# Prevents integer overflow in deadline calculations.
+MAX_DEADLINE_HOURS = 87600  # 10 years
+MAX_DEADLINE_DAYS = 3650  # 10 years
+
+# Relative deadline pattern: "+Nh" or "+Nd" only.
+# Mirrors TS BaseAdapter.ts:284  deadline.match(/^\+(\d+)(h|d)$/)
+# re.ASCII keeps \d ASCII-only, matching JS's ASCII \d (no Unicode digits).
+_RELATIVE_DEADLINE_RE = re.compile(r"^\+(\d+)(h|d)$", re.ASCII)
 
 
 class BaseAdapter:
@@ -133,101 +142,96 @@ class BaseAdapter:
 
         return str(wei)
 
-    def parse_deadline(self, deadline: Optional[Union[str, int]] = None) -> int:
+    def parse_deadline(
+        self,
+        deadline: Optional[Union[str, int]] = None,
+        current_time: Optional[int] = None,
+    ) -> int:
         """
-        Parse deadline to Unix timestamp.
+        Parse deadline from relative time expression or Unix timestamp.
+
+        Mirrors TS ``BaseAdapter.parseDeadline`` (sdk-js/src/adapters/BaseAdapter.ts:271)
+        byte-for-byte:
 
         Accepts:
-        - None: Default (24 hours from now)
-        - Integer: Unix timestamp or seconds from now (auto-detected)
-        - String: ISO date, or relative like "1h", "24h", "7d"
+        - None         -> now + 24 hours (default)
+        - 1734076400   -> int passed through verbatim as a Unix timestamp
+        - "+1h"        -> now + 1 hour
+        - "+24h"       -> now + 24 hours
+        - "+7d"        -> now + 7 days
+
+        Rejects (raises ValidationError):
+        - "24h" / "7d" (bare, no ``+`` prefix)
+        - "-24h"       (negative / wrong format)
+        - "invalid"    (unparseable)
+        - "+99999h"    (beyond 10-year bound, ``MAX_DEADLINE_HOURS``)
 
         Args:
-            deadline: Deadline in various formats
+            deadline: Deadline as relative time string, Unix timestamp, or None.
+            current_time: Current time in seconds. Defaults to runtime/system time.
 
         Returns:
-            Unix timestamp in seconds
+            Unix timestamp in seconds.
 
         Raises:
-            ValidationError: If deadline is invalid or in the past
+            ValidationError: If deadline format is invalid.
         """
-        now = self._get_current_time()
+        # TS: const now = currentTime ?? Math.floor(Date.now() / 1000)
+        now = current_time if current_time is not None else self._get_current_time()
 
-        # Default: 24 hours from now
+        # TS: if (deadline === undefined) return now + DEFAULT_DEADLINE_SECONDS
         if deadline is None:
             return now + DEFAULT_DEADLINE_SECONDS
 
-        # Integer handling
-        if isinstance(deadline, int):
-            # If small number, interpret as hours from now
-            if deadline <= MAX_DEADLINE_HOURS:
-                return now + (deadline * 3600)
-            # If slightly larger, interpret as days from now
-            if deadline <= MAX_DEADLINE_DAYS:
-                return now + (deadline * 86400)
-            # Otherwise it's a timestamp
-            if deadline <= now:
-                raise ValidationError(
-                    message="Deadline must be in the future",
-                    details={"deadline": deadline, "current_time": now},
-                )
+        # TS: if (typeof deadline === 'number') return deadline
+        # bool is a subclass of int in Python; exclude it so True/False are not
+        # silently treated as 1/0 timestamps.
+        if isinstance(deadline, int) and not isinstance(deadline, bool):
             return deadline
 
-        # String handling
-        if isinstance(deadline, str):
-            # Check for relative format like "1h", "24h", "7d"
-            deadline_lower = deadline.lower().strip()
-
-            # Hours format: "1h", "24h"
-            if deadline_lower.endswith("h"):
-                try:
-                    hours = int(deadline_lower[:-1])
-                    if hours <= 0:
-                        raise ValidationError(message="Hours must be positive")
-                    return now + (hours * 3600)
-                except ValueError:
-                    pass
-
-            # Days format: "1d", "7d"
-            if deadline_lower.endswith("d"):
-                try:
-                    days = int(deadline_lower[:-1])
-                    if days <= 0:
-                        raise ValidationError(message="Days must be positive")
-                    return now + (days * 86400)
-                except ValueError:
-                    pass
-
-            # ISO date format
-            try:
-                return Deadline.at(deadline)
-            except Exception:
-                pass
-
-            # Try parsing as integer timestamp
-            try:
-                ts = int(deadline)
-                if ts <= now:
-                    raise ValidationError(
-                        message="Deadline must be in the future",
-                        details={"deadline": ts, "current_time": now},
-                    )
-                return ts
-            except ValueError:
-                pass
-
+        if not isinstance(deadline, str):
             raise ValidationError(
-                message=f"Invalid deadline format: {deadline}",
-                details={
-                    "deadline": deadline,
-                    "hint": "Use: integer timestamp, '24h', '7d', or ISO date string",
-                },
+                message=(
+                    f'Invalid deadline format: "{deadline}". '
+                    'Expected Unix timestamp or relative time (e.g., "+24h", "+7d")'
+                ),
+                details={"deadline": str(deadline)},
             )
 
-        raise ValidationError(
-            message=f"Invalid deadline type: {type(deadline).__name__}",
-            details={"deadline": str(deadline)},
-        )
+        # TS: const match = deadline.match(/^\+(\d+)(h|d)$/)
+        match = _RELATIVE_DEADLINE_RE.match(deadline)
+        if not match:
+            raise ValidationError(
+                message=(
+                    f'Invalid deadline format: "{deadline}". '
+                    'Expected Unix timestamp or relative time (e.g., "+24h", "+7d")'
+                ),
+                details={"deadline": deadline},
+            )
+
+        amount = int(match.group(1))
+        unit = match.group(2)
+
+        # TS H1 Fix: bounds check to prevent integer overflow.
+        if unit == "h" and amount > MAX_DEADLINE_HOURS:
+            raise ValidationError(
+                message=(
+                    f'Deadline too far in future: "{deadline}". '
+                    f"Maximum is 10 years ({MAX_DEADLINE_HOURS}h)"
+                ),
+                details={"deadline": deadline, "maximum_hours": MAX_DEADLINE_HOURS},
+            )
+        if unit == "d" and amount > MAX_DEADLINE_DAYS:
+            raise ValidationError(
+                message=(
+                    f'Deadline too far in future: "{deadline}". '
+                    f"Maximum is 10 years ({MAX_DEADLINE_DAYS}d)"
+                ),
+                details={"deadline": deadline, "maximum_days": MAX_DEADLINE_DAYS},
+            )
+
+        multiplier = 3600 if unit == "h" else 86400
+        return now + amount * multiplier
 
     def format_amount(self, wei: Union[int, str]) -> str:
         """

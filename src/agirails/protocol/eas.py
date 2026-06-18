@@ -169,7 +169,16 @@ SCHEMA_REGISTRY_ABI = [
 # Schema: bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt
 DELIVERY_SCHEMA_AIP6 = "bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt"
 
-# Legacy AIP-4 schema (for backwards compatibility)
+# Legacy AIP-4 schema (TS source of truth: EASHelper.ts:92-103 attestDeliveryProof encode)
+# Schema: bytes32 txId, bytes32 contentHash, uint256 timestamp, string deliveryUrl, uint256 size, string mimeType
+# This is the canonical legacy AIP-4 layout that the TS SDK both ENCODES and DECODES.
+DELIVERY_SCHEMA_AIP4_LEGACY = (
+    "bytes32 txId, bytes32 contentHash, uint256 timestamp, "
+    "string deliveryUrl, uint256 size, string mimeType"
+)
+
+# Legacy Python-only AIP-4 schema (backwards compat for Python-emitted attestations only;
+# NO TS twin — kept so attestations produced by create_delivery_attestation_aip4() still decode)
 DELIVERY_SCHEMA_AIP4 = "bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp"
 
 # Default to AIP-6 for new registrations
@@ -254,31 +263,49 @@ class DeliveryAttestationData:
     """
     Decoded delivery attestation data.
 
-    Supports both AIP-6 (current) and AIP-4 (legacy) schema formats.
+    Supports the same schema set the TS SDK decodes (EASHelper.ts:240-337) plus the
+    legacy Python-only AIP-4 layout for backwards compatibility:
 
-    AIP-6 fields: transaction_id, result_cid, result_hash, delivered_at
-    AIP-4 fields: transaction_id, output_hash, provider, timestamp
+    - "aip6"        : bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt
+    - "aip6-test"   : + uint256 testTimestamp (DX Playground test schema)
+    - "aip4-legacy" : bytes32 txId, bytes32 contentHash, uint256 timestamp,
+                      string deliveryUrl, uint256 size, string mimeType (TS attestDeliveryProof)
+    - "aip4"        : bytes32 transactionId, bytes32 outputHash, address provider,
+                      uint64 timestamp (Python-only legacy, no TS twin)
 
     Attributes:
-        transaction_id: ACTP transaction ID (both formats)
+        transaction_id: ACTP transaction ID (all formats)
+        result_hash: Hash of the result (AIP-6: resultHash; aip4: outputHash;
+            aip4-legacy: contentHash)
+        delivered_at: Delivery/legacy timestamp
         result_cid: IPFS CID of result (AIP-6 only)
-        result_hash: Hash of the result (AIP-6) or output (AIP-4)
-        delivered_at: Delivery timestamp (AIP-6) or legacy timestamp
-        provider: Provider address (AIP-4 only, None for AIP-6)
-        schema_version: "aip6" or "aip4"
+        provider: Provider address (Python AIP-4 only, None otherwise)
+        content_hash: Content hash (aip4-legacy only, alias of result_hash)
+        delivery_url: Delivery URL (aip4-legacy only)
+        size: Payload size in bytes (aip4-legacy only)
+        mime_type: MIME type (aip4-legacy only)
+        schema_version: "aip6" | "aip6-test" | "aip4-legacy" | "aip4"
     """
 
     transaction_id: str
-    result_hash: str  # AIP-6: resultHash, AIP-4: outputHash
+    result_hash: str  # AIP-6: resultHash, AIP-4: outputHash, aip4-legacy: contentHash
     delivered_at: int  # AIP-6: deliveredAt, AIP-4: timestamp
     result_cid: Optional[str] = None  # AIP-6 only
-    provider: Optional[str] = None  # AIP-4 only
+    provider: Optional[str] = None  # Python AIP-4 only
+    delivery_url: Optional[str] = None  # aip4-legacy only
+    size: Optional[int] = None  # aip4-legacy only
+    mime_type: Optional[str] = None  # aip4-legacy only
     schema_version: str = "aip6"
 
     # Backwards compatibility aliases
     @property
     def output_hash(self) -> str:
         """Alias for result_hash (AIP-4 compatibility)."""
+        return self.result_hash
+
+    @property
+    def content_hash(self) -> str:
+        """Alias for result_hash (aip4-legacy compatibility)."""
         return self.result_hash
 
     @property
@@ -298,6 +325,12 @@ class DeliveryAttestationData:
             base["resultCID"] = self.result_cid
         if self.provider:
             base["provider"] = self.provider
+        if self.delivery_url is not None:
+            base["deliveryUrl"] = self.delivery_url
+        if self.size is not None:
+            base["size"] = self.size
+        if self.mime_type is not None:
+            base["mimeType"] = self.mime_type
         # Legacy aliases
         base["outputHash"] = self.result_hash
         base["timestamp"] = self.delivered_at
@@ -491,6 +524,30 @@ class EASHelper:
             [tx_id_bytes, output_bytes, provider_addr, timestamp],
         )
 
+    @staticmethod
+    def _encode_delivery_data_aip4_legacy(
+        transaction_id: str,
+        content_hash: str,
+        timestamp: int,
+        delivery_url: str,
+        size: int,
+        mime_type: str,
+    ) -> bytes:
+        """
+        Encode delivery attestation data in the legacy AIP-4 format that the TS SDK
+        emits (EASHelper.ts:92-103 attestDeliveryProof).
+
+        Schema: bytes32 txId, bytes32 contentHash, uint256 timestamp,
+                string deliveryUrl, uint256 size, string mimeType
+        """
+        tx_id_bytes = bytes.fromhex(transaction_id.replace("0x", "")).ljust(32, b"\x00")
+        content_bytes = bytes.fromhex(content_hash.replace("0x", "")).ljust(32, b"\x00")
+
+        return encode(
+            ["bytes32", "bytes32", "uint256", "string", "uint256", "string"],
+            [tx_id_bytes, content_bytes, timestamp, delivery_url or "", size, mime_type],
+        )
+
     def _encode_delivery_data(
         self,
         transaction_id: str,
@@ -511,14 +568,58 @@ class EASHelper:
         """
         Decode delivery attestation data.
 
-        Tries AIP-6 format first, then falls back to AIP-4 for backwards compatibility.
+        Mirrors the TS SDK decode order byte-for-byte (EASHelper.ts:240-337):
 
-        AIP-6: bytes32 txId, string resultCID, bytes32 resultHash, uint256 deliveredAt
-        AIP-4: bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp
+        1. AIP-6 test schema:  bytes32 txId, string resultCID, bytes32 resultHash,
+                               uint256 deliveredAt, uint256 testTimestamp
+        2. AIP-6 official:     bytes32 txId, string resultCID, bytes32 resultHash,
+                               uint256 deliveredAt
+        3. AIP-4 legacy (TS):  bytes32 txId, bytes32 contentHash, uint256 timestamp,
+                               string deliveryUrl, uint256 size, string mimeType
+
+        Then, as a Python-only backwards-compat tail (NO TS twin):
+
+        4. AIP-4 legacy (py):  bytes32 transactionId, bytes32 outputHash,
+                               address provider, uint64 timestamp
         """
+        import re
+
         from eth_abi import decode
 
-        # Try AIP-6 format first (current mainnet standard)
+        bytes32_pattern = re.compile(r"^0x[a-fA-F0-9]{64}$")
+        now = int(time.time())
+
+        # 1. AIP-6 test schema first (5-field, with testTimestamp) — TS EASHelper.ts:247-269
+        try:
+            decoded = decode(
+                ["bytes32", "string", "bytes32", "uint256", "uint256"],
+                data,
+            )
+            tx_id = "0x" + decoded[0].hex()
+            result_cid = decoded[1]
+            result_hash = "0x" + decoded[2].hex()
+            delivered_at = int(decoded[3])
+
+            if not bytes32_pattern.match(tx_id):
+                raise ValueError(f"Decoded txId is not valid bytes32: {tx_id}")
+            if not isinstance(result_cid, str) or len(result_cid) == 0 or len(result_cid) > 2048:
+                raise ValueError(f"Decoded resultCID invalid length: {len(result_cid)}")
+            if not bytes32_pattern.match(result_hash):
+                raise ValueError(f"Decoded resultHash is not valid bytes32: {result_hash}")
+            if delivered_at > now + 86400:
+                raise ValueError(f"Decoded deliveredAt is in far future: {delivered_at}")
+
+            return DeliveryAttestationData(
+                transaction_id=tx_id,
+                result_cid=result_cid,
+                result_hash=result_hash,
+                delivered_at=delivered_at,
+                schema_version="aip6-test",
+            )
+        except Exception:
+            pass
+
+        # 2. AIP-6 official schema (4-field) — TS EASHelper.ts:272-294
         try:
             decoded = decode(
                 ["bytes32", "string", "bytes32", "uint256"],
@@ -529,13 +630,14 @@ class EASHelper:
             result_hash = "0x" + decoded[2].hex()
             delivered_at = int(decoded[3])
 
-            # Validate decoded values
-            if not tx_id or len(tx_id) != 66:
-                raise ValueError("Invalid txId")
-            if not isinstance(result_cid, str) or len(result_cid) > 2048:
-                raise ValueError("Invalid resultCID")
-            if not result_hash or len(result_hash) != 66:
-                raise ValueError("Invalid resultHash")
+            if not bytes32_pattern.match(tx_id):
+                raise ValueError(f"Decoded txId is not valid bytes32: {tx_id}")
+            if not isinstance(result_cid, str) or len(result_cid) == 0 or len(result_cid) > 2048:
+                raise ValueError(f"Decoded resultCID invalid length: {len(result_cid)}")
+            if not bytes32_pattern.match(result_hash):
+                raise ValueError(f"Decoded resultHash is not valid bytes32: {result_hash}")
+            if delivered_at > now + 86400:
+                raise ValueError(f"Decoded deliveredAt is in far future: {delivered_at}")
 
             return DeliveryAttestationData(
                 transaction_id=tx_id,
@@ -547,7 +649,48 @@ class EASHelper:
         except Exception:
             pass
 
-        # Fallback to AIP-4 format (legacy)
+        # 3. Legacy AIP-4 schema (TS source of truth) — TS EASHelper.ts:296-327
+        # bytes32 txId, bytes32 contentHash, uint256 timestamp,
+        # string deliveryUrl, uint256 size, string mimeType
+        try:
+            decoded = decode(
+                ["bytes32", "bytes32", "uint256", "string", "uint256", "string"],
+                data,
+            )
+            tx_id = "0x" + decoded[0].hex()
+            content_hash = "0x" + decoded[1].hex()
+            timestamp = int(decoded[2])
+            delivery_url = decoded[3]
+            size = int(decoded[4])
+            mime_type = decoded[5]
+
+            if not bytes32_pattern.match(tx_id):
+                raise ValueError(f"Decoded txId is not valid bytes32: {tx_id}")
+            if not bytes32_pattern.match(content_hash):
+                raise ValueError(f"Decoded contentHash is not valid bytes32: {content_hash}")
+            if timestamp > now + 86400:
+                raise ValueError(f"Decoded timestamp is in far future: {timestamp}")
+            if not isinstance(delivery_url, str) or len(delivery_url) > 2048:
+                raise ValueError("Decoded deliveryUrl too long")
+            if size < 0:
+                raise ValueError(f"Decoded size is negative: {size}")
+            if not isinstance(mime_type, str) or len(mime_type) > 256:
+                raise ValueError("Decoded mimeType too long")
+
+            return DeliveryAttestationData(
+                transaction_id=tx_id,
+                result_hash=content_hash,  # contentHash -> result_hash
+                delivered_at=timestamp,  # timestamp -> delivered_at
+                delivery_url=delivery_url,
+                size=size,
+                mime_type=mime_type,
+                schema_version="aip4-legacy",
+            )
+        except Exception:
+            pass
+
+        # 4. Python-only legacy AIP-4 (NO TS twin — kept for backwards compatibility with
+        #    attestations produced by create_delivery_attestation_aip4())
         try:
             decoded = decode(
                 ["bytes32", "bytes32", "address", "uint64"],
@@ -563,9 +706,9 @@ class EASHelper:
         except Exception as e:
             raise ValueError(
                 f"Failed to decode attestation data. "
-                f"Expected AIP-6 (txId, resultCID, resultHash, deliveredAt) or "
-                f"AIP-4 (transactionId, outputHash, provider, timestamp) format. "
-                f"Error: {e}"
+                f"Expected AIP-6 (txId, resultCID, resultHash, deliveredAt[, testTimestamp]) "
+                f"or legacy AIP-4 (txId, contentHash, timestamp, deliveryUrl, size, mimeType) "
+                f"format. Error: {e}"
             )
 
     async def _build_transaction(
@@ -1068,6 +1211,7 @@ __all__ = [
     "DELIVERY_SCHEMA",
     "DELIVERY_SCHEMA_AIP6",
     "DELIVERY_SCHEMA_AIP4",
+    "DELIVERY_SCHEMA_AIP4_LEGACY",
     "ZERO_BYTES32",
     "HAS_WEB3",
 ]

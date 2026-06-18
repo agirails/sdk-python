@@ -19,11 +19,16 @@ Accepts IACTPRuntime for on-chain operations. Caller manages lifecycle.
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
+
+from agirails.builders.quote import QuoteMessage
+from agirails.negotiation.verify_quote_on_chain import (
+    VerifyOnChainResult,
+    verify_quote_hash_on_chain,
+)
 
 from agirails.api.discover import DiscoverAgent, DiscoverParams, discover_agents
 from agirails.negotiation.decision_engine import CandidateStats, DecisionEngine, ScoringWeights
@@ -34,6 +39,19 @@ from agirails.runtime.base import CreateTransactionParams, IACTPRuntime
 # ============================================================================
 # Types
 # ============================================================================
+
+
+@dataclass(frozen=True)
+class RequoteGuardViolation:
+    """A re-quote anchoring violation (TS BuyerOrchestrator.ts:802-844).
+
+    Returned by :meth:`BuyerOrchestrator.check_requote_anchors` when an
+    attacker mutated ``provider`` or ``max_price`` on a re-quote relative to
+    the first (on-chain-anchored) quote. The buyer must CANCEL the tx.
+    """
+
+    rule: Literal["provider_mismatch", "max_price_mismatch"]
+    detail: str
 
 
 @dataclass
@@ -369,12 +387,20 @@ class BuyerOrchestrator:
                         deadline=int(time.time())
                         + quote_ttl_seconds
                         + 3600,  # quote TTL + 1h buffer
-                        service_description=json.dumps(
-                            {
-                                "service": self._policy.task,
-                                "session": session.commerce_session_id,
-                            }
-                        ),
+                        # PRD §5.6 / TS parity (BuyerOrchestrator.ts:444-449): put
+                        # the bytes32 routing key on-chain so it matches what
+                        # Agent.provide(name) registers in handlersByHash. TS sets
+                        # serviceDescription = keccak256(toUtf8Bytes(policy.task));
+                        # the Python BlockchainRuntime hashes service_description
+                        # with w3.keccak(text=...), so passing the RAW task string
+                        # here produces the SAME on-chain serviceHash =
+                        # keccak(task). Pre-4.0.0 this site passed
+                        # json.dumps({service, session}) — the runtime then hashed
+                        # the whole JSON blob, so the on-chain serviceHash could
+                        # never equal keccak(taskName) and provider routing
+                        # silently missed (the exact pre-4.0.0 bug). The session_id
+                        # is no longer carried on-chain; correlation uses txId.
+                        service_description=self._policy.task,
                     )
                 )
             except Exception as err:
@@ -714,6 +740,74 @@ class BuyerOrchestrator:
         return None
 
     @staticmethod
+    def verify_first_quote_on_chain(
+        quote: QuoteMessage,
+        on_chain_hash: str,
+        provider_address: Optional[str] = None,
+        actual_escrow: Optional[str] = None,
+    ) -> VerifyOnChainResult:
+        """Round-0 anchored MITM defense (TS BuyerOrchestrator.ts:780-801).
+
+        On the FIRST quote received over a negotiation channel, the buyer
+        MUST cross-check the off-chain :class:`QuoteMessage` against the hash
+        the provider anchored on-chain at QUOTED. A mismatch means a
+        man-in-the-middle substituted the quote (the channel-level EIP-712
+        verify only proves the provider signed *something*, not that *this* is
+        what was anchored). Callers should CANCEL the tx on ``match is False``.
+
+        Thin wrapper over :func:`verify_quote_hash_on_chain` so the buyer path
+        and tests share one anchored-hash entry point.
+        """
+        return verify_quote_hash_on_chain(
+            quote,
+            on_chain_hash,
+            provider_address=provider_address,
+            actual_escrow=actual_escrow,
+        )
+
+    @staticmethod
+    def check_requote_anchors(
+        current_quote: QuoteMessage,
+        first_quote: QuoteMessage,
+    ) -> Optional[RequoteGuardViolation]:
+        """Re-quote MITM guards (TS BuyerOrchestrator.ts:802-844).
+
+        On a SUBSEQUENT re-quote (round > 0) the channel-level EIP-712 verify
+        cannot catch two attacker-controlled mutations — the same provider can
+        sign anything, including poisoned re-quotes:
+
+          (a) provider DID switched mid-negotiation
+          (b) maxPrice inflated mid-negotiation — without this guard, the
+              buyer's accept-if-affordable last-round branch would compare
+              against the attacker's inflated max and commit above its own
+              policy ceiling. (P0 audit finding.)
+
+        Both anchor to the FIRST quote (which already cross-checked the
+        on-chain hash on round 0 via :meth:`verify_first_quote_on_chain`).
+
+        Returns a :class:`RequoteGuardViolation` describing the first failing
+        anchor (caller should CANCEL the tx), or ``None`` if both anchors hold.
+        """
+        if current_quote.provider != first_quote.provider:
+            return RequoteGuardViolation(
+                rule="provider_mismatch",
+                detail=(
+                    f"Re-quote provider mismatch: {current_quote.provider} "
+                    f"vs original {first_quote.provider}"
+                ),
+            )
+        if current_quote.max_price != first_quote.max_price:
+            return RequoteGuardViolation(
+                rule="max_price_mismatch",
+                detail=(
+                    f"Re-quote maxPrice mismatch: {current_quote.max_price} "
+                    f"vs original {first_quote.max_price} — provider may not "
+                    f"raise the ceiling mid-negotiation"
+                ),
+            )
+        return None
+
+    @staticmethod
     def _to_base_units(amount: float) -> str:
         """Convert a USDC amount (e.g. 0.80) to base units string (e.g. '800000').
 
@@ -727,6 +821,7 @@ __all__ = [
     "BuyerOrchestrator",
     "NegotiationResult",
     "RoundResult",
+    "RequoteGuardViolation",
     "OrchestratorConfig",
     "ProgressEvent",
     "DiscoveryEvent",

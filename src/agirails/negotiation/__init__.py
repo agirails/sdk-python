@@ -100,11 +100,40 @@ from agirails.negotiation.buyer_orchestrator import (
     OrchestratorConfig,
     ProgressEvent,
     QuoteReceivedEvent,
+    RequoteGuardViolation,
     RoundEndEvent,
     RoundResult,
     RoundStartEvent,
     ScoringEvent,
     WaitingQuoteEvent,
+)
+
+# ============================================================================
+# ProviderPolicy (AIP-2.1, TS parity) — provider-side pricing/counter policy.
+# NOTE: provider_policy.ProviderPolicy (human-amount shape) is namespaced here
+# to avoid colliding with server.policy.ProviderPolicy (base-unit v1).
+# ============================================================================
+
+from agirails.negotiation.provider_policy import (
+    CounterEvaluation,
+    IncomingRequest,
+    PriceTerm,
+    ProviderPolicy,
+    ProviderPolicyEngine,
+    ProviderPolicyResult,
+    ProviderPolicyViolation,
+    ProviderPricing,
+    parse_ttl as provider_parse_ttl,
+)
+
+# ============================================================================
+# On-chain quote-hash verification (AIP-2.1 anchoring cross-check)
+# ============================================================================
+
+from agirails.negotiation.verify_quote_on_chain import (
+    VerifyOnChainResult,
+    VerifySource,
+    verify_quote_hash_on_chain,
 )
 
 __all__ = [
@@ -145,4 +174,17 @@ __all__ = [
     "QuoteReceivedEvent",
     "RoundEndEvent",
     "CompleteEvent",
+    "RequoteGuardViolation",
+    # ProviderPolicy (AIP-2.1, TS parity)
+    "ProviderPolicyEngine",
+    "ProviderPolicyViolation",
+    "ProviderPolicyResult",
+    "IncomingRequest",
+    "CounterEvaluation",
+    "PriceTerm",
+    "ProviderPricing",
+    # On-chain quote-hash verification
+    "verify_quote_hash_on_chain",
+    "VerifyOnChainResult",
+    "VerifySource",
 ]

@@ -127,6 +127,10 @@ class AgentProfile:
         registered_at: Registration timestamp
         updated_at: Last update timestamp
         is_active: Whether agent is currently active
+        config_hash: keccak256 of the published AGIRAILS.md config (bytes32 hex);
+            zero hash means no config published
+        config_cid: IPFS CID pointing to the published AGIRAILS.md config
+        listed: Whether the agent appears on the public launchpad listing
     """
 
     address: str
@@ -141,6 +145,9 @@ class AgentProfile:
     registered_at: int = 0
     updated_at: int = 0
     is_active: bool = True
+    config_hash: str = "0x" + "00" * 32
+    config_cid: str = ""
+    listed: bool = False
 
     @property
     def reputation_percentage(self) -> float:
@@ -182,15 +189,47 @@ class AgentProfile:
             "registeredAt": self.registered_at,
             "updatedAt": self.updated_at,
             "isActive": self.is_active,
+            "configHash": self.config_hash,
+            "configCID": self.config_cid,
+            "listed": self.listed,
         }
 
     @classmethod
     def from_tuple(cls, data: tuple) -> "AgentProfile":
-        """Create from contract tuple."""
+        """Create from contract tuple.
+
+        Mirrors the 15-field ``getAgent`` AgentProfile struct from the
+        AgentRegistry v2 ABI (sdk-js/src/abi/AgentRegistry.json getAgent
+        components): agentAddress, did, endpoint, serviceTypes, stakedAmount,
+        reputationScore, totalTransactions, disputedTransactions,
+        totalVolumeUSDC, registeredAt, updatedAt, isActive, configHash,
+        configCID, listed.
+
+        The on-chain ``getAgent``/``getAgentByDID`` return the struct (with
+        ``serviceTypes`` at index 3), while ``agents(address)`` returns the
+        flattened storage struct WITHOUT ``serviceTypes`` (14 fields). This
+        decoder targets the struct return path used by ``get_agent``.
+        Trailing config fields are optional so legacy 12-field tuples still
+        decode for backward compatibility.
+        """
         service_types = [
             "0x" + st.hex() if isinstance(st, bytes) else st
             for st in data[3]
         ]
+
+        # Config fields (AgentRegistry v2). bytes32 configHash arrives as raw
+        # bytes from web3.py; normalize to 0x-hex to match TS string handling.
+        config_hash = "0x" + "00" * 32
+        config_cid = ""
+        listed = False
+        if len(data) > 12:
+            ch = data[12]
+            config_hash = "0x" + ch.hex() if isinstance(ch, bytes) else ch
+        if len(data) > 13:
+            config_cid = data[13]
+        if len(data) > 14:
+            listed = data[14]
+
         return cls(
             address=data[0],
             did=data[1],
@@ -204,6 +243,9 @@ class AgentProfile:
             registered_at=data[9],
             updated_at=data[10],
             is_active=data[11],
+            config_hash=config_hash,
+            config_cid=config_cid,
+            listed=listed,
         )
 
 
@@ -266,6 +308,9 @@ def _load_agent_registry_abi() -> List[Dict[str, Any]]:
                         {"name": "registeredAt", "type": "uint256"},
                         {"name": "updatedAt", "type": "uint256"},
                         {"name": "isActive", "type": "bool"},
+                        {"name": "configHash", "type": "bytes32"},
+                        {"name": "configCID", "type": "string"},
+                        {"name": "listed", "type": "bool"},
                     ],
                 }
             ],
@@ -292,6 +337,9 @@ def _load_agent_registry_abi() -> List[Dict[str, Any]]:
                         {"name": "registeredAt", "type": "uint256"},
                         {"name": "updatedAt", "type": "uint256"},
                         {"name": "isActive", "type": "bool"},
+                        {"name": "configHash", "type": "bytes32"},
+                        {"name": "configCID", "type": "string"},
+                        {"name": "listed", "type": "bool"},
                     ],
                 }
             ],
@@ -379,6 +427,30 @@ def _load_agent_registry_abi() -> List[Dict[str, Any]]:
             "inputs": [{"name": "isActive", "type": "bool"}],
             "outputs": [],
             "stateMutability": "nonpayable",
+        },
+        {
+            "type": "function",
+            "name": "setListed",
+            "inputs": [{"name": "_listed", "type": "bool"}],
+            "outputs": [],
+            "stateMutability": "nonpayable",
+        },
+        {
+            "type": "function",
+            "name": "publishConfig",
+            "inputs": [
+                {"name": "cid", "type": "string"},
+                {"name": "hash", "type": "bytes32"},
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable",
+        },
+        {
+            "type": "function",
+            "name": "MAX_CID_LENGTH",
+            "inputs": [],
+            "outputs": [{"name": "", "type": "uint256"}],
+            "stateMutability": "view",
         },
         {
             "type": "function",
@@ -705,8 +777,84 @@ class AgentRegistry:
             Transaction receipt.
         """
         function = self._contract.functions.setListed(listed)
-        tx = await self._build_transaction(function)
-        return await self._send_transaction(tx)
+        try:
+            tx = await self._build_transaction(function)
+            return await self._send_transaction(tx)
+        except Exception as error:  # noqa: BLE001
+            # Mirror TS AgentRegistryClient.setListed (AgentRegistryClient.ts:128-158):
+            # map 'Not registered' reverts to an actionable error.
+            if "Not registered" in str(error):
+                from agirails.errors import TransactionRevertedError
+
+                raise TransactionRevertedError(
+                    "setListed",
+                    revert_reason=(
+                        "Agent not registered. Register first before "
+                        "setting listing status."
+                    ),
+                ) from error
+            raise
+
+    async def publish_config(
+        self,
+        cid: str,
+        config_hash: str,
+    ) -> TransactionReceipt:
+        """
+        Publish AGIRAILS.md config (CID + hash) on-chain.
+
+        Mirrors TS AgentRegistryClient.publishConfig
+        (sdk-js/src/registry/AgentRegistryClient.ts:74-122): validates the CID
+        (non-empty, max 128 chars) and the hash (non-zero, valid bytes32 hex),
+        then calls the ``publishConfig(string,bytes32)`` contract function.
+
+        Args:
+            cid: IPFS CID pointing to the AGIRAILS.md file (max 128 chars).
+            config_hash: keccak256 of canonical AGIRAILS.md content
+                (0x-prefixed bytes32 hex; cannot be the zero hash).
+
+        Returns:
+            Transaction receipt.
+
+        Raises:
+            ValidationError: If cid or config_hash are missing/malformed.
+            TransactionRevertedError: If the agent is not registered.
+        """
+        import re
+
+        from agirails.errors import TransactionRevertedError, ValidationError
+
+        if not cid:
+            raise ValidationError("IPFS CID is required", field="cid")
+        if len(cid) > 128:
+            raise ValidationError(
+                "CID too long (max 128 characters)", field="cid"
+            )
+        zero_hash = "0x" + "0" * 64
+        if not config_hash or config_hash == zero_hash:
+            raise ValidationError(
+                "Config hash is required (cannot be zero)", field="hash"
+            )
+        if not re.fullmatch(r"0x[a-fA-F0-9]{64}", config_hash):
+            raise ValidationError(
+                "Config hash must be a valid bytes32 hex string", field="hash"
+            )
+
+        hash_bytes = bytes.fromhex(config_hash[2:])
+        function = self._contract.functions.publishConfig(cid, hash_bytes)
+        try:
+            tx = await self._build_transaction(function)
+            return await self._send_transaction(tx)
+        except Exception as error:  # noqa: BLE001
+            if "Not registered" in str(error):
+                raise TransactionRevertedError(
+                    "publishConfig",
+                    revert_reason=(
+                        "Agent not registered. Register first using the "
+                        "AgentRegistry before publishing config."
+                    ),
+                ) from error
+            raise
 
     async def get_service_descriptors(
         self,

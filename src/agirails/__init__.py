@@ -421,6 +421,10 @@ from agirails.negotiation import (
     NegotiationResult,
     RoundResult,
     OrchestratorConfig,
+    RequoteGuardViolation,
+    ProviderPolicyEngine,
+    verify_quote_hash_on_chain,
+    VerifyOnChainResult,
 )
 
 __all__ = [
@@ -744,6 +748,10 @@ __all__ = [
     "SessionStore",
     "SessionMapping",
     "BuyerOrchestrator",
+    "ProviderPolicyEngine",
+    "verify_quote_hash_on_chain",
+    "VerifyOnChainResult",
+    "RequoteGuardViolation",
     "NegotiationResult",
     "RoundResult",
     "OrchestratorConfig",
