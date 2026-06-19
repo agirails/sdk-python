@@ -1082,7 +1082,26 @@ class Agent:
             # Returning False here keeps the job out of the accept pipeline; the
             # buyer-side negotiation/quote path handles the counter. We do NOT
             # emit a decline/filter event (TS Agent.ts:1611-1614).
+            #
+            # Before returning, anchor the provider's ideal price as a QUOTED
+            # transition on-chain (mirror TS Agent.ts:1504-1565). Two paths:
+            #   1. AIP-2.1 canonical (preferred) — when set_provider_orchestrator()
+            #      was called, route the quote through the orchestrator so it
+            #      builds a signed AIP-2 QuoteMessage, computes the canonical
+            #      hash, and submits via runtime.submit_quote (state transition
+            #      + hash storage in one). Buyer-side BuyerOrchestrator can
+            #      verify end-to-end.
+            #   2. Legacy ad-hoc hash (fallback) — when no orchestrator is
+            #      configured, emit the historical
+            #      keccak256(JSON.stringify({txId, providerIdealPrice,
+            #      actualEscrow, provider})) shape; the buyer's verifier accepts
+            #      it via the §3.6 legacy fallback during the migration grace.
+            #
+            # ACTP invariant either way: tx.amount is immutable. The QUOTED
+            # proof documents the provider's ideal price for the audit trail but
+            # does NOT change the on-chain escrow amount.
             if calculation.decision == "counter-offer":
+                await self._submit_counter_quote(job, tx, calculation)
                 return False
 
         # --- Agent-level auto_accept behavior ---
@@ -1117,6 +1136,123 @@ class Agent:
             return bool(decision)
 
         return False
+
+    def _find_service_type_for_tx(self, tx: Any) -> str:
+        """Resolve a service-type label for an outbound quote.
+
+        Mirror of TS ``findServiceTypeForTx`` (Agent.ts:987-993): prefer the
+        handler the routing resolved, else the first registered service name,
+        else the generic ``"general"`` fallback.
+        """
+        matched = self._find_service_handler(tx)
+        if matched is not None:
+            return matched.config.name
+        if self._services:
+            return next(iter(self._services.keys()))
+        return "general"
+
+    async def _submit_counter_quote(
+        self, job: Job, tx: Any, calculation: Any
+    ) -> None:
+        """Anchor the provider's counter-offer as a QUOTED transition on-chain.
+
+        Mirror of TS Agent.ts:1504-1565. Two paths (orchestrator seam vs legacy
+        ad-hoc hash); both are best-effort — a quote-submission failure is
+        logged and swallowed so the (already-decided) counter does not crash the
+        poll loop (TS wraps the whole block in try/catch returning false).
+        """
+        if self._client is None:
+            return
+        try:
+            provider_ideal_price = str(int(round(calculation.price * 1_000_000)))
+
+            if self._provider_orchestrator is not None:
+                # AIP-2.1 canonical path: route through the orchestrator so it
+                # builds + signs an AIP-2 QuoteMessage and submits via
+                # runtime.submit_quote (state transition + canonical hash in
+                # one). chain_id read from the runtime's network config; default
+                # 84532 (Base Sepolia) when absent (TS Agent.ts:1509-1510).
+                # Lazy import to avoid a negotiation→level1 import cycle; the
+                # orchestrator seam is only exercised when an orchestrator was
+                # explicitly injected via set_provider_orchestrator().
+                from agirails.negotiation.provider_policy import IncomingRequest
+
+                runtime = getattr(self._client, "runtime", None)
+                chain_id = getattr(
+                    getattr(runtime, "config", None), "chain_id", None
+                ) or 84532
+                req = IncomingRequest(
+                    tx_id=tx.id,
+                    consumer=f"did:ethr:{chain_id}:{tx.requester}",
+                    offered_amount=str(tx.amount),
+                    # No separate ceiling on Transaction — set max to the
+                    # provider's quoted price so the orchestrator's policy band
+                    # check passes (TS Agent.ts:1516-1519).
+                    max_price=provider_ideal_price,
+                    deadline=int(getattr(tx, "deadline", 0) or 0),
+                    service_type=self._find_service_type_for_tx(tx),
+                    currency="USDC",
+                    unit="job",
+                )
+                result = await self._provider_orchestrator.quote(
+                    req, f"did:ethr:{chain_id}:{self.address}"
+                )
+                _logger.info(
+                    "AIP-2.1 quote submitted via ProviderOrchestrator",
+                    extra={
+                        "agent": self.name,
+                        "tx_id": tx.id,
+                        "action": getattr(
+                            getattr(result, "decision", None), "action", None
+                        ),
+                        "reason": getattr(
+                            getattr(result, "decision", None), "reason", None
+                        ),
+                        "channel_error": getattr(result, "channel_error", None),
+                    },
+                )
+                return
+
+            # Legacy ad-hoc hash path. Buyer's verifier matches via §3.6 legacy
+            # fallback. Existing pre-AIP-2.1 agents continue to function
+            # unchanged. JSON key order + separators mirror TS JSON.stringify
+            # ({txId, providerIdealPrice, actualEscrow, provider}) so the
+            # keccak256 hash is byte-identical cross-SDK (TS Agent.ts:1547-1551).
+            from eth_hash.auto import keccak as _keccak
+
+            quote_json = json.dumps(
+                {
+                    "txId": tx.id,
+                    "providerIdealPrice": provider_ideal_price,
+                    "actualEscrow": str(tx.amount),
+                    "provider": self.address,
+                },
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            quote_hash = "0x" + _keccak(quote_json.encode("utf-8")).hex()
+            if abi_encode is not None:
+                proof = "0x" + abi_encode(["bytes32"], [bytes.fromhex(quote_hash[2:])]).hex()
+            else:
+                # Fallback: bytes32 ABI-encodes to itself (already 32 bytes).
+                proof = quote_hash
+
+            await self._client.standard.transition_state(tx.id, "QUOTED", proof)
+            _logger.info(
+                "Counter-offer quoted via legacy hash (no providerOrchestrator configured)",
+                extra={
+                    "agent": self.name,
+                    "tx_id": tx.id,
+                    "provider_ideal_price": provider_ideal_price,
+                    "actual_escrow": str(tx.amount),
+                    "reason": getattr(calculation, "reason", None),
+                },
+            )
+        except Exception as quote_error:  # noqa: BLE001 — quote submit non-fatal
+            _logger.error(
+                "Counter-offer submission failed",
+                extra={"agent": self.name, "tx_id": tx.id, "error": str(quote_error)},
+            )
 
     # ═══════════════════════════════════════════════════════════
     # Internal: Job Processing

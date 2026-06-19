@@ -51,6 +51,37 @@ class Negotiation:
     rounds_max: int
     quote_ttl: str  # e.g. "15m"
 
+    # AIP-2.1 additions — all optional for backward compatibility with
+    # existing policy JSON files. Missing fields fall back to defaults that
+    # preserve the original "fixed price, no counter-offer" flow. These are
+    # the typed mirror of the TS ``BuyerPolicy['negotiation']`` AIP-2.1 fields
+    # (PolicyEngine.ts:42-59) so the DecisionEngine / BuyerOrchestrator read
+    # REAL declared fields rather than always seeing ``None`` from a
+    # ``getattr`` on a dataclass that never carried them.
+
+    #: Maximum back-and-forth rounds with ONE provider before walking away.
+    #: 1 = take the provider's first quote or reject (no counter). 2+ = send
+    #: counter-offer(s) within this budget. Defaults to 1. (PolicyEngine.ts:42)
+    rounds_per_provider: Optional[int] = None
+
+    #: How to compute counter-offer amounts when policy decides to negotiate
+    #: rather than accept: 'midpoint' — (quote + target) / 2; 'undercut' —
+    #: target (our ideal); 'walk' — no counter; reject (default for
+    #: rounds_per_provider=1). (PolicyEngine.ts:51)
+    counter_strategy: Optional[Literal["midpoint", "undercut", "walk"]] = None
+
+    #: Seconds to wait for the provider's explicit off-chain acceptance of a
+    #: counter-offer before giving up and cancelling. Defaults to the
+    #: quote_ttl value. (PolicyEngine.ts:59)
+    counter_response_ttl_seconds: Optional[int] = None
+
+
+@dataclass
+class TargetUnitPrice:
+    amount: float
+    currency: str
+    unit: str
+
 
 @dataclass
 class Selection:
@@ -65,6 +96,16 @@ class BuyerPolicy:
     constraints: Constraints
     negotiation: Negotiation
     selection: Selection
+
+    #: Target unit price the buyer would prefer to pay (separate from the hard
+    #: max_unit_price ceiling in ``constraints``). Used by
+    #: DecisionEngine.evaluate_quote to decide accept-vs-counter: if the
+    #: provider quote <= target → accept. Defaults to 50% of max_unit_price.
+    #: Typed mirror of TS ``BuyerPolicy.target_unit_price``
+    #: (PolicyEngine.ts:66-72). Accepts a :class:`TargetUnitPrice` or any
+    #: object exposing an ``amount`` attribute (DecisionEngine only reads
+    #: ``.amount``).
+    target_unit_price: Optional["TargetUnitPrice"] = None
 
 
 @dataclass

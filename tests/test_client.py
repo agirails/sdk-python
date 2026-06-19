@@ -548,6 +548,9 @@ class TestClientLifecycleMethods:
         tx = await client.runtime.get_transaction(tx_id)
         assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "DELIVERED"
 
+        # Advance past the dispute window, then release(). The read inside
+        # release() triggers MockRuntime lazy auto-release (TS parity); release()
+        # is idempotent and treats the already-SETTLED tx as a success no-op.
         await client.runtime.time.advance_time(172800 + 1)
         await client.release(tx_id)
         tx = await client.runtime.get_transaction(tx_id)
@@ -779,3 +782,421 @@ class TestClientSmartWalletDeliverBatch:
         assert len(wp.batches[0]) == 2
         # No single sends used for the COMMITTED batch path.
         assert wp.sent == []
+
+
+# ============================================================================
+# P0-2: Lazy-publish / buyer-link gas gate + EOA fallback
+# (mirrors TS ACTPClient.create() ACTPClient.ts:918-1006)
+# ============================================================================
+
+
+class _FakeAutoWallet:
+    """Minimal AutoWallet stub for gate tests — only get_address is exercised."""
+
+    def __init__(self, address="0x" + "5" * 40):
+        self._address = address
+
+    def get_address(self):
+        return self._address
+
+
+class _FakeEOAWallet:
+    """Stand-in for EOAWalletProvider so the fallback path needs no real key."""
+
+    def __init__(self, private_key=None, w3=None, chain_id=None):
+        self.private_key = private_key
+
+    def get_address(self):
+        return "0x" + "e" * 40
+
+
+def _patch_gate_deps(
+    monkeypatch,
+    *,
+    on_chain_state=None,
+    on_chain_raises=False,
+    pending=None,
+    buyer_link=None,
+    registry_addr="0x" + "9" * 40,
+):
+    """Patch the module-level helpers _apply_lazy_publish_gate imports.
+
+    The gate imports these locally from their source modules, so patch there.
+    """
+    import agirails.config.networks as networks_mod
+    import agirails.config.on_chain_state as ocs_mod
+    import agirails.config.pending_publish as pp_mod
+    import agirails.config.buyer_link as bl_mod
+    import agirails.wallet.eoa_wallet_provider as eoa_mod
+
+    class _Contracts:
+        agent_registry = registry_addr
+
+    class _Net:
+        contracts = _Contracts()
+        rpc_url = "https://rpc.example"
+
+    monkeypatch.setattr(networks_mod, "get_network", lambda name: _Net())
+
+    def _get_state(address, network, rpc_url=None):
+        if on_chain_raises:
+            raise RuntimeError("RPC down")
+        return on_chain_state
+
+    monkeypatch.setattr(ocs_mod, "get_on_chain_agent_state", _get_state)
+    monkeypatch.setattr(pp_mod, "load_pending_publish", lambda *a, **k: pending)
+    deleted = {"called": False}
+    monkeypatch.setattr(
+        pp_mod,
+        "delete_pending_publish",
+        lambda *a, **k: deleted.__setitem__("called", True),
+    )
+    monkeypatch.setattr(bl_mod, "load_buyer_link", lambda *a, **k: buyer_link)
+    monkeypatch.setattr(eoa_mod, "EOAWalletProvider", _FakeEOAWallet)
+
+    # Avoid a real web3 RPC for chain_id in the EOA fallback.
+    import web3 as web3_mod
+
+    class _FakeEth:
+        chain_id = 84532
+
+    class _FakeW3:
+        def __init__(self, *a, **k):
+            self.eth = _FakeEth()
+
+        @staticmethod
+        def HTTPProvider(*a, **k):
+            return None
+
+    monkeypatch.setattr(web3_mod, "Web3", _FakeW3)
+    return deleted
+
+
+class TestLazyPublishGate:
+    """_apply_lazy_publish_gate gas-gate (TS ACTPClient.ts:918-1006)."""
+
+    @pytest.fixture
+    def config(self):
+        from agirails.client import ACTPClientConfig
+
+        return ACTPClientConfig(
+            mode="testnet", private_key="0x" + "1" * 64
+        )
+
+    @pytest.mark.asyncio
+    async def test_on_chain_config_grants_auto_wallet(self, monkeypatch, config):
+        """configHash != ZERO -> keep AutoWallet, scenario stays from detection."""
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import OnChainAgentState
+
+        state = OnChainAgentState(
+            registered_at=123, config_hash="0x" + "ab" * 32, listed=True
+        )
+        _patch_gate_deps(monkeypatch, on_chain_state=state, pending=None)
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert wp is auto  # gate passed -> AutoWallet kept
+        assert scenario == "none"  # no pending -> scenario none
+        assert pending is None
+
+    @pytest.mark.asyncio
+    async def test_pending_publish_grants_auto_wallet_scenario_a(
+        self, monkeypatch, config
+    ):
+        """Not registered + pending -> scenario A, AutoWallet granted."""
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import OnChainAgentState, ZERO_HASH
+        from agirails.config.pending_publish import PendingPublishData
+
+        state = OnChainAgentState(
+            registered_at=0, config_hash=ZERO_HASH, listed=False
+        )
+        pend = PendingPublishData(
+            config_hash="0x" + "cd" * 32, cid="bafyX", endpoint="https://e.com"
+        )
+        _patch_gate_deps(monkeypatch, on_chain_state=state, pending=pend)
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert wp is auto
+        assert scenario == "A"
+        assert pending is pend
+
+    @pytest.mark.asyncio
+    async def test_buyer_link_grants_auto_wallet_no_activation(
+        self, monkeypatch, config
+    ):
+        """Pure buyer (link, no config, no pending) -> AutoWallet, scenario none."""
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import OnChainAgentState, ZERO_HASH
+        from agirails.config.buyer_link import BuyerLink
+
+        state = OnChainAgentState(
+            registered_at=0, config_hash=ZERO_HASH, listed=False
+        )
+        link = BuyerLink(slug="buyer", wallet="0x" + "5" * 40, linked_at=1)
+        _patch_gate_deps(
+            monkeypatch, on_chain_state=state, pending=None, buyer_link=link
+        )
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert wp is auto  # gate passed via buyer link
+        assert scenario == "none"  # no pending -> no lazy activation
+        assert pending is None
+
+    @pytest.mark.asyncio
+    async def test_unregistered_no_pending_falls_back_to_eoa(
+        self, monkeypatch, config
+    ):
+        """No config, no pending, no buyer link -> EOA fallback, gas NOT sponsored."""
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import OnChainAgentState, ZERO_HASH
+
+        state = OnChainAgentState(
+            registered_at=0, config_hash=ZERO_HASH, listed=False
+        )
+        _patch_gate_deps(monkeypatch, on_chain_state=state, pending=None)
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert isinstance(wp, _FakeEOAWallet)  # fell back to EOA
+        assert wp is not auto
+        assert scenario == "none"
+        assert pending is None
+
+    @pytest.mark.asyncio
+    async def test_scenario_c_deletes_stale_pending_and_resets(
+        self, monkeypatch, config
+    ):
+        """Pending hash == on-chain hash -> scenario C deleted, no activation.
+
+        configHash != ZERO so the gate still grants the AutoWallet.
+        """
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import OnChainAgentState
+        from agirails.config.pending_publish import PendingPublishData
+
+        same_hash = "0x" + "ab" * 32
+        state = OnChainAgentState(
+            registered_at=123, config_hash=same_hash, listed=True
+        )
+        pend = PendingPublishData(
+            config_hash=same_hash, cid="bafyX", endpoint="https://e.com"
+        )
+        deleted = _patch_gate_deps(
+            monkeypatch, on_chain_state=state, pending=pend
+        )
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert deleted["called"] is True  # stale pending deleted
+        assert scenario == "none"  # reset from "C"
+        assert pending is None
+        assert wp is auto  # on-chain config still grants AA
+
+    @pytest.mark.asyncio
+    async def test_rpc_failure_fails_open_with_pending(
+        self, monkeypatch, config
+    ):
+        """Registry read raises but pending exists -> fail-open to AutoWallet."""
+        from agirails.client import ACTPClient
+        from agirails.config.pending_publish import PendingPublishData
+
+        pend = PendingPublishData(
+            config_hash="0x" + "cd" * 32, cid="bafyX", endpoint="https://e.com"
+        )
+        _patch_gate_deps(
+            monkeypatch, on_chain_raises=True, pending=pend
+        )
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert wp is auto  # fail-open
+        assert pending is pend
+
+    @pytest.mark.asyncio
+    async def test_rpc_failure_fails_closed_without_pending(
+        self, monkeypatch, config
+    ):
+        """Registry read raises and no pending/buyer link -> fail-closed to EOA."""
+        from agirails.client import ACTPClient
+
+        _patch_gate_deps(monkeypatch, on_chain_raises=True, pending=None)
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert isinstance(wp, _FakeEOAWallet)  # fail-closed
+        assert scenario == "none"
+        assert pending is None
+
+    @pytest.mark.asyncio
+    async def test_no_registry_deployed_grants_auto_wallet(
+        self, monkeypatch, config
+    ):
+        """No AgentRegistry on this network -> skip check, grant AutoWallet."""
+        from agirails.client import ACTPClient
+
+        _patch_gate_deps(monkeypatch, registry_addr=None, pending=None)
+
+        auto = _FakeAutoWallet()
+        wp, scenario, pending = await ACTPClient._apply_lazy_publish_gate(
+            config, auto
+        )
+        assert wp is auto
+
+
+class TestDetectLazyPublishScenario:
+    """_detect_lazy_publish_scenario static method (TS ACTPClient.ts:132-155)."""
+
+    def _state(self, registered_at, config_hash, listed):
+        from agirails.config.on_chain_state import OnChainAgentState
+
+        return OnChainAgentState(
+            registered_at=registered_at, config_hash=config_hash, listed=listed
+        )
+
+    def _pending(self, config_hash):
+        from agirails.config.pending_publish import PendingPublishData
+
+        return PendingPublishData(
+            config_hash=config_hash, cid="bafyX", endpoint="https://e.com"
+        )
+
+    def test_none_when_no_pending(self):
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import ZERO_HASH
+
+        s = self._state(0, ZERO_HASH, False)
+        assert ACTPClient._detect_lazy_publish_scenario(s, None) == "none"
+
+    def test_scenario_a_not_registered(self):
+        from agirails.client import ACTPClient
+        from agirails.config.on_chain_state import ZERO_HASH
+
+        s = self._state(0, ZERO_HASH, False)
+        p = self._pending("0x" + "11" * 32)
+        assert ACTPClient._detect_lazy_publish_scenario(s, p) == "A"
+
+    def test_scenario_b1_registered_not_listed_hash_differs(self):
+        from agirails.client import ACTPClient
+
+        s = self._state(99, "0x" + "22" * 32, False)
+        p = self._pending("0x" + "33" * 32)
+        assert ACTPClient._detect_lazy_publish_scenario(s, p) == "B1"
+
+    def test_scenario_b2_registered_listed_hash_differs(self):
+        from agirails.client import ACTPClient
+
+        s = self._state(99, "0x" + "22" * 32, True)
+        p = self._pending("0x" + "33" * 32)
+        assert ACTPClient._detect_lazy_publish_scenario(s, p) == "B2"
+
+    def test_scenario_c_hash_matches(self):
+        from agirails.client import ACTPClient
+
+        same = "0x" + "44" * 32
+        s = self._state(99, same, True)
+        p = self._pending(same)
+        assert ACTPClient._detect_lazy_publish_scenario(s, p) == "C"
+
+
+class TestErc8004BridgeNetwork:
+    """ERC8004Bridge is constructed with the mode-derived network (P0 bug).
+
+    Previously _try_register_optional_adapters built ERC8004Bridge() with no
+    config -> defaulted to base-mainnet, so testnet/mock agent-ID lookups hit
+    the wrong registry (TS ACTPClient.ts:1046-1052).
+    """
+
+    @pytest.mark.asyncio
+    async def test_bridge_network_is_testnet_for_mock(self, monkeypatch):
+        """The registered bridge resolves against base-sepolia, not mainnet."""
+        captured = {}
+
+        import agirails.erc8004.bridge as bridge_mod
+
+        real_init = bridge_mod.ERC8004Bridge.__init__
+
+        def _spy_init(self, config=None, *, contract=None):
+            captured["network"] = getattr(config, "network", None)
+            # Skip real web3 setup — inject a dummy contract.
+            real_init(self, config, contract=object())
+
+        monkeypatch.setattr(bridge_mod.ERC8004Bridge, "__init__", _spy_init)
+
+        client = await ACTPClient.create(
+            mode="mock", requester_address="0x" + "a" * 40
+        )
+        assert client is not None
+        # Mock mode must NOT default to base-mainnet.
+        assert captured["network"] == "base-sepolia"
+
+    def test_erc8004_network_mapping(self):
+        from agirails.client import ACTPClient, ACTPClientInfo
+
+        c = ACTPClient.__new__(ACTPClient)
+        c._info = ACTPClientInfo(mode="mainnet", address="0x" + "a" * 40)
+        assert c._erc8004_network() == "base-mainnet"
+        c._info = ACTPClientInfo(mode="testnet", address="0x" + "a" * 40)
+        assert c._erc8004_network() == "base-sepolia"
+        c._info = ACTPClientInfo(mode="mock", address="0x" + "a" * 40)
+        assert c._erc8004_network() == "base-sepolia"
+
+
+class TestSettleReleaseRouterWiring:
+    """create() wires self._standard as the SettleOnInteract release router."""
+
+    @pytest.mark.asyncio
+    async def test_release_router_is_standard_adapter(self):
+        client = await ACTPClient.create(
+            mode="mock", requester_address="0x" + "a" * 40
+        )
+        # The release router must be the standard adapter (TS ACTPClient.ts:711-716).
+        assert client._settle_on_interact._release_router is client._standard
+
+
+class TestPendingIsStaleThreading:
+    """pending_is_stale constructor param is honored (TS pendingIsStale)."""
+
+    @pytest.fixture
+    async def runtime(self):
+        c = await ACTPClient.create(mode="mock", requester_address="0x" + "a" * 40)
+        return c.runtime
+
+    @pytest.mark.asyncio
+    async def test_stale_flag_threaded_and_skips_activation(self, runtime):
+        from agirails.client import ACTPClient, ACTPClientInfo
+        from agirails.config.pending_publish import PendingPublishData
+
+        pending = PendingPublishData(
+            config_hash="0x" + "ab" * 32, cid="bafyX", endpoint="https://e.com"
+        )
+        client = ACTPClient(
+            runtime,
+            "0x" + "a" * 40,
+            ACTPClientInfo(mode="mock", address="0x" + "a" * 40),
+            lazy_scenario="B2",
+            pending_publish=pending,
+            agent_registry_address="0x" + "9" * 40,
+            network_id="base-sepolia",
+            pending_is_stale=True,
+        )
+        assert client._pending_is_stale is True
+        # Stale -> no activation calls (TS getActivationCalls staleness branch).
+        assert client.get_activation_calls()["calls"] == []

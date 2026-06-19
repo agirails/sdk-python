@@ -811,9 +811,82 @@ async def _wait_for_target_state(
     return False
 
 
+# ============================================================================
+# V3 framed receipt render — buyer perspective (the wow artifact)
+# ============================================================================
+
+
+def render_request_receipt(
+    *,
+    result: RunRequestResult,
+    network: str,
+    amount: str,
+    service: str,
+    provider: str,
+    counterparty: Optional[str] = None,
+    reflection: Optional[str] = None,
+    now_fn: Optional[Any] = None,
+) -> Optional[str]:
+    """Render the ceremonial V3 framed receipt for a settled request.
+
+    Python port of the render call in TS ``request.ts``
+    (cli/commands/request.ts:198-237): always renders the buyer-perspective
+    ceremonial receipt for a settled, non-mock request — in ``actp request`` the
+    local agent is by definition the requester paying the provider. Returns the
+    receipt string, or ``None`` when the V3 frame is suppressed (mock network or
+    unsettled outcome) so the caller falls back to the legacy success line.
+
+    Uses :func:`agirails.receipts.push.render_receipt_v3` (the framed V3
+    renderer ported in this subsystem); the legacy
+    ``cli.commands.receipt.render_receipt`` box (V1) remains available unchanged.
+    """
+    # Suppress the frame for mock / unsettled outcomes (TS request.ts:204).
+    if network == "mock" or not result.settled:
+        return None
+
+    from agirails.receipts.push import (
+        ReceiptDataV3,
+        ReceiptTimingV3,
+        render_receipt_v3,
+    )
+
+    network_label = "base-sepolia" if network == "testnet" else "base-mainnet"
+    # ``amount`` is the human USDC string ("0.05", "10"); convert to 6-decimal
+    # wei. Strip a leading $ if a user passed "$10" (TS request.ts:209-212).
+    try:
+        amount_num = float(amount.lstrip("$"))
+        amount_wei = int(round(amount_num * 1_000_000))
+    except (TypeError, ValueError):
+        amount_wei = 0
+
+    return render_receipt_v3(
+        ReceiptDataV3(
+            agent="your-agent",
+            # Only pass ``counterparty`` when we have a human-readable slug — a
+            # raw 42-char hex address overflows the inner card width. When
+            # unset, the renderer falls back to short_addr(requester) which
+            # always fits (TS request.ts:216-220).
+            counterparty=counterparty,
+            perspective="buyer",
+            service=service,
+            amount_wei=amount_wei,
+            network=network_label,
+            tx_id=result.tx_id,
+            timing=ReceiptTimingV3(total_ms=result.elapsed_ms),
+            reflection=reflection,
+            receipt_url=result.receipt_url,
+            # ``requester`` feeds short_addr — for buyer perspective the
+            # counterparty IS the provider we paid (TS request.ts:229-233).
+            requester=provider,
+            now_fn=now_fn,
+        )
+    )
+
+
 __all__ = [
     "DeliveryTimeoutError",
     "QuoteTimeoutError",
     "RunRequestResult",
     "run_request",
+    "render_request_receipt",
 ]

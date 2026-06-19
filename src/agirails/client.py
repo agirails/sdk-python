@@ -152,6 +152,7 @@ class ACTPClient:
         agent_registry_address: Optional[str] = None,
         network_id: Optional[str] = None,
         erc8004_identity_registry_address: Optional[str] = None,
+        pending_is_stale: bool = False,
     ) -> None:
         """
         Initialize ACTPClient.
@@ -183,6 +184,9 @@ class ACTPClient:
                 chain-scoped pending-publish operations.
             erc8004_identity_registry_address: ERC-8004 Identity Registry
                 address (first-time identity mint, scenario A).
+            pending_is_stale: When True, AGIRAILS.md changed since the last
+                ``actp publish`` so lazy activation is skipped (TS
+                ``pendingIsStale``, ACTPClient.ts:1088-1117).
         """
         self._runtime = runtime
         self._requester_address = requester_address.lower()
@@ -198,7 +202,7 @@ class ACTPClient:
         self._agent_registry_address = agent_registry_address
         self._network_id = network_id
         self._erc8004_identity_registry_address = erc8004_identity_registry_address
-        self._pending_is_stale = False
+        self._pending_is_stale = pending_is_stale
 
         # Maps txId -> adapter that handled it, for adapter-aware get_status
         # routing. Bounded at _MAX_TX_MAP_SIZE (mirrors TS txAdapterMap).
@@ -253,7 +257,17 @@ class ACTPClient:
         # Settle-on-interact: sweep expired DELIVERED transactions on each interaction.
         # requester_address is the local agent's address — it acts as provider in
         # start_work/deliver flows, so the sweep finds expired provider-side transactions.
-        self._settle_on_interact = SettleOnInteract(runtime, requester_address)
+        #
+        # Pass self._standard as the release router (TS ACTPClient.ts:711-716) so
+        # AA-enabled providers settle through SmartWalletRouter (Paymaster) rather
+        # than reverting on raw-EOA gas. StandardAdapter.release_escrow falls
+        # through to runtime.release_escrow on EOA / mock, preserving prior
+        # behaviour.
+        self._settle_on_interact = SettleOnInteract(
+            runtime,
+            requester_address,
+            release_router=self._standard,
+        )
 
     def _try_register_optional_adapters(self) -> None:
         """Auto-register optional components if dependencies are available.
@@ -266,14 +280,42 @@ class ACTPClient:
 
         ERC-8004 bridge IS auto-registered here (read-only, no wallet needed).
         """
-        # ERC-8004 bridge for agent ID resolution (read-only)
+        # ERC-8004 bridge for agent ID resolution (read-only).
+        #
+        # BUGFIX (TS parity, ACTPClient.ts:1046-1052): the bridge MUST be
+        # constructed with the mode-derived network so a testnet/mock client
+        # resolves agent IDs against the TESTNET registry, not mainnet. TS
+        # derives `erc8004Network` from `config.mode` (testnet -> 'base-sepolia',
+        # else -> 'base') and passes it to `new ERC8004Bridge({ network, rpcUrl })`.
+        # Constructing the bridge with no config (the prior Python behaviour)
+        # silently defaulted to base-mainnet, so testnet/mock agent-ID lookups
+        # hit the wrong chain. We thread `self._network_id` (set in __init__)
+        # into ERC8004BridgeConfig.
         try:
             from agirails.erc8004.bridge import ERC8004Bridge
+            from agirails.types.erc8004 import ERC8004BridgeConfig
 
-            bridge = ERC8004Bridge()
+            bridge = ERC8004Bridge(
+                ERC8004BridgeConfig(network=self._erc8004_network())
+            )
             self._router.set_erc8004_bridge(bridge)
         except (ImportError, Exception):
             pass
+
+    def _erc8004_network(self) -> str:
+        """Resolve the ERC-8004 network literal for the bridge.
+
+        Mirrors TS ``erc8004Network`` derivation (ACTPClient.ts:1047-1048):
+        testnet -> 'base-sepolia', mainnet -> 'base' (Python's literal is
+        'base-mainnet'). Mock mode has no on-chain bridge in TS; here we keep
+        a bridge for read-only agent-ID resolution and default it to
+        'base-sepolia' (testnet) so mock callers never hit mainnet by accident.
+        """
+        mode = self._info.mode
+        if mode == "mainnet":
+            return "base-mainnet"
+        # testnet, mock, or unknown -> testnet registry (never mainnet default).
+        return "base-sepolia"
 
     def register_adapter(self, adapter: Any) -> None:
         """Register a custom adapter with the router.
@@ -357,10 +399,29 @@ class ACTPClient:
         # Must run BEFORE requester_address validation because the Smart
         # Wallet address is derived from the signer's counterfactual address
         # and supplied back into config.requester_address.
+        #
+        # Lazy-publish gas-gate state (TS ACTPClient.ts:766-767, 918-1006).
+        # Populated by _apply_lazy_publish_gate when the auto wallet is built.
         wallet_provider: Optional[object] = None
+        lazy_scenario: str = "none"
+        lazy_pending: Optional[object] = None
+        pending_is_stale: bool = False
         if config.wallet == "auto":
             wallet_provider = await cls._build_auto_wallet_provider(config)
-            # Override (or fill in) requester_address with the Smart Wallet address.
+
+            # Gas-gate (TS ACTPClient.ts:918-1006): only grant the gas-sponsored
+            # AutoWallet when the agent has an on-chain config, a pending publish,
+            # or a buyer-link marker; otherwise fall back to an EOA wallet so
+            # unregistered agents do not receive free Paymaster gas. The gate may
+            # REPLACE wallet_provider with an EOA provider and reset the lazy state.
+            (
+                wallet_provider,
+                lazy_scenario,
+                lazy_pending,
+            ) = await cls._apply_lazy_publish_gate(config, wallet_provider)
+
+            # Override (or fill in) requester_address with the chosen provider's
+            # address (Smart Wallet when auto, signer EOA on fallback).
             config.requester_address = wallet_provider.get_address()
 
         # Validate requester address
@@ -464,6 +525,38 @@ class ACTPClient:
             except Exception as exc:  # pragma: no cover - best-effort
                 _logger.warn(f"ReputationReporter wiring skipped: {exc}")
 
+        # Staleness check (TS ACTPClient.ts:1088-1108): recompute the local
+        # AGIRAILS.md hash; if it differs from the pending publish's configHash
+        # the cached publish is stale, so lazy activation is skipped. Best-effort
+        # — never blocks create().
+        if lazy_pending is not None and lazy_scenario not in ("none", "C"):
+            try:
+                import os as _os
+
+                md_path = Path(_os.getcwd()) / "AGIRAILS.md"
+                if md_path.exists():
+                    from agirails.config.agirailsmd import compute_config_hash
+
+                    content = md_path.read_text(encoding="utf-8")
+                    hash_result = compute_config_hash(content)
+                    current_hash = getattr(
+                        hash_result, "config_hash", None
+                    ) or (
+                        hash_result.get("config_hash")
+                        if isinstance(hash_result, dict)
+                        else None
+                    )
+                    pending_hash = getattr(lazy_pending, "config_hash", None)
+                    if current_hash is not None and current_hash != pending_hash:
+                        pending_is_stale = True
+                        _logger.warn(
+                            "AGIRAILS.md changed since last publish. Activation "
+                            'skipped. Run "actp publish" to update.'
+                        )
+            except Exception:
+                # Best-effort: staleness check must not block operation.
+                pass
+
         client = cls(
             runtime,
             requester,
@@ -472,10 +565,34 @@ class ACTPClient:
             wallet_provider=wallet_provider,
             contract_addresses=contract_addresses,
             reputation_reporter=reputation_reporter,
+            lazy_scenario=lazy_scenario,
+            pending_publish=lazy_pending,
             agent_registry_address=agent_registry_address,
             network_id=network_id,
             erc8004_identity_registry_address=erc8004_identity_registry_address,
+            pending_is_stale=pending_is_stale,
         )
+
+        # Drift detection: non-blocking AGIRAILS.md sync check on startup
+        # (TS ACTPClient.ts:1119-1124). Mock mode short-circuits inside
+        # check_config_drift; for real networks we fire it as a detached task
+        # so it never blocks create() and swallows all errors.
+        if config.mode != "mock":
+            try:
+                loop = asyncio.get_running_loop()
+
+                async def _safe_drift() -> None:
+                    try:
+                        await client.check_config_drift(config)
+                    except Exception:
+                        pass
+
+                # Hold a reference so the detached task is not GC'd mid-flight
+                # (CPython only keeps weak refs to pending tasks).
+                client._drift_task = loop.create_task(_safe_drift())
+            except RuntimeError:
+                # No running loop (sync context) — skip; drift is non-critical.
+                pass
 
         # AIP-12 parity: Auto-register X402Adapter when wallet_provider is
         # configured for a real network. TS SDK gates on signTypedData (x402
@@ -586,6 +703,168 @@ class ACTPClient:
                 paymaster_backup_url=paymaster_backup,
             )
         )
+
+    @staticmethod
+    def _detect_lazy_publish_scenario(
+        on_chain: Any,
+        pending: Optional[object],
+    ) -> str:
+        """Detect the lazy-publish activation scenario.
+
+        Byte-identical to ``agirails.cli.commands.publish.detect_lazy_publish_scenario``
+        and TS ``detectLazyPublishScenario`` (ACTPClient.ts:132-155). Inlined
+        here so the gas-gate does not pull in CLI deps (typer / cli.main) at
+        client-create time.
+
+        Decision matrix:
+          - A:    not registered + has pending -> first-time activation
+          - B1:   registered + pending hash != on-chain hash + not listed
+          - B2:   registered + pending hash != on-chain hash + already listed
+          - C:    pending hash == on-chain hash -> stale pending, delete it
+          - none: no pending publish
+        """
+        if pending is None:
+            return "none"
+        if not on_chain.is_registered:
+            return "A"
+        if getattr(pending, "config_hash", None) != on_chain.config_hash:
+            return "B1" if not on_chain.listed else "B2"
+        return "C"
+
+    @classmethod
+    async def _apply_lazy_publish_gate(
+        cls,
+        config: ACTPClientConfig,
+        auto_wallet: object,
+    ) -> "tuple[object, str, Optional[object]]":
+        """Decide whether the gas-sponsored AutoWallet may be used.
+
+        Mirrors TS ACTPClient.create() gas-gate (ACTPClient.ts:918-1006).
+
+        The gate grants the AutoWallet only when at least one of these holds:
+          - the agent already has an on-chain config (configHash != ZERO), or
+          - a pending-publish file exists (the agent ran ``actp publish``), or
+          - a buyer-link marker exists (AIP-18 DEC-8 pure-buyer gasless leg).
+        Otherwise it FALLS BACK to an EOA wallet (gas NOT sponsored) so an
+        unregistered agent never receives free Paymaster gas.
+
+        Returns:
+            ``(wallet_provider, lazy_scenario, lazy_pending)``:
+              - ``wallet_provider``: the AutoWallet (gate passed) or an
+                EOAWalletProvider (fallback).
+              - ``lazy_scenario``: ``"A"/"B1"/"B2"/"C"/"none"`` activation
+                scenario (always ``"none"`` on EOA fallback).
+              - ``lazy_pending``: cached pending-publish data, or ``None``.
+        """
+        from web3 import Web3
+
+        from agirails.config.buyer_link import load_buyer_link
+        from agirails.config.networks import get_network
+        from agirails.config.on_chain_state import (
+            ZERO_HASH,
+            get_on_chain_agent_state,
+        )
+        from agirails.config.pending_publish import (
+            delete_pending_publish,
+            load_pending_publish,
+        )
+
+        network_name = (
+            "base-sepolia" if config.mode == "testnet" else "base-mainnet"
+        )
+        network = get_network(network_name)
+        registry_addr = getattr(network.contracts, "agent_registry", None)
+        rpc_url = config.rpc_url or network.rpc_url
+
+        smart_wallet_address = auto_wallet.get_address()  # type: ignore[attr-defined]
+
+        lazy_scenario: str = "none"
+        lazy_pending: Optional[object] = None
+
+        # Load pending publish (may be None) — chain-scoped (TS 924-929).
+        try:
+            lazy_pending = load_pending_publish(network_name)
+        except Exception:
+            lazy_pending = None
+
+        # Load buyer-link marker (may be None). A pure buyer (intent: pay) links
+        # instead of registering, so it has no on-chain configHash and no
+        # pending-publish — this marker lets the gate grant the gas-sponsored
+        # AutoWallet anyway (AIP-18 DEC-8). It triggers NO lazy on-chain
+        # activation (lazy_pending stays None) (TS 931-942).
+        buyer_link: Optional[object] = None
+        try:
+            buyer_link = load_buyer_link(network_name)
+        except Exception:
+            buyer_link = None
+
+        use_auto_wallet = False
+
+        if registry_addr:
+            try:
+                on_chain_state = await asyncio.to_thread(
+                    get_on_chain_agent_state,
+                    smart_wallet_address,
+                    network_name,
+                    rpc_url,
+                )
+                lazy_scenario = cls._detect_lazy_publish_scenario(
+                    on_chain_state, lazy_pending
+                )
+
+                # Scenario C: stale pending — delete immediately (TS 953-958).
+                if lazy_scenario == "C":
+                    delete_pending_publish(network=network_name)
+                    lazy_pending = None
+                    lazy_scenario = "none"
+
+                # Gate (TS 960-973): configHash != ZERO || pending || buyer link.
+                has_on_chain_config = on_chain_state.config_hash != ZERO_HASH
+                has_pending_publish = lazy_pending is not None
+                is_linked_buyer = buyer_link is not None
+
+                if has_on_chain_config or has_pending_publish or is_linked_buyer:
+                    use_auto_wallet = True
+            except Exception:
+                # Registry check failed (e.g. RPC down). Fail-open ONLY if a
+                # pending publish or buyer link exists (legitimate `actp publish`
+                # intent); fail-closed otherwise to deny unregistered agents free
+                # gas (TS 974-985).
+                if lazy_pending or buyer_link:
+                    use_auto_wallet = True
+                    _logger.warn(
+                        "AgentRegistry check failed, but pending publish / "
+                        "buyer link found — proceeding with AA."
+                    )
+                else:
+                    _logger.warn(
+                        "AgentRegistry check failed and no pending publish — "
+                        "falling back to EOA."
+                    )
+        else:
+            # No registry deployed — skip check (early testnet) (TS 986-989).
+            use_auto_wallet = True
+
+        if use_auto_wallet:
+            return auto_wallet, lazy_scenario, lazy_pending
+
+        # Fallback: EOA wallet (gas NOT sponsored). Reset lazy state since we
+        # are not using the auto wallet (TS 994-1006).
+        _logger.warn(
+            "Agent not published on AgentRegistry and no pending publish "
+            "found. Falling back to EOA wallet (gas not sponsored). "
+            'Run "actp publish" for gas-free transactions.'
+        )
+        from agirails.wallet.eoa_wallet_provider import EOAWalletProvider
+
+        w3 = Web3(Web3.HTTPProvider(rpc_url))
+        chain_id = await asyncio.to_thread(lambda: w3.eth.chain_id)
+        eoa = EOAWalletProvider(
+            private_key=config.private_key,  # type: ignore[arg-type]
+            w3=w3,
+            chain_id=chain_id,
+        )
+        return eoa, "none", None
 
     @classmethod
     def _maybe_register_x402(
@@ -1063,9 +1342,20 @@ class ACTPClient:
         tx = await self._runtime.get_transaction(tx_id)
         agent_id = getattr(tx, "agent_id", None) if tx is not None else None
 
+        # Idempotence: a mock lazy auto-release may have already settled the tx
+        # on the read above (MockRuntime parity). On real chains get_transaction
+        # never auto-settles, so this is a no-op there. If already SETTLED, the
+        # escrow is released — skip the redundant settle (which would raise
+        # SETTLED->SETTLED) but still fire the reputation report below.
+        _st = getattr(tx, "state", None) if tx is not None else None
+        _st_val = getattr(_st, "value", _st)
+        already_settled = _st_val == "SETTLED" or _st_val == 5
+
         # Release escrow (the critical operation).
         router = self._smart_wallet_router
-        if router is not None and router.should_route():
+        if already_settled:
+            pass  # auto-released on read; nothing left to settle
+        elif router is not None and router.should_route():
             await router.validate_release_preconditions(tx if tx is not None else tx_id)
             await router.verify_release_attestation(tx_id, attestation_uid)
             await router.send_settle(tx_id)

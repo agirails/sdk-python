@@ -63,6 +63,7 @@ from agirails.negotiation.policy_engine import (
     PolicyViolation,
     QuoteOffer,
     Selection,
+    TargetUnitPrice,
 )
 
 # ============================================================================
@@ -131,6 +132,8 @@ from agirails.negotiation.negotiation_channel import (
     MockChannel,
     MockChannelConfig,
     NegotiationChannel,
+    RelayChannel,
+    RelayChannelConfig,
     NegotiationMessage,
     NegotiationMessageType,
     Subscription,
@@ -241,6 +244,9 @@ __all__ = [
     "NegotiationChannel",
     "MockChannel",
     "MockChannelConfig",
+    "RelayChannel",
+    "RelayChannelConfig",
+    "TargetUnitPrice",
     "NegotiationMessage",
     "NegotiationMessageType",
     "DeliveredMessage",

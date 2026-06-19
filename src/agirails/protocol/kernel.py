@@ -39,7 +39,12 @@ from web3.contract import AsyncContract
 from web3.types import TxReceipt, Wei
 
 from agirails.config.networks import NetworkConfig
-from agirails.errors import TransactionError, ValidationError
+from agirails.errors import (
+    InvalidStateTransitionError,
+    TransactionError,
+    TransactionNotFoundError,
+    ValidationError,
+)
 from agirails.protocol.base import ContractBase
 from agirails.protocol.nonce import NonceManager
 from agirails.types.transaction import Transaction, TransactionReceipt, TransactionState
@@ -52,6 +57,44 @@ from agirails.types.transaction import Transaction, TransactionReceipt, Transact
 # Zero values for optional parameters
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 ZERO_BYTES32 = "0x" + "0" * 64
+
+# Legacy 16-field getTransaction shape — matches what's deployed on Base
+# Mainnet (kernel 0x132B…2d29, deployed 2026-02-09) and what was canonical
+# through SDK 2.7.0. The current 21-field ABI doesn't decode against the
+# older deployment, so this is used as a fallback when the primary call
+# returns a decode failure (BAD_DATA). PARITY: ACTPKernel.ts:5-19.
+_LEGACY_GET_TRANSACTION_ABI: List[Dict[str, Any]] = [
+    {
+        "inputs": [{"name": "transactionId", "type": "bytes32"}],
+        "name": "getTransaction",
+        "outputs": [
+            {
+                "components": [
+                    {"name": "transactionId", "type": "bytes32"},
+                    {"name": "requester", "type": "address"},
+                    {"name": "provider", "type": "address"},
+                    {"name": "state", "type": "uint8"},
+                    {"name": "amount", "type": "uint256"},
+                    {"name": "createdAt", "type": "uint256"},
+                    {"name": "updatedAt", "type": "uint256"},
+                    {"name": "deadline", "type": "uint256"},
+                    {"name": "serviceHash", "type": "bytes32"},
+                    {"name": "escrowContract", "type": "address"},
+                    {"name": "escrowId", "type": "bytes32"},
+                    {"name": "attestationUID", "type": "bytes32"},
+                    {"name": "disputeWindow", "type": "uint256"},
+                    {"name": "metadata", "type": "bytes32"},
+                    {"name": "platformFeeBpsLocked", "type": "uint16"},
+                    {"name": "agentId", "type": "uint256"},
+                ],
+                "name": "",
+                "type": "tuple",
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    }
+]
 
 # Default values
 DEFAULT_DISPUTE_WINDOW = 48 * 3600  # 48 hours in seconds
@@ -276,6 +319,60 @@ class TransactionView:
             dispute_initiator=data[19],
             dispute_bond=data[20],
         )
+
+    @classmethod
+    def from_legacy_tuple(cls, data: Tuple) -> "TransactionView":
+        """Create from the legacy 16-field contract return tuple.
+
+        Used as the BAD_DATA fallback for pre-V3 deployments (Base Mainnet
+        kernel ``0x132B…2d29``). The newer fields
+        (``requester_penalty_bps_locked``, ``dispute_bond_bps_locked``,
+        ``requester_agent_id``, ``dispute_initiator``, ``dispute_bond``) are
+        absent on those deployments and default to 0 / "". Field order matches
+        ``_LEGACY_GET_TRANSACTION_ABI`` above. PARITY: ACTPKernel.ts:600-636.
+        """
+        return cls(
+            transaction_id="0x" + data[0].hex() if isinstance(data[0], bytes) else data[0],
+            requester=data[1],
+            provider=data[2],
+            state=TransactionState(data[3]),
+            amount=data[4],
+            created_at=data[5],
+            updated_at=data[6],
+            deadline=data[7],
+            service_hash="0x" + data[8].hex() if isinstance(data[8], bytes) else data[8],
+            escrow_contract=data[9],
+            escrow_id="0x" + data[10].hex() if isinstance(data[10], bytes) else data[10],
+            attestation_uid="0x" + data[11].hex() if isinstance(data[11], bytes) else data[11],
+            dispute_window=data[12],
+            metadata="0x" + data[13].hex() if isinstance(data[13], bytes) else data[13],
+            platform_fee_bps_locked=data[14],
+            agent_id=data[15],
+            # Fields absent in the legacy shape — explicit defaults.
+            requester_penalty_bps_locked=0,
+            dispute_bond_bps_locked=0,
+            requester_agent_id=0,
+            dispute_initiator="",
+            dispute_bond=0,
+        )
+
+
+@dataclass
+class EconomicParams:
+    """
+    Economic parameters (fee structure).
+
+    PARITY: types/transaction.ts:66-72 (EconomicParams interface) and
+    ACTPKernel.ts:667-685 (getEconomicParams). ``base_fee_denominator`` is
+    always 10000 (BPS); ``provider_penalty_bps`` is not in the current
+    contract ABI and is reported as 0 for forward-compat.
+    """
+
+    base_fee_numerator: int
+    base_fee_denominator: int
+    fee_recipient: str
+    requester_penalty_bps: int
+    provider_penalty_bps: int
 
 
 # ============================================================================
@@ -534,6 +631,89 @@ class ACTPKernel(ContractBase):
 
         receipt = await self._sign_and_send(tx)
         return self._to_receipt(receipt)
+
+    async def submit_quote(
+        self,
+        transaction_id: str,
+        quote_hash: str,
+        gas_limit: Optional[int] = None,
+    ) -> TransactionReceipt:
+        """
+        Submit a price quote for a transaction (AIP-2).
+
+        Transitions the transaction from INITIATED -> QUOTED with the
+        canonical quote hash stored on-chain (encoded as the bytes proof).
+
+        PARITY: ACTPKernel.ts:330-358 (submitQuote). The hash is ABI-encoded
+        as ``['bytes32']`` and handed to ``transition_state(QUOTED, proof)``,
+        which mirrors the TS wrapper exactly.
+
+        Args:
+            transaction_id: Transaction ID (bytes32 hex string).
+            quote_hash: Keccak256 hash of the canonical JSON quote message
+                (bytes32 hex string, must be non-zero).
+            gas_limit: Optional gas limit override.
+
+        Returns:
+            Transaction receipt.
+
+        Raises:
+            ValidationError: If quote_hash is not a valid non-zero bytes32.
+            InvalidStateTransitionError: If the transaction is not INITIATED.
+
+        Example:
+            >>> await kernel.submit_quote(tx_id, "0xabc...")  # 0x + 64 hex
+        """
+        # Input validation — mirror ACTPKernel.ts:332-342.
+        if (
+            not isinstance(quote_hash, str)
+            or not quote_hash.startswith("0x")
+            or len(quote_hash) != 66
+        ):
+            raise ValidationError(
+                "Must be valid bytes32 hex string",
+                field="quote_hash",
+                value=quote_hash,
+            )
+        try:
+            int(quote_hash, 16)
+        except ValueError:
+            raise ValidationError(
+                "Must be valid bytes32 hex string",
+                field="quote_hash",
+                value=quote_hash,
+            )
+        if quote_hash.lower() == ZERO_BYTES32:
+            raise ValidationError(
+                "Cannot be zero hash",
+                field="quote_hash",
+                value=quote_hash,
+            )
+
+        # Validate current state is INITIATED — mirror ACTPKernel.ts:343-349.
+        current_tx = await self.get_transaction(transaction_id)
+        if current_tx.state != TransactionState.INITIATED:
+            raise InvalidStateTransitionError(
+                current_tx.state.name,
+                TransactionState.QUOTED.name,
+                tx_id=transaction_id,
+                allowed_transitions=["INITIATED"],
+            )
+
+        # Encode quote hash as bytes proof — abiCoder.encode(['bytes32'], [hash]).
+        # PARITY: ACTPKernel.ts:352-354.
+        from eth_abi import encode
+
+        quote_hash_bytes = self._to_bytes32(quote_hash)
+        proof = encode(["bytes32"], [quote_hash_bytes])
+
+        # Transition to QUOTED state with the encoded quote hash as proof.
+        return await self.transition_state(
+            transaction_id,
+            TransactionState.QUOTED,
+            proof,
+            gas_limit=gas_limit,
+        )
 
         # =========================================================================
     # Escrow Management
@@ -881,6 +1061,16 @@ class ACTPKernel(ContractBase):
         """
         Get transaction details from the contract.
 
+        Decode failures (BAD_DATA / "could not decode result data") fall back
+        to a legacy 16-field ABI shape — the older tuple deployed on Base
+        Mainnet (kernel ``0x132B…2d29``) that the bundled 21-field ABI can't
+        decode. Without this fallback, every read against an older deployment
+        surfaces as a generic decode error which downstream
+        ``BlockchainRuntime.get_transaction`` swallows as TX_NOT_FOUND for a
+        real on-chain tx. PARITY: ACTPKernel.ts:564-636 (Damir review
+        2026-04-18, Issue A). "Tx missing" reverts map to
+        ``TransactionNotFoundError``.
+
         Args:
             transaction_id: The transaction ID (bytes32 hex string)
 
@@ -892,12 +1082,123 @@ class ACTPKernel(ContractBase):
             >>> print(f"State: {tx_view.state.name}")
         """
         tx_id_bytes = self._to_bytes32(transaction_id)
-        result = await self.contract.functions.getTransaction(tx_id_bytes).call()
+        try:
+            result = await self.contract.functions.getTransaction(tx_id_bytes).call()
+        except Exception as error:
+            reason = str(error)
+            reason_lc = reason.lower()
+
+            # Deployed kernel reverts on missing transactions (e.g. "Tx missing").
+            if "tx missing" in reason_lc:
+                raise TransactionNotFoundError(transaction_id) from error
+
+            # Decode failure → fall back to the legacy 16-field ABI.
+            # PARITY: ACTPKernel.ts:584-619 (BAD_DATA / "could not decode result
+            # data"). web3.py surfaces a mismatched-return-data decode as
+            # InsufficientDataBytes / BadFunctionCallOutput / MismatchedABI, or a
+            # message containing "could not decode" / "insufficient data" / the
+            # eth_abi "ABIDecoding" marker. None of these overlap with genuine
+            # RPC transport errors, which propagate.
+            error_type = type(error).__name__
+            reason_no_space = reason_lc.replace(" ", "")
+            is_decode_failure = (
+                error_type
+                in ("BadFunctionCallOutput", "InsufficientDataBytes", "MismatchedABI")
+                or "could not decode" in reason_lc
+                or "insufficient data" in reason_lc
+                or "abidecoding" in reason_no_space
+            )
+            if not is_decode_failure:
+                raise
+
+            try:
+                legacy = self.w3.eth.contract(
+                    address=self.contract.address,
+                    abi=_LEGACY_GET_TRANSACTION_ABI,
+                )
+                result = await legacy.functions.getTransaction(tx_id_bytes).call()
+            except Exception as legacy_error:
+                legacy_reason = str(legacy_error).lower()
+                if "tx missing" in legacy_reason:
+                    raise TransactionNotFoundError(transaction_id) from legacy_error
+                raise TransactionError(
+                    f"Failed to fetch transaction {transaction_id} "
+                    f"(legacy fallback also failed): {legacy_error}",
+                    tx_id=transaction_id,
+                ) from legacy_error
+
+            return TransactionView.from_legacy_tuple(result)
+
         return TransactionView.from_tuple(result)
 
     async def get_platform_fee_bps(self) -> int:
         """Get the current platform fee in basis points."""
         return await self.contract.functions.platformFeeBps().call()
+
+    async def get_economic_params(self) -> EconomicParams:
+        """
+        Get economic parameters (fee structure).
+
+        The contract has NO combined ``getEconomicParams()`` function — this
+        calls the individual view getters ``platformFeeBps()``,
+        ``requesterPenaltyBps()`` and ``feeRecipient()`` (concurrently) and
+        assembles the result. ``base_fee_denominator`` is always 10000 (BPS);
+        ``provider_penalty_bps`` is not in the current contract ABI and is
+        reported as 0. PARITY: ACTPKernel.ts:667-685.
+
+        Returns:
+            EconomicParams with the assembled fee structure.
+        """
+        platform_fee_bps, requester_penalty_bps, fee_recipient = await asyncio.gather(
+            self.contract.functions.platformFeeBps().call(),
+            self.contract.functions.requesterPenaltyBps().call(),
+            self.contract.functions.feeRecipient().call(),
+        )
+
+        return EconomicParams(
+            base_fee_numerator=int(platform_fee_bps),
+            base_fee_denominator=10000,  # BPS is always out of 10000
+            fee_recipient=fee_recipient,
+            requester_penalty_bps=int(requester_penalty_bps),
+            provider_penalty_bps=0,  # Not in current contract ABI
+        )
+
+    async def estimate_create_transaction(
+        self,
+        params: Union[CreateTransactionParams, Dict[str, Any]],
+    ) -> int:
+        """
+        Estimate gas for transaction creation.
+
+        Builds the same ``createTransaction`` call as :meth:`create_transaction`
+        and returns the estimated gas (without sending). PARITY:
+        ACTPKernel.ts:689-714.
+
+        Args:
+            params: Transaction parameters (CreateTransactionParams or dict).
+
+        Returns:
+            Estimated gas units (int).
+        """
+        if isinstance(params, dict):
+            params = CreateTransactionParams(**params)
+
+        requester = params.requester or self.account.address
+        provider_checksum = self.w3.to_checksum_address(params.provider)
+        requester_checksum = self.w3.to_checksum_address(requester)
+        service_hash = self._to_bytes32(params.service_hash)
+
+        contract_fn = self.contract.functions.createTransaction(
+            provider_checksum,
+            requester_checksum,
+            params.amount,
+            params.deadline,
+            params.dispute_window,
+            service_hash,
+            params.agent_id,
+            params.requester_agent_id,
+        )
+        return await contract_fn.estimate_gas({"from": self.account.address})
 
     async def get_min_transaction_amount(self) -> int:
         """Get the minimum transaction amount in USDC."""

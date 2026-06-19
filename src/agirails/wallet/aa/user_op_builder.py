@@ -330,6 +330,158 @@ def dummy_signature() -> str:
 
 
 # ============================================================================
+# CoinbaseSmartWallet SignatureWrapper + ERC-1271/ERC-6492 (x402 v2 path)
+# ============================================================================
+#
+# 1:1 port of viem's `wrapSignature` / `toReplaySafeTypedData` /
+# `serializeErc6492Signature` (sdk-js/node_modules/viem/account-abstraction/
+# accounts/implementations/toCoinbaseSmartAccount.ts:330-443 and
+# utils/signature/serializeErc6492Signature.ts). The TS AutoWalletProvider
+# (AutoWalletProvider.ts:211-358) delegates to viem's `toCoinbaseSmartAccount`
+# for these — this is the byte-exact Python equivalent so a Smart-Wallet
+# (Tier-1) buyer produces an ERC-1271 / ERC-6492-valid x402 signature instead
+# of a raw owner EOA sig.
+
+# ERC-6492 magic suffix (viem constants/bytes.ts: erc6492MagicBytes).
+ERC6492_MAGIC_BYTES = bytes.fromhex(
+    "6492649264926492649264926492649264926492649264926492649264926492"
+)
+
+
+def wrap_signature(owner_index: int, signature: bytes) -> str:
+    """CoinbaseSmartWallet ``SignatureWrapper(ownerIndex, signatureData)``.
+
+    1:1 with viem ``wrapSignature`` (toCoinbaseSmartAccount.ts:407-443):
+      * If ``signature`` is exactly 65 bytes (r,s,v), it is re-packed as
+        ``encodePacked(bytes32 r, bytes32 s, uint8 v)`` with ``v`` normalized
+        to 27/28 (``yParity === 0 ? 27 : 28``).
+      * Otherwise ``signature`` is used verbatim (e.g. WebAuthn — not used here).
+    Then ABI-encoded as a single ``(uint8 ownerIndex, bytes signatureData)``
+    tuple.
+
+    ``abi_encode(["(uint8,bytes)"], ...)`` is byte-identical to viem's
+    ``encodeAbiParameters`` of the same tuple, and (for ownerIndex=0) also
+    byte-identical to the ``(uint256,bytes)`` SignatureWrapper used in
+    ``sign_user_op`` — a uint8 0 and uint256 0 both occupy one zero word.
+
+    Args:
+        owner_index: Index of the owner in the Smart Wallet owner set (0).
+        signature: Raw signature bytes (65 for ECDSA r,s,v).
+
+    Returns:
+        0x-prefixed hex SignatureWrapper.
+    """
+    if len(signature) == 65:
+        r = signature[0:32]
+        s = signature[32:64]
+        v = signature[64]
+        # viem parseSignature: 27 -> yParity 0, 28 -> yParity 1; 0/1 stay as-is.
+        # eth_account / unsafe_sign_hash already returns v in {27, 28}.
+        if v in (0, 27):
+            packed_v = 27
+        elif v in (1, 28):
+            packed_v = 28
+        else:
+            raise ValueError(f"Invalid signature v value: {v}")
+        signature_data = r + s + bytes([packed_v])
+    else:
+        signature_data = signature
+
+    wrapped = abi_encode(["(uint8,bytes)"], [(owner_index, signature_data)])
+    return "0x" + wrapped.hex()
+
+
+def build_replay_safe_typed_data(
+    smart_wallet_address: str,
+    chain_id: int,
+    inner_hash: bytes,
+) -> Dict[str, object]:
+    """Build the CoinbaseSmartWallet replay-safe ``full_message`` typed data.
+
+    1:1 with viem ``toReplaySafeTypedData`` (toCoinbaseSmartAccount.ts:330-359):
+    a single-field ``CoinbaseSmartWalletMessage(bytes32 hash)`` struct under a
+    domain of ``{name: "Coinbase Smart Wallet", version: "1", chainId,
+    verifyingContract: smartWallet}``. ``inner_hash`` is the EIP-712 hash of the
+    payload the caller actually wants signed (e.g. the Permit2 witness).
+
+    The returned dict is an ``eth_account`` ``encode_typed_data(full_message=...)``
+    shape (domain + types + primaryType + message). ``EIP712Domain`` is omitted;
+    ``encode_typed_data`` derives it from the domain keys, matching viem.
+
+    Args:
+        smart_wallet_address: The Smart Wallet (verifyingContract).
+        chain_id: Chain ID.
+        inner_hash: 32-byte EIP-712 hash of the inner payload.
+
+    Returns:
+        ``full_message`` dict for ``encode_typed_data``.
+    """
+    return {
+        "domain": {
+            "name": "Coinbase Smart Wallet",
+            "version": "1",
+            "chainId": chain_id,
+            "verifyingContract": Web3.to_checksum_address(smart_wallet_address),
+        },
+        "types": {
+            "CoinbaseSmartWalletMessage": [{"name": "hash", "type": "bytes32"}],
+        },
+        "primaryType": "CoinbaseSmartWalletMessage",
+        "message": {"hash": inner_hash},
+    }
+
+
+def build_create_account_factory_data(
+    signer_address: str,
+    nonce: int = DEFAULT_WALLET_NONCE,
+) -> bytes:
+    """ABI-encode ``createAccount(bytes[] owners, uint256 nonce)`` calldata.
+
+    Mirrors viem ``getFactoryArgs`` (toCoinbaseSmartAccount.ts:170-177) =
+    ``encodeFunctionData(createAccount, [owners_bytes, nonce])`` where
+    ``owners_bytes = [pad(owner.address)]`` (the owner address left-padded to
+    32 bytes — identical to ``abi_encode(["address"], [addr])``). This is the
+    ``factoryData`` portion of the ERC-6492 envelope. Equivalent in bytes to
+    ``build_init_code`` minus the leading factory address.
+
+    Returns:
+        Raw calldata bytes (selector + ABI-encoded args).
+    """
+    owner_bytes = abi_encode(["address"], [Web3.to_checksum_address(signer_address)])
+    calldata = abi_encode(["bytes[]", "uint256"], [[owner_bytes], nonce])
+    return bytes.fromhex(_CREATE_ACCOUNT_SELECTOR) + calldata
+
+
+def serialize_erc6492_signature(
+    factory_address: str,
+    factory_data: bytes,
+    signature: str,
+) -> str:
+    """Wrap a signature in an ERC-6492 envelope for counterfactual verification.
+
+    1:1 with viem ``serializeErc6492Signature``
+    (utils/signature/serializeErc6492Signature.ts):
+    ``abi.encode(address factory, bytes factoryData, bytes signature)`` followed
+    by the 32-byte ERC-6492 magic suffix. Lets a facilitator deploy the Smart
+    Wallet via simulation and validate the signature before the first UserOp.
+
+    Args:
+        factory_address: Account factory address (SMART_WALLET_FACTORY).
+        factory_data: ``createAccount`` calldata (build_create_account_factory_data).
+        signature: 0x-prefixed inner signature (the SignatureWrapper).
+
+    Returns:
+        0x-prefixed ERC-6492 signature.
+    """
+    sig_bytes = bytes.fromhex(signature[2:] if signature.startswith("0x") else signature)
+    encoded = abi_encode(
+        ["address", "bytes", "bytes"],
+        [Web3.to_checksum_address(factory_address), factory_data, sig_bytes],
+    )
+    return "0x" + (encoded + ERC6492_MAGIC_BYTES).hex()
+
+
+# ============================================================================
 # Helpers
 # ============================================================================
 

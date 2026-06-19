@@ -514,10 +514,12 @@ class TestStandardLifecycleMethods:
         assert status.can_release is False
         assert status.dispute_window_ends is not None
 
-        # Advance past the dispute window
+        # Advance past the dispute window. Reading the tx triggers MockRuntime
+        # lazy auto-release (TS parity), so the tx is now SETTLED.
         await client.runtime.time.advance_time(3601)
         status2 = await client.standard.get_status(tx_id)
-        assert status2.can_release is True
+        assert status2.state == "SETTLED"
+        assert status2.can_release is False
         assert status2.can_dispute is False
 
     @pytest.mark.asyncio

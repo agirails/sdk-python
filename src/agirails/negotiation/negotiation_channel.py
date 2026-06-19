@@ -442,6 +442,365 @@ def _now_seconds() -> float:
     return _time.time()
 
 
+# ============================================================================
+# RelayChannel — production NegotiationChannel: polls agirails.app over HTTP
+# ============================================================================
+#
+# Python port of ``sdk-js/src/negotiation/RelayChannel.ts``. Both buyer and
+# provider can use this — neither needs to host an HTTP endpoint. Messages are
+# POSTed to / pulled from the agirails.app negotiation relay (AIP-2.1 §6).
+#
+# Verification model: the relay stores messages opaquely (bytes + cursor +
+# indexes); the receiving SDK runs full EIP-712 verify BEFORE delivering to the
+# subscriber, so a malicious relay can at worst spam the subscriber's deduper
+# with junk that fails verify on receive. Dedup-AFTER-verify (same P0 ordering
+# as MockChannel / TS RelayChannel.deliver:236-267): a tampered envelope with a
+# reused signature must NOT poison the dedup set and silently drop the
+# subsequent legitimate message.
+#
+# Polling cadence: 1500ms by default (TS DEFAULT_POLL_MS). Tunable via
+# ``poll_interval_ms`` for tests. The httpx + asyncio poll-loop idiom mirrors
+# ``delivery/relay_delivery_channel.py``; subscribe_tx_id / subscribe_agent stay
+# SYNCHRONOUS to satisfy the NegotiationChannel Protocol (orchestrators call
+# them without await), spawning the loop via ``asyncio.ensure_future``.
+
+_DEFAULT_RELAY_BASE_URL = "https://agirails.app"
+_DEFAULT_RELAY_POLL_MS = 1500
+
+
+@dataclass
+class RelayChannelConfig:
+    """Configuration for :class:`RelayChannel` (mirrors TS ``RelayChannelConfig``)."""
+
+    #: Kernel address per chainId — needed for EIP-712 verify on receive. A
+    #: message for a chainId not in this map is dropped (logged + skipped).
+    kernel_address_by_chain_id: Dict[int, str]
+    #: Base URL of the relay. Default: https://agirails.app.
+    base_url: Optional[str] = None
+    #: Poll interval in ms. Default: 1500. Tests use 50.
+    poll_interval_ms: Optional[int] = None
+    #: Injected httpx client (tests). When None, the channel owns a fresh one.
+    http_client: Optional[Any] = None
+    #: Logger ``(level, msg, ctx?) -> None``. Default: noop.
+    log: Optional[Any] = None
+    #: Permit http:// + loopback / RFC1918 / link-local base_url. Off by default
+    #: so a misconfigured agent can't be steered to leak negotiation traffic to
+    #: a metadata service or internal host. Set True only in local dev / tests.
+    allow_insecure_targets: bool = False
+    #: Request timeout in ms. Default: 10000.
+    request_timeout_ms: Optional[int] = None
+
+
+# eq=False → identity-based hashing so poll states can live in a ``set``.
+@dataclass(eq=False)
+class _RelayPollState:
+    cursor: Optional[str] = None
+    delivered: Set[str] = field(default_factory=set)
+    cancelled: bool = False
+    task: Optional["asyncio.Task[Any]"] = None
+
+
+class RelayChannel:
+    """Production :class:`NegotiationChannel`. Polls the agirails.app relay.
+
+    Mirrors TS ``RelayChannel``. Verify-before-deliver, dedup-after-verify, SSRF
+    guard on ``base_url``. EIP-712 verifiers are signer-independent (verify-only).
+    """
+
+    def __init__(self, cfg: RelayChannelConfig) -> None:
+        base = (cfg.base_url or _DEFAULT_RELAY_BASE_URL).rstrip("/")
+        # Apex audit FIND-011 parity: gate the consumer-supplied base_url
+        # through the same SSRF guard used for peer URLs elsewhere in the SDK
+        # (TS RelayChannel.ts:102 assertSafePeerUrl). Reuses the Python port in
+        # server.quote_channel.
+        from agirails.server.quote_channel import assert_safe_peer_url
+
+        assert_safe_peer_url(base, cfg.allow_insecure_targets)
+
+        self._base_url = base
+        self._kernels: Dict[int, str] = dict(cfg.kernel_address_by_chain_id or {})
+        self._poll_interval_ms = (
+            cfg.poll_interval_ms
+            if cfg.poll_interval_ms is not None
+            else _DEFAULT_RELAY_POLL_MS
+        )
+        request_timeout_ms = (
+            cfg.request_timeout_ms if cfg.request_timeout_ms is not None else 10000
+        )
+        import httpx as _httpx
+
+        self._owns_client = cfg.http_client is None
+        self._client = cfg.http_client or _httpx.AsyncClient(
+            timeout=request_timeout_ms / 1000.0
+        )
+        self._log = cfg.log or (lambda _level, _msg, _ctx=None: None)
+        self._quote_verifier = QuoteBuilder()
+        self._counter_verifier = CounterOfferBuilder()
+        self._counter_accept_verifier = CounterAcceptBuilder()
+        self._poll_states: Set[_RelayPollState] = set()
+
+    # -- NegotiationChannel API ---------------------------------------------
+
+    async def post(self, tx_id: str, envelope: NegotiationMessage) -> None:
+        """POST a signed envelope to the relay (mirror TS ``post``)."""
+        from urllib.parse import quote as _url_quote
+
+        url = (
+            f"{self._base_url}/api/v1/negotiations/"
+            f"{_url_quote(tx_id, safe='')}/messages"
+        )
+        body = _envelope_to_wire(envelope)
+        res = await self._client.post(
+            url, headers={"Content-Type": "application/json"}, json=body
+        )
+        if not (200 <= res.status_code < 300):
+            text = ""
+            try:
+                text = res.text
+            except Exception:  # noqa: BLE001
+                text = ""
+            raise RuntimeError(f"Relay POST {res.status_code}: {text[:200]}")
+
+    def subscribe_tx_id(
+        self, tx_id: str, on_message: TxIdCallback
+    ) -> Subscription:
+        from urllib.parse import quote as _url_quote
+
+        state = _RelayPollState()
+        self._poll_states.add(state)
+
+        async def poll_loop() -> None:
+            while not state.cancelled:
+                try:
+                    url = (
+                        f"{self._base_url}/api/v1/negotiations/"
+                        f"{_url_quote(tx_id, safe='')}/messages"
+                    )
+                    if state.cursor:
+                        url += f"?after={_url_quote(state.cursor, safe='')}"
+                    body = await self._get_json(url)
+                    for item in (body.get("messages") or []):
+                        if state.cancelled:
+                            break
+                        await self._deliver(
+                            item, state, lambda d: on_message(d)
+                        )
+                        state.cursor = item.get("cursor")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:  # noqa: BLE001
+                    self._log(
+                        "warn",
+                        f"Relay poll error for tx {tx_id[:12]}…",
+                        {"error": str(err)},
+                    )
+                if state.cancelled:
+                    break
+                await asyncio.sleep(self._poll_interval_ms / 1000.0)
+
+        state.task = asyncio.ensure_future(poll_loop())
+        return self._make_subscription(state)
+
+    def subscribe_agent(
+        self, agent_did: str, on_message: AgentCallback
+    ) -> Subscription:
+        from urllib.parse import quote as _url_quote
+
+        state = _RelayPollState()
+        self._poll_states.add(state)
+
+        async def poll_loop() -> None:
+            while not state.cancelled:
+                try:
+                    url = (
+                        f"{self._base_url}/api/v1/negotiations/inbox/"
+                        f"{_url_quote(agent_did, safe='')}"
+                    )
+                    if state.cursor:
+                        url += f"?after={_url_quote(state.cursor, safe='')}"
+                    body = await self._get_json(url)
+                    for item in (body.get("messages") or []):
+                        if state.cancelled:
+                            break
+                        item_tx_id = item.get("txId") or item.get("tx_id") or ""
+                        await self._deliver(
+                            item,
+                            state,
+                            lambda d, _t=item_tx_id: on_message(_t, d),
+                        )
+                        state.cursor = item.get("cursor")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:  # noqa: BLE001
+                    self._log(
+                        "warn",
+                        f"Relay agent-inbox poll error for {agent_did}",
+                        {"error": str(err)},
+                    )
+                if state.cancelled:
+                    break
+                await asyncio.sleep(self._poll_interval_ms / 1000.0)
+
+        state.task = asyncio.ensure_future(poll_loop())
+        return self._make_subscription(state)
+
+    async def close(self) -> None:
+        """Cancel all poll loops and close the owned httpx client (mirror TS ``close``)."""
+        for state in list(self._poll_states):
+            state.cancelled = True
+            if state.task is not None:
+                state.task.cancel()
+        self._poll_states.clear()
+        if self._owns_client:
+            try:
+                await self._client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+    # -- internals ----------------------------------------------------------
+
+    def _make_subscription(self, state: _RelayPollState) -> Subscription:
+        outer = self
+
+        def _unsub() -> None:
+            state.cancelled = True
+            if state.task is not None:
+                state.task.cancel()
+            outer._poll_states.discard(state)
+
+        return Subscription(unsubscribe=_unsub)
+
+    async def _get_json(self, url: str) -> Dict[str, Any]:
+        res = await self._client.get(url)
+        if not (200 <= res.status_code < 300):
+            self._log("warn", f"Relay GET {res.status_code} for {url}")
+            return {}
+        try:
+            return res.json()
+        except Exception:  # noqa: BLE001
+            return {}
+
+    async def _deliver(
+        self,
+        item: Dict[str, Any],
+        state: _RelayPollState,
+        invoke: Callable[[DeliveredMessage], Union[None, Awaitable[None]]],
+    ) -> None:
+        """Verify + dedup + dispatch one relay item (mirror TS ``deliver``)."""
+        envelope = _wire_to_envelope(item.get("envelope"))
+        if envelope is None:
+            return
+
+        # Dedup by signature. CRITICAL: dedup-check BEFORE verify, but only ADD
+        # to the dedup set AFTER verify SUCCEEDS (P0 audit finding — see module
+        # docstring + MockChannel._deliver_to_sub).
+        sig = _msg_signature(envelope.message)
+        if sig in state.delivered:
+            return
+
+        chain_id = _msg_chain_id(envelope.message)
+        kernel_address = self._kernels.get(chain_id)
+        if not kernel_address:
+            self._log("warn", f"Dropping message for unknown chainId {chain_id}")
+            return
+        try:
+            if is_quote_envelope(envelope):
+                self._quote_verifier.verify(envelope.message, kernel_address)
+            elif is_counter_offer_envelope(envelope):
+                self._counter_verifier.verify(envelope.message, kernel_address)
+            elif is_counter_accept_envelope(envelope):
+                self._counter_accept_verifier.verify(envelope.message, kernel_address)
+        except Exception as err:  # noqa: BLE001 — verify failure → drop
+            self._log("warn", "Dropping message that failed verify", {"error": str(err)})
+            return
+
+        # Verify passed → safe to dedup.
+        state.delivered.add(sig)
+
+        received_at = item.get("receivedAt")
+        delivered = DeliveredMessage(
+            cursor=item.get("cursor", ""),
+            received_at=received_at if received_at is not None else int(_now_seconds()),
+            envelope=envelope,
+        )
+        try:
+            result = invoke(delivered)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as err:  # noqa: BLE001 — subscriber must not kill the loop
+            self._log("error", "Subscriber callback threw", {"error": str(err)})
+
+
+# ----------------------------------------------------------------------------
+# Wire (de)serialization — the relay stores envelopes as plain JSON. The signed
+# message dataclasses (QuoteMessage / CounterOfferMessage / CounterAcceptMessage)
+# are converted to / from dicts at the channel boundary. The receiving SDK
+# re-verifies the EIP-712 signature off the reconstructed message, so a wire
+# round-trip that drops a field surfaces as a verify failure (drop), never a
+# silent accept.
+# ----------------------------------------------------------------------------
+
+
+def _dataclass_to_dict(obj: Any) -> Any:
+    from dataclasses import asdict, is_dataclass
+
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    return obj
+
+
+def _envelope_to_wire(envelope: NegotiationMessage) -> Dict[str, Any]:
+    return {
+        "type": envelope.type,
+        "message": _dataclass_to_dict(envelope.message),
+    }
+
+
+def _wire_to_envelope(wire: Any) -> Optional[NegotiationMessage]:
+    """Reconstruct a typed :class:`NegotiationMessage` from a relay wire dict.
+
+    Returns None on a malformed envelope (missing type / message) so the poll
+    loop skips it rather than crashing.
+    """
+    if not isinstance(wire, dict):
+        return None
+    msg_type = wire.get("type")
+    msg = wire.get("message")
+    if msg_type not in (
+        QUOTE_ENVELOPE,
+        COUNTEROFFER_ENVELOPE,
+        COUNTERACCEPT_ENVELOPE,
+    ):
+        return None
+    if msg is None:
+        return None
+    # Already a dataclass instance (e.g. a MockChannel-shaped item handed in by
+    # a test) — pass through unchanged.
+    from dataclasses import is_dataclass
+
+    if is_dataclass(msg) and not isinstance(msg, type):
+        return NegotiationMessage(type=msg_type, message=msg)  # type: ignore[arg-type]
+    if not isinstance(msg, dict):
+        return None
+    try:
+        if msg_type == QUOTE_ENVELOPE:
+            from agirails.builders.quote import QuoteMessage as _QM
+
+            inner: Any = _QM(**msg)
+        elif msg_type == COUNTEROFFER_ENVELOPE:
+            from agirails.builders.counter_offer import CounterOfferMessage as _CM
+
+            inner = _CM(**msg)
+        else:
+            from agirails.builders.counter_accept import CounterAcceptMessage as _CA
+
+            inner = _CA(**msg)
+    except TypeError:
+        # Extra / missing fields vs the dataclass schema → malformed; skip.
+        return None
+    return NegotiationMessage(type=msg_type, message=inner)
+
+
 __all__ = [
     "QUOTE_ENVELOPE",
     "COUNTEROFFER_ENVELOPE",
@@ -453,6 +812,8 @@ __all__ = [
     "NegotiationChannel",
     "MockChannel",
     "MockChannelConfig",
+    "RelayChannel",
+    "RelayChannelConfig",
     "is_quote_envelope",
     "is_counter_offer_envelope",
     "is_counter_accept_envelope",

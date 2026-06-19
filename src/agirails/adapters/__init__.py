@@ -62,6 +62,7 @@ from agirails.adapters.types import (
     PaymentIdentity,
     PaymentMetadata,
     UnifiedPayParams,
+    UnifiedPayResult,
 )
 from agirails.adapters.i_adapter import IAdapter
 from agirails.adapters.adapter_registry import AdapterRegistry
@@ -99,6 +100,7 @@ __all__ = [
     "PaymentIdentity",
     "PaymentMetadata",
     "UnifiedPayParams",
+    "UnifiedPayResult",
     # Interface
     "IAdapter",
     # Registry & Router

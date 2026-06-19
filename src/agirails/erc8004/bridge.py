@@ -151,16 +151,36 @@ class ERC8004Bridge:
 
         token_id = int(agent_id)
 
-        # Fetch owner
+        # Fetch owner. Distinguish a genuine "nonexistent token" revert
+        # (AGENT_NOT_FOUND) from an RPC/network failure (NETWORK_ERROR) —
+        # collapsing both to AGENT_NOT_FOUND hid real outages and made callers
+        # treat a flaky RPC as a missing agent. PARITY: ERC8004Bridge.ts:233-260.
         try:
-            owner: str = self._contract.functions.ownerOf(token_id).call()
-            owner = Web3.to_checksum_address(owner)
+            owner_raw: str = self._contract.functions.ownerOf(token_id).call()
         except Exception as exc:
+            if self._is_token_not_found_error(exc):
+                raise ERC8004Error(
+                    ERC8004ErrorCode.AGENT_NOT_FOUND,
+                    f"Agent {agent_id} not found in ERC-8004 registry",
+                    {"agent_id": agent_id, "error": str(exc)},
+                ) from exc
             raise ERC8004Error(
-                ERC8004ErrorCode.AGENT_NOT_FOUND,
-                f"Agent {agent_id} not found on-chain",
+                ERC8004ErrorCode.NETWORK_ERROR,
+                f"Failed to fetch agent {agent_id}: {exc}",
                 {"agent_id": agent_id, "error": str(exc)},
             ) from exc
+
+        # ERC-721 ownerOf may return the zero address for a burned/unminted
+        # token on some implementations instead of reverting. Treat that as
+        # not-found. PARITY: ERC8004Bridge.ts:263-269.
+        if (owner_raw or "").lower() == self._ZERO_ADDRESS:
+            raise ERC8004Error(
+                ERC8004ErrorCode.AGENT_NOT_FOUND,
+                f"Agent {agent_id} not found in ERC-8004 registry",
+                {"agent_id": agent_id},
+            )
+
+        owner = Web3.to_checksum_address(owner_raw)
 
         # Fetch agent URI
         try:
@@ -255,6 +275,28 @@ class ERC8004Bridge:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+    # Substrings that mean "this ERC-721 token does not exist" (vs an RPC /
+    # network failure). PARITY: ERC8004Bridge.ts:240-244.
+    _TOKEN_NOT_FOUND_MARKERS = (
+        "nonexistent",
+        "erc721",
+        "invalid token",
+    )
+
+    @classmethod
+    def _is_token_not_found_error(cls, exc: BaseException) -> bool:
+        """True if the revert means the token doesn't exist (not an RPC error).
+
+        PARITY: ERC8004Bridge.ts:240-244. web3.py surfaces the contract revert
+        reason in the exception message for ``ContractLogicError``; a transport
+        failure (timeout, connection refused, 5xx) won't contain these markers
+        and is therefore classified as a network error upstream.
+        """
+        message = str(exc).lower()
+        return any(marker in message for marker in cls._TOKEN_NOT_FOUND_MARKERS)
 
     @staticmethod
     def _is_valid_agent_id(agent_id: str) -> bool:

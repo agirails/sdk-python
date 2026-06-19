@@ -20,9 +20,12 @@ from agirails.receipts.push import (
     ParticipantRole,
     PushReceiptArgs,
     PushReceiptResult,
+    ReceiptDataV3,
+    ReceiptTimingV3,
     chain_id_for_network,
     format_settled_line,
     push_receipt_on_settled,
+    render_receipt_v3,
 )
 
 __all__ = [
@@ -48,4 +51,7 @@ __all__ = [
     "chain_id_for_network",
     "ParticipantRole",
     "Network",
+    "render_receipt_v3",
+    "ReceiptDataV3",
+    "ReceiptTimingV3",
 ]

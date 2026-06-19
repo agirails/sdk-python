@@ -70,6 +70,15 @@ _PERMIT2_EIP712_DOMAIN_TYPE = [
 # keccak256("approve(address,uint256)")[:4] = 0x095ea7b3
 _APPROVE_SELECTOR = keccak(text="approve(address,uint256)")[:4]
 
+# ERC-20 allowance(address owner, address spender) selector for the pre-approve
+# on-chain read. keccak256("allowance(address,address)")[:4] = 0xdd62ed3e.
+_ALLOWANCE_SELECTOR = keccak(text="allowance(address,address)")[:4]
+
+# Permit2 approve is typically MAX_UINT256. Treat any value at/above half-max as
+# "already approved" (tolerates partial-spend scenarios). 1:1 with TS
+# X402Adapter.readPermit2AllowanceIsSet THRESHOLD = (1n << 255n).
+_ALLOWANCE_APPROVED_THRESHOLD = 1 << 255
+
 
 # ============================================================================
 # Data classes
@@ -255,6 +264,97 @@ def build_permit2_payload(
             "permit2Authorization": authorization.to_wire(),
         },
     }
+
+
+# ============================================================================
+# On-chain allowance read (pre-approve check)
+# ============================================================================
+
+
+def read_permit2_allowance_is_set(
+    read_provider: Any,
+    owner: str,
+    token: str,
+    spender: str = PERMIT2_ADDRESS,
+) -> bool:
+    """Return True if ``token.allowance(owner, PERMIT2)`` is already set.
+
+    P2 / P1-2 parity with TS ``X402Adapter.readPermit2AllowanceIsSet``
+    (X402Adapter.ts:680-712): read the on-chain ERC-20 allowance BEFORE sending
+    a Permit2 approve. The in-memory approved-cache is only a fast path — after a
+    process restart or horizontal scale the cache is empty but the on-chain
+    allowance may already be set from a prior run. Without this check we'd pay
+    (sponsor gas) for a redundant approve.
+
+    Uses a raw ``eth_call`` with the ERC-20 ``allowance(address,address)``
+    selector (0xdd62ed3e) to avoid pulling in a full contract ABI. Returns
+    ``True`` only when the allowance is at/above half of ``MAX_UINT256`` (Permit2
+    approves are typically ``MAX_UINT256``).
+
+    Fail-open-to-submit semantics (matches TS): returns ``False`` (i.e. "submit
+    the approve") if no usable read provider is available or the call fails, so
+    we never skip a needed approve — the worst case is a redundant (sponsored)
+    approve, never a missing one.
+
+    Args:
+        read_provider: A Web3 instance (``.eth.call``) or an ethers-style object
+            exposing ``call({"to", "data"}) -> hex|bytes``. ``None`` => False.
+        owner: The Smart Wallet / token holder address.
+        token: The ERC-20 (USDC) token contract address.
+        spender: Allowance spender (defaults to the canonical Permit2 address).
+
+    Returns:
+        True if already approved (>= half MAX_UINT256); False otherwise.
+    """
+    if read_provider is None:
+        return False
+
+    owner_word = bytes.fromhex(
+        to_checksum_address(owner)[2:].lower()
+    ).rjust(32, b"\x00")
+    spender_word = bytes.fromhex(
+        to_checksum_address(spender)[2:].lower()
+    ).rjust(32, b"\x00")
+    data = "0x" + (_ALLOWANCE_SELECTOR + owner_word + spender_word).hex()
+    to_addr = to_checksum_address(token)
+
+    try:
+        result = _eth_call(read_provider, to_addr, data)
+    except Exception:
+        return False
+
+    if result is None:
+        return False
+    # Normalize to an int.
+    if isinstance(result, (bytes, bytearray)):
+        if len(result) == 0:
+            return False
+        allowance = int.from_bytes(bytes(result), "big")
+    else:
+        text = str(result)
+        if not text or text == "0x":
+            return False
+        try:
+            allowance = int(text, 16)
+        except ValueError:
+            return False
+
+    return allowance >= _ALLOWANCE_APPROVED_THRESHOLD
+
+
+def _eth_call(read_provider: Any, to_addr: str, data: str) -> Any:
+    """Perform a read-only ``eth_call`` across web3 / ethers-style providers.
+
+    Web3.py: ``read_provider.eth.call({"to", "data"})`` -> bytes.
+    Ethers-style duck type: ``read_provider.call({"to", "data"})`` -> hex str.
+    """
+    eth = getattr(read_provider, "eth", None)
+    if eth is not None and callable(getattr(eth, "call", None)):
+        return eth.call({"to": to_addr, "data": data})
+    call = getattr(read_provider, "call", None)
+    if callable(call):
+        return call({"to": to_addr, "data": data})
+    return None
 
 
 # ============================================================================

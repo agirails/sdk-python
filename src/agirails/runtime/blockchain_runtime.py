@@ -800,6 +800,118 @@ class BlockchainRuntime:
         results.reverse()
         return results
 
+    def subscribe_provider_jobs(
+        self,
+        provider: str,
+        on_job: Callable[[MockTransaction], Any],
+        poll_interval: float = 2.0,
+    ) -> Callable[[], None]:
+        """Subscribe to live ``TransactionCreated`` events for a provider.
+
+        PARITY: BlockchainRuntime.ts:793-826 (subscribeProviderJobs). Public on
+        the class (NOT on the runtime interface) so callers can feature-detect
+        support with ``hasattr(runtime, "subscribe_provider_jobs")`` — keeping
+        the runtime contract narrow. MockRuntime deliberately does not
+        implement this (mock providers receive jobs via polling against
+        in-memory state).
+
+        TS uses an ethers push subscription (``contract.on``). web3.py has no
+        equivalent push primitive for HTTP providers, so this runs a bounded
+        polling loop over new blocks — same observable behavior: each newly
+        created INITIATED job for ``provider`` is hydrated and handed to
+        ``on_job`` exactly once.
+
+        Hydration is best-effort (PARITY: ts:799-819):
+          - tx not yet visible after the event fires (RPC eventual consistency)
+            → skip; the next poll / catch-up sweep picks it up.
+          - tx hydrated but no longer INITIATED (cancelled/quoted between event
+            emission and our read) → drop silently; we don't double-process.
+
+        Args:
+            provider: Provider Ethereum address.
+            on_job: Callback invoked with the hydrated INITIATED MockTransaction.
+            poll_interval: Seconds between polls (live subscription cadence).
+
+        Returns:
+            A cleanup function that cancels the subscription.
+        """
+        target = provider.lower()
+        seen: set[str] = set()
+        cancelled = asyncio.Event()
+
+        async def _watch() -> None:
+            try:
+                last_block = await self.w3.eth.block_number
+            except Exception as err:  # pragma: no cover - startup RPC blip
+                _logger.warning("subscribe_provider_jobs: initial block fetch failed: %s", err)
+                last_block = 0
+
+            while not cancelled.is_set():
+                try:
+                    current_block = await self.w3.eth.block_number
+                    if current_block > last_block:
+                        history = await self.events.get_events(
+                            EventFilter(
+                                event_types=["TransactionCreated"],
+                                provider=provider,
+                                from_block=last_block + 1,
+                                to_block=current_block,
+                            ),
+                        )
+                        for h in history:
+                            tx_id = getattr(h, "transaction_id", None)
+                            if not tx_id or tx_id in seen:
+                                continue
+                            seen.add(tx_id)
+                            try:
+                                tx = await self.get_transaction(tx_id)
+                            except Exception as err:
+                                _logger.warning(
+                                    "subscribe_provider_jobs: hydration error for %s: %s",
+                                    tx_id,
+                                    err,
+                                )
+                                continue
+                            if tx is None:
+                                # Not yet visible — let the next poll retry.
+                                _logger.warning(
+                                    "subscribe_provider_jobs: tx %s not yet visible, will retry",
+                                    tx_id,
+                                )
+                                seen.discard(tx_id)
+                                continue
+                            if tx.state != State.INITIATED:
+                                # Moved on between emission and read — don't process.
+                                _logger.debug(
+                                    "subscribe_provider_jobs: tx %s no longer INITIATED (%s), skipping",
+                                    tx_id,
+                                    tx.state,
+                                )
+                                continue
+                            if tx.provider.lower() != target:
+                                continue
+                            on_job(tx)
+                        last_block = current_block
+                except asyncio.CancelledError:
+                    break
+                except Exception as err:
+                    # Transient RPC error — log and keep watching (don't crash
+                    # the agent). PARITY intent: best-effort live listener.
+                    _logger.warning("subscribe_provider_jobs: poll error: %s", err)
+
+                try:
+                    await asyncio.wait_for(cancelled.wait(), timeout=poll_interval)
+                except asyncio.TimeoutError:
+                    pass
+
+        task = asyncio.ensure_future(_watch())
+
+        def _cleanup() -> None:
+            cancelled.set()
+            task.cancel()
+
+        return _cleanup
+
     async def get_expired_delivered_transactions(
         self, provider_address: str
     ) -> list[dict[str, str]]:

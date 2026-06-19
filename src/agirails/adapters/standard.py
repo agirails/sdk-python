@@ -21,7 +21,11 @@ from agirails.adapters.base import (
     BaseAdapter,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
 )
-from agirails.adapters.types import AdapterMetadata, UnifiedPayParams
+from agirails.adapters.types import (
+    AdapterMetadata,
+    UnifiedPayParams,
+    UnifiedPayResult,
+)
 from agirails.runtime.base import CreateTransactionParams
 from agirails.runtime.types import State
 from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
@@ -51,6 +55,7 @@ class StandardTransactionParams:
     dispute_window: Optional[int] = None
     description: Optional[str] = None
     service_hash: Optional[str] = None
+    agent_id: Optional[str] = None  # ERC-8004 agent ID (TS parity, StandardAdapter.ts:52)
 
 
 @dataclass
@@ -146,13 +151,19 @@ class StandardAdapter(BaseAdapter):
 
     @property
     def metadata(self) -> AdapterMetadata:
-        """Adapter metadata — priority 60 (higher than basic)."""
+        """Adapter metadata — priority 60 (higher than basic).
+
+        Mirrors TS ``StandardAdapter.metadata`` (StandardAdapter.ts:91-99).
+        """
         return AdapterMetadata(
             id="standard",
+            name="Standard Adapter",
             priority=60,
             uses_escrow=True,
             supports_disputes=True,
             release_required=True,
+            requires_identity=False,
+            settlement_mode="explicit",
         )
 
     def can_handle(self, params: UnifiedPayParams) -> bool:
@@ -169,41 +180,96 @@ class StandardAdapter(BaseAdapter):
                 details={"field": "to", "value": params.to},
             )
 
-    async def pay(self, params: Union[UnifiedPayParams, dict]) -> Any:
+    async def pay(self, params: Union[UnifiedPayParams, dict]) -> UnifiedPayResult:
         """
         Execute payment through StandardAdapter (IAdapter compliance).
 
-        Maps UnifiedPayParams to create_transaction + link_escrow.
-        Returns with state=COMMITTED (caller must follow ACTP lifecycle).
+        Maps UnifiedPayParams to create_transaction + link_escrow, then returns a
+        :class:`UnifiedPayResult` (state=COMMITTED; caller must follow the ACTP
+        lifecycle). Mirrors TS ``StandardAdapter.pay`` (StandardAdapter.ts:481-532).
+
+        BACKWARD COMPAT: previously returned a ``dict`` keyed ``tx_id`` /
+        ``escrow_id`` / ``state`` / ``amount`` (wei) / ``deadline`` (int). The
+        returned object now is a ``UnifiedPayResult`` subclass that still exposes
+        those names as attributes with the SAME legacy semantics (``.amount`` is
+        the raw wei string, ``.deadline`` is the unix int) so attribute-style
+        callers — including the CLI — keep working. The TS-spec unified values
+        (formatted amount, ISO-8601 deadline) are additionally available as
+        ``.amount_formatted`` / ``.deadline_iso``.
 
         Args:
             params: UnifiedPayParams or dict.
 
         Returns:
-            Dict with txId, escrowId, state, amount, deadline.
+            UnifiedPayResult (subclass) with tx_id, escrow_id, adapter, state,
+            success, amount (legacy wei), deadline (legacy int), amount_formatted,
+            deadline_iso, release_required, provider, requester, erc8004_agent_id.
         """
+        from datetime import datetime, timezone
+
+        from agirails.adapters.basic import BasicPayResult
+
         if isinstance(params, dict):
             params = UnifiedPayParams(**params)
+
+        # ACTP adapters require an explicit amount (x402 URL targets may omit it;
+        # standard never handles URLs). Mirrors TS StandardAdapter.pay
+        # (StandardAdapter.ts:484-489).
+        if params.amount is None or params.amount == "":
+            from agirails.errors import ValidationError
+
+            raise ValidationError(
+                message=(
+                    "amount is required for ACTP payments (basic/standard "
+                    "adapters). Only x402 URL targets may omit amount "
+                    "(server specifies)."
+                ),
+                details={"field": "amount"},
+            )
 
         std_params = StandardTransactionParams(
             provider=params.to,
             amount=params.amount,
             deadline=params.deadline,
+            dispute_window=params.dispute_window,
             description=params.description,
             service_hash=params.service_hash,
+            agent_id=params.erc8004_agent_id,
         )
 
         tx_id = await self.create_transaction(std_params)
         escrow_id = await self.link_escrow(tx_id)
 
         tx = await self._runtime.get_transaction(tx_id)
-        return {
-            "tx_id": tx_id,
-            "escrow_id": escrow_id,
-            "state": tx.get("state", "COMMITTED") if isinstance(tx, dict) else getattr(tx, "state", "COMMITTED"),
-            "amount": tx.get("amount", str(params.amount)) if isinstance(tx, dict) else getattr(tx, "amount", str(params.amount)),
-            "deadline": tx.get("deadline", 0) if isinstance(tx, dict) else getattr(tx, "deadline", 0),
-        }
+        if tx is None:
+            raise RuntimeError(f"Transaction {tx_id} not found after creation")
+
+        provider = self.validate_address(params.to, "to")
+        amount_wei = str(tx.amount)
+        deadline_iso = (
+            datetime.fromtimestamp(tx.deadline, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
+        # Return a UnifiedPayResult subclass that preserves the legacy dict
+        # field semantics (.amount = wei, .deadline = int) for back-compat while
+        # carrying the TS-spec formatted values alongside.
+        return BasicPayResult(
+            tx_id=tx_id,
+            escrow_id=escrow_id,
+            state="COMMITTED",
+            amount=amount_wei,  # LEGACY wei string (back-compat with old dict)
+            deadline=tx.deadline,  # LEGACY unix int (back-compat with old dict)
+            amount_formatted=self.format_amount(tx.amount),
+            deadline_iso=deadline_iso,
+            adapter=self.metadata.id,
+            success=True,
+            release_required=True,  # ACTP requires explicit release()
+            provider=provider,
+            requester=self._requester_address,
+            erc8004_agent_id=params.erc8004_agent_id,
+        )
 
     async def create_transaction(
         self, params: Union[StandardTransactionParams, dict]

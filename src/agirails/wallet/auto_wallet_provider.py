@@ -23,11 +23,16 @@ from web3 import Web3
 
 from agirails.wallet.aa.constants import SmartWalletCall, UserOperationV06
 from agirails.wallet.aa.user_op_builder import (
+    build_create_account_factory_data,
+    build_replay_safe_typed_data,
     build_user_op,
     compute_smart_wallet_address,
     dummy_signature,
+    serialize_erc6492_signature,
     sign_user_op,
+    wrap_signature,
 )
+from agirails.wallet.aa.constants import SMART_WALLET_FACTORY
 from agirails.wallet.aa.bundler_client import BundlerClient, BundlerConfig
 from agirails.wallet.aa.paymaster_client import PaymasterClient, PaymasterConfig
 from agirails.wallet.aa.dual_nonce_manager import DualNonceManager, EnqueueResult
@@ -309,20 +314,174 @@ class AutoWalletProvider:
         return self._smart_wallet_address
 
     def sign_typed_data(self, typed_data: dict) -> str:
-        """EIP-712 sign a typed-data ``full_message`` dict with the owner EOA.
+        """EIP-712 sign typed data as a Coinbase Smart Wallet (Tier-1).
 
-        Enables the native x402 v2 flow (TS IWalletProvider.signTypedData). The
-        controlling EOA signs; for Smart-Wallet (Tier-1) buyers the x402 adapter
-        uses the Permit2 path where this owner signature is validated on-chain
-        via ERC-1271 / ERC-6492.
+        Produces an ERC-1271 / ERC-6492-valid Smart-Wallet signature — NOT a raw
+        owner EOA sig — so an x402 facilitator validates it against the Smart
+        Wallet contract via ``isValidSignature``. 1:1 with the TS
+        ``AutoWalletProvider.signTypedData`` flow (AutoWalletProvider.ts:211-358),
+        which delegates to viem's ``toCoinbaseSmartAccount``:
+
+          1. Hash the inner typed data (domain + types + primaryType + message).
+          2. Wrap in the Coinbase replay-safe ``CoinbaseSmartWalletMessage``
+             struct (verifyingContract = this Smart Wallet).
+          3. Owner EOA signs the replay-safe hash.
+          4. Encode as ``SignatureWrapper(ownerIndex=0, signature)`` for a
+             deployed wallet.
+          5. For a counterfactual (undeployed) wallet, wrap in an ERC-6492
+             envelope so facilitators can validate via simulation before the
+             first UserOp.
+
+        Includes a parity check: the address the factory derives for the owner
+        MUST equal ``self._smart_wallet_address`` (the ``verifyingContract`` in
+        the replay-safe domain). A mismatch means the signature would validate at
+        the wrong contract — we raise ``X402SignatureFailedError`` (fail closed)
+        rather than emit a silently-invalid signature.
+
+        The Tier-2 EOA path (``EOAWalletProvider.sign_typed_data``) stays a raw
+        owner sig, which is what EIP-3009 ``transferWithAuthorization`` expects.
         """
         from eth_account import Account
         from eth_account.messages import encode_typed_data
+        from eth_utils import keccak
 
-        account = Account.from_key(self._private_key)
-        signable = encode_typed_data(full_message=typed_data)
-        sig = account.sign_message(signable).signature.hex()
-        return sig if sig.startswith("0x") else "0x" + sig
+        from agirails.types.x402 import X402SignatureFailedError
+
+        try:
+            smart_wallet = getattr(self, "_smart_wallet_address", None)
+            if not smart_wallet:
+                raise X402SignatureFailedError(
+                    "AutoWalletProvider.sign_typed_data: Smart Wallet address is "
+                    "not set; cannot build a replay-safe ERC-1271 signature."
+                )
+            chain_id = getattr(self, "_chain_id", None)
+            if chain_id is None:
+                raise X402SignatureFailedError(
+                    "AutoWalletProvider.sign_typed_data: chain_id is not set; "
+                    "cannot build the Coinbase replay-safe domain."
+                )
+
+            # Parity check: factory-derived address MUST match our stored Smart
+            # Wallet address (the verifyingContract we sign against). Mirrors the
+            # TS check between computeSmartWalletAddress and viem's getAddress.
+            self._assert_smart_wallet_parity(smart_wallet)
+
+            # 1. Hash the inner typed data exactly as EIP-712 (viem hashTypedData).
+            inner_signable = encode_typed_data(full_message=typed_data)
+            inner_hash = keccak(
+                b"\x19\x01" + inner_signable.header + inner_signable.body
+            )
+
+            # 2. Replay-safe CoinbaseSmartWalletMessage(bytes32 hash).
+            replay_safe = build_replay_safe_typed_data(
+                smart_wallet_address=smart_wallet,
+                chain_id=int(chain_id),
+                inner_hash=inner_hash,
+            )
+
+            # 3. Owner EOA signs the replay-safe hash.
+            account = Account.from_key(self._private_key)
+            replay_safe_signable = encode_typed_data(full_message=replay_safe)
+            owner_sig = account.sign_message(replay_safe_signable).signature
+
+            # 4. SignatureWrapper(ownerIndex=0, signature).
+            wrapped = wrap_signature(0, bytes(owner_sig))
+
+            # 5. Deployed -> SignatureWrapper; counterfactual -> ERC-6492 envelope.
+            if self._is_smart_wallet_deployed():
+                return wrapped
+
+            from eth_account import Account as _Account
+
+            owner_address = _Account.from_key(self._private_key).address
+            factory_data = build_create_account_factory_data(owner_address)
+            return serialize_erc6492_signature(
+                factory_address=SMART_WALLET_FACTORY,
+                factory_data=factory_data,
+                signature=wrapped,
+            )
+        except X402SignatureFailedError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — convert to the x402 boundary error
+            raise X402SignatureFailedError(
+                f"AutoWallet sign_typed_data failed: {exc}"
+            )
+
+    def _is_smart_wallet_deployed(self) -> bool:
+        """Best-effort live deployment check for the ERC-1271 vs ERC-6492 branch.
+
+        Mirrors viem's ``toSmartAccount`` re-reading on-chain code before
+        choosing whether to wrap in the ERC-6492 envelope. Reads code live via
+        the Web3 instance (sync — ``sign_typed_data`` is sync); on any failure
+        or absent provider, falls back to the cached ``_is_deployed`` flag so we
+        never block signing on a transient RPC error.
+        """
+        w3 = getattr(self, "_w3", None)
+        smart_wallet = getattr(self, "_smart_wallet_address", None)
+        if w3 is not None and smart_wallet:
+            try:
+                code = w3.eth.get_code(Web3.to_checksum_address(smart_wallet))
+                return code not in (b"", b"\x00", None)
+            except Exception:
+                pass
+        return bool(getattr(self, "_is_deployed", False))
+
+    def _assert_smart_wallet_parity(self, smart_wallet: str) -> None:
+        """Assert the factory-derived address matches our Smart Wallet address.
+
+        Re-derives ``factory.getAddress([pad(owner)], nonce)`` synchronously and
+        compares (case-insensitively) to ``smart_wallet``. A mismatch means a
+        produced signature would validate at the wrong contract, so we fail
+        closed with ``X402SignatureFailedError``. When no Web3 instance is
+        available (e.g. bare-constructed test doubles), the on-chain derivation
+        cannot run, so the check is skipped — the signature itself is still
+        built against ``smart_wallet`` as ``verifyingContract``.
+        """
+        from agirails.types.x402 import X402SignatureFailedError
+
+        w3 = getattr(self, "_w3", None)
+        if w3 is None:
+            return  # cannot derive on-chain; skip (signature still correct shape)
+
+        from eth_account import Account
+        from eth_abi import encode as abi_encode
+
+        try:
+            owner_address = Account.from_key(self._private_key).address
+            factory_abi = [
+                {
+                    "inputs": [
+                        {"name": "owners", "type": "bytes[]"},
+                        {"name": "nonce", "type": "uint256"},
+                    ],
+                    "name": "getAddress",
+                    "outputs": [{"name": "", "type": "address"}],
+                    "stateMutability": "view",
+                    "type": "function",
+                }
+            ]
+            factory = w3.eth.contract(
+                address=Web3.to_checksum_address(SMART_WALLET_FACTORY),
+                abi=factory_abi,
+            )
+            owner_bytes = abi_encode(
+                ["address"], [Web3.to_checksum_address(owner_address)]
+            )
+            derived = factory.functions.getAddress([owner_bytes], 0).call()
+        except X402SignatureFailedError:
+            raise
+        except Exception:
+            # Could not derive on-chain (mock/transient); do not block signing.
+            return
+
+        if Web3.to_checksum_address(derived) != Web3.to_checksum_address(smart_wallet):
+            raise X402SignatureFailedError(
+                "Smart Wallet address parity mismatch: "
+                f"ours={smart_wallet}, factory={derived}. The factory-derived "
+                "address and our stored Smart Wallet address disagree. x402 "
+                "payments cannot proceed — signatures would validate at the "
+                "wrong contract."
+            )
 
     async def send_transaction(self, tx: TransactionRequest) -> TransactionReceipt:
         """Send a single transaction via Smart Wallet UserOp."""
@@ -376,6 +535,17 @@ class AutoWalletProvider:
     def get_is_deployed(self) -> bool:
         """Check if the Smart Wallet is deployed on-chain."""
         return self._is_deployed
+
+    def get_read_provider(self) -> Any:
+        """Expose the underlying Web3 instance for read-only contract calls.
+
+        Parity with TS ``AutoWalletProvider.getReadProvider`` (AutoWalletProvider
+        .ts:202-209). Used by the x402 Permit2 approve path to read
+        ``USDC.allowance(smartWallet, PERMIT2)`` BEFORE sponsoring a redundant
+        approve across restarts / horizontal scale (see
+        ``permit2.read_permit2_allowance_is_set``).
+        """
+        return self._w3
 
     async def pay_actp_batched(
         self,

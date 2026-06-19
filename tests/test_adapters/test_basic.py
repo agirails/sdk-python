@@ -253,12 +253,15 @@ class TestBasicLifecycleMethods:
         status_d = await client.basic.get_status(tx_id)
         assert status_d.state == "DELIVERED"
 
-        # Default dispute window is 2 days; advance past it.
+        # Default dispute window is 2 days; advance past it. Reading the tx now
+        # triggers MockRuntime lazy auto-release (TS parity: getTransaction
+        # auto-settles a DELIVERED tx whose dispute window has expired), so the
+        # status surfaces SETTLED and the escrow is already released.
         await client.runtime.time.advance_time(172800 + 1)
         status_r = await client.basic.get_status(tx_id)
-        assert status_r.can_release is True
+        assert status_r.state == "SETTLED"
+        assert status_r.can_release is False
 
-        await client.basic.release(tx_id)
         final = await client.basic.get_transaction(tx_id)
         assert final["state"] == "SETTLED"
 

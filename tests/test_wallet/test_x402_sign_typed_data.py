@@ -66,15 +66,28 @@ def test_eoa_provider_sign_typed_data_direct(gv: dict) -> None:
     assert sig == gv["signature"]
 
 
-def test_auto_wallet_provider_signs_with_owner(gv: dict) -> None:
-    """AutoWalletProvider.sign_typed_data signs with the owner EOA (Permit2/ERC-1271 path)."""
-    cfg = MagicMock()
-    cfg.private_key = gv["privateKey"]
-    # Construct a bare AutoWalletProvider with only the fields sign_typed_data needs.
+def test_auto_wallet_provider_signs_as_smart_wallet(gv: dict) -> None:
+    """AutoWalletProvider.sign_typed_data produces an ERC-1271 Smart-Wallet sig.
+
+    P1: Tier-1 must NOT emit a raw owner EOA sig (which would only validate as an
+    EOA). It must wrap the owner signature in the Coinbase replay-safe hash +
+    SignatureWrapper so an x402 facilitator validates it against the Smart Wallet
+    contract via isValidSignature. So the result must DIFFER from the raw EOA
+    golden vector and be a longer, ABI-encoded SignatureWrapper.
+    """
+    smart_wallet = "0x1111111111111111111111111111111111111111"
     provider = AutoWalletProvider.__new__(AutoWalletProvider)
     provider._private_key = gv["privateKey"]
+    provider._smart_wallet_address = smart_wallet
+    provider._chain_id = gv["domain"]["chainId"]
+    provider._w3 = None  # skip on-chain parity (cannot derive without a node)
+    provider._is_deployed = True
+
     signer = _WalletProviderSigner(provider)
     sig = sign_eip3009_authorization(signer, _auth(gv), gv["domain"])
-    # Owner EOA == fixture signer here, so it matches the golden vector.
-    assert sig == gv["signature"]
+
+    # Wrapped Smart-Wallet sig != raw EOA golden, and is the ABI-encoded wrapper.
+    assert sig != gv["signature"], "AutoWallet must not return a raw owner EOA sig"
+    assert sig.startswith("0x")
+    assert len(sig) > len(gv["signature"])
     assert Account.from_key(gv["privateKey"]).address.lower() == gv["signerAddress"].lower()

@@ -86,6 +86,7 @@ try:
     from agirails.protocol.kernel import (
         ACTPKernel,
         CreateTransactionParams,
+        EconomicParams,
         TransactionView,
     )
     from agirails.protocol.nonce import (
@@ -114,6 +115,7 @@ try:
         # Kernel
         "ACTPKernel",
         "CreateTransactionParams",
+        "EconomicParams",
         "TransactionView",
         # Escrow
         "EscrowVault",
