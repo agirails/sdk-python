@@ -173,9 +173,16 @@ class TestWriteBack:
             "agent_id": "987654321",
         }
 
-        # Patch asyncio.run to handle async mock
+        # Patch asyncio.run to handle async mock. Close the coroutine the stub
+        # receives so it doesn't leak a "coroutine was never awaited"
+        # ResourceWarning (the real asyncio.run awaits it).
+        def _fake_run(coro):
+            if hasattr(coro, "close"):
+                coro.close()
+            return mock_activate.return_value
+
         with patch("agirails.cli.commands.publish.asyncio") as mock_asyncio:
-            mock_asyncio.run = lambda coro: mock_activate.return_value
+            mock_asyncio.run = _fake_run
 
             result = runner.invoke(
                 app,

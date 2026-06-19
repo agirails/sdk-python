@@ -1,6 +1,6 @@
 {
   "generated_by": "agirails.builders (CounterOfferBuilder + CounterAcceptBuilder)",
-  "python_sdk_version": "3.0.1",
+  "python_sdk_version": "4.8.0",
   "pinned_now_sec": 1700000000,
   "buyer_address": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
   "provider_address": "0x1563915e194D8CfBA1943570603F7606A3115508",

@@ -55,12 +55,13 @@ trap 'rm -rf "$SMOKE_VENV"' EXIT
 
 echo "== imports =="
 "$SMOKE_VENV/bin/python" - <<'PYEOF'
+import re
 import sys
 
 import agirails
 print(f"version: {agirails.__version__}")
-assert agirails.__version__.startswith("3."), \
-    f"version {agirails.__version__} doesn't start with 3.x"
+assert re.match(r"^\d+\.\d+\.\d+", agirails.__version__), \
+    f"version {agirails.__version__} is not a valid semantic version"
 
 # Top-level re-exports promised in CHANGELOG.
 from agirails import (
