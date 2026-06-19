@@ -185,9 +185,13 @@ class TestBundledABIParity:
 
     def test_bundled_abi_is_byte_identical_to_ts_source(self):
         """The bundled ABI must be a verbatim copy of the TS source of truth."""
-        ts_path = (
-            "/Users/damir/Arha/AGIRAILS/SDK and Runtime/"
-            "sdk-js/src/abi/AgentRegistry.json"
+        # Derive the TS source path relative to this repo (portable in CI);
+        # override with AGIRAILS_TS_ABI_PATH. Repo root is three dirs up from
+        # this test file; the TS SDK is a sibling checkout.
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        ts_path = os.environ.get(
+            "AGIRAILS_TS_ABI_PATH",
+            os.path.join(repo_root, "..", "sdk-js", "src", "abi", "AgentRegistry.json"),
         )
         if not os.path.exists(ts_path):
             pytest.skip("TS source ABI not available in this environment")
