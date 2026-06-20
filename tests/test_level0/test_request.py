@@ -1225,7 +1225,17 @@ class TestRequestRoutingKeyParity:
 
         set_request_client(mock_client)
         try:
-            with patch("agirails.level0.request._logger") as mock_logger:
+            # Patch the module object directly. The string target
+            # "agirails.level0.request._logger" is ambiguous because the level0
+            # package re-exports a `request` *function* that shadows the
+            # `request` *module* attribute (and `import a.b.c as x` binds that
+            # shadowed attribute, not the module). sys.modules keys are always
+            # the real module, so resolve it there.
+            import importlib
+
+            _l0_request_mod = importlib.import_module("agirails.level0.request")
+
+            with patch.object(_l0_request_mod, "_logger") as mock_logger:
                 await request("echo", input={"msg": "hi"}, budget=1.0, timeout=1000)
                 # warning() called at least once mentioning input is not transported
                 warned = any(

@@ -151,3 +151,29 @@ __all__ = [
     "fetch_from_ipfs",
     "pull_config",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Bind config submodules as package attributes. The eager `from
+# agirails.config.<sub> import ...` lines above import each submodule, but a
+# circular-import path can leave a submodule in ``sys.modules`` without it being
+# bound as an attribute on this package. That breaks
+# ``mock.patch("agirails.config.<sub>.<name>")`` under some import orderings
+# (CI's unpinned deps expose it). Force the binding so the targets always
+# resolve; this is runtime-inert for normal usage.
+# ---------------------------------------------------------------------------
+import sys as _sys  # noqa: E402
+
+for _sub in (
+    "agirailsmd",
+    "networks",
+    "buyer_link",
+    "pending_publish",
+    "publish_pipeline",
+    "sync_operations",
+):
+    _mod = _sys.modules.get(f"{__name__}.{_sub}")
+    if _mod is not None:
+        setattr(_sys.modules[__name__], _sub, _mod)
+
+del _sys, _sub, _mod
