@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import threading
@@ -132,12 +133,18 @@ class TestAutopublishCommand:
                 # During init, return real stat
                 if not state["in_poll_loop"]:
                     return original_stat(path_self)
-                # First poll: write changed content so mtime + hash differ
+                # First poll: write changed content so mtime + hash differ.
                 if not state["polled"]:
                     state["polled"] = True
                     md_path.write_text(
                         SAMPLE_MD + "\nChanged content.\n", encoding="utf-8"
                     )
+                    # Force a distinct mtime. The poll loop triggers purely on
+                    # st_mtime != last_mtime; a same-tick rewrite on a coarse-
+                    # granularity filesystem (CI) can keep mtime unchanged, so
+                    # the change would go undetected and the publish never fire.
+                    # Pin to a fixed far-future value (year 2033) > the init mtime.
+                    os.utime(md_path, (2_000_000_000, 2_000_000_000))
                 return original_stat(path_self)
 
             class ControlledStopEvent(threading.Event):
