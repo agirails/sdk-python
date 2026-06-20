@@ -5,6 +5,60 @@ All notable changes to AGIRAILS Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.8.0] — 2026-06-19
+
+> **Full 1:1 parity with `@agirails/sdk` (TypeScript) 4.8.0.** The Python SDK
+> jumped 3.0.1 → 4.8.0 to align with the TS line after a six-wave parity
+> campaign closing 303 reported gaps (59 P0 · 162 P1 · 70 P2). Every
+> cross-SDK hashed/signed surface is now **byte-for-byte identical** to the TS
+> SDK, verified by 185 golden-vector tests generated from the real TS
+> functions. Test suite grew 2398 → 3312 passing.
+
+### Added
+
+- **AIP-16 secure delivery channel** (`agirails.delivery`): X25519 ECDH +
+  HKDF-SHA256 session keys, AES-256-GCM AEAD with `txId‖signer` AAD binding,
+  EIP-712 `DeliverySetup`/`DeliveryEnvelope` signing (domain `AGIRAILS
+  Delivery`), FIX-1 body encoding, Mock + Relay delivery channels. New
+  dependency: `cryptography`.
+- **Native x402 v2** `X402Adapter`: real EIP-3009 `TransferWithAuthorization`
+  signing + Permit2 (ERC-1271/ERC-6492 Smart-Wallet path), `x402Version=2`
+  `X-PAYMENT` header, opt-in safety gate, per-tx caps. Legacy direct-transfer
+  adapter preserved as `LegacyX402Adapter`. Auto-registered when the wallet
+  provider exposes `sign_typed_data`.
+- **AIP-2 `QuoteBuilder`** (EIP-712 signed, `agirails.quote.v1`); **AIP-7
+  receipt push** (`ReceiptWriteV2`, `receiptUrl`, `render_receipt_v3`);
+  **AIP-2.1** `ProviderOrchestrator`, buyer channel-driven multi-round
+  negotiation, injectable buyer/provider decider hooks, `NegotiationChannel`
+  (Mock + Relay).
+- **AIP-18** buyer privacy: `budget`/`claim_code` stripped from `configHash`,
+  pay-only off-chain short-circuit, V4 `AGIRAILS.md` parser, `buyer_link`,
+  gasless-buyer gate.
+- `ACTPClient` lifecycle methods (`start_work`/`deliver`/`release`/
+  `get_status`/`route_url_payment`/`get_activation_calls`/`to_json`/
+  `check_config_drift`); unified `UnifiedPayResult`; `actp agent` CLI command
+  (+ public-RPC warning), `.env` auto-load.
+
+### Fixed (cross-SDK correctness — were silent interop breaks)
+
+- **canonical JSON** now follows the ECMAScript Number→String algorithm
+  (integer-valued floats lose the fraction, `-0`→`0`, V8 positional/exponential
+  boundary) so keccak hashes match TS over any float-valued number.
+- **EIP-712 domain** `ACTP` → `AGIRAILS`; `ProofGenerator` defaults to
+  keccak256 (was sha256); `compute_output_hash` JSON-quotes string deliverables.
+- `kernel.submit_quote` (was missing → `AttributeError` on the on-chain QUOTED
+  path); ERC-8004 bridge now resolves against the **mode-derived** registry
+  (testnet clients no longer hit the mainnet registry); bytes32 keccak routing
+  key (was a JSON blob); `parse_deadline` semantics; AgentRegistry ABI refreshed
+  to the TS ABI; EAS 3-schema decode; runtime sweep adaptive `getLogs` chunking;
+  Smart-Wallet `create_transaction` routing; AA failover; Filebase AWS SigV4.
+
+### Known divergences (documented)
+
+- Arweave **upload** fails closed (ANS-104 DataItem signing is not byte-exact
+  achievable without the Irys lib); download + Filebase upload work.
+- x402 seller-side `buildX402Server` helper not ported (buyer SDK).
+
 ## [3.0.1] — 2026-05-24
 
 > README-only patch. The 3.0.0 long description on PyPI carried over

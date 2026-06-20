@@ -15,6 +15,8 @@ from typing import Optional
 import typer
 
 from agirails.cli.main import get_global_options
+from agirails.cli.utils.client import load_config
+from agirails.cli.utils.identity import resolve_identity_path
 from agirails.cli.utils.output import (
     OutputFormat,
     print_error,
@@ -40,9 +42,44 @@ _STATUS_LABELS = {
 }
 
 
+def _emit_buyer_local(output_format: OutputFormat) -> None:
+    """Emit the honest local-sovereign buyer-local result. Mirrors TS diff.ts:86-103."""
+    if output_format == OutputFormat.JSON:
+        print_json(
+            {
+                "status": "buyer-local",
+                "intent": "pay",
+                "inSync": True,
+                "hasLocalFile": True,
+                "hasOnChainConfig": False,
+                "note": (
+                    "Buyer config is local-authored; not anchored on-chain "
+                    "(budget stays private)."
+                ),
+            }
+        )
+        return
+    if output_format == OutputFormat.QUIET:
+        typer.echo("buyer-local")
+        return
+    print_success("Status: buyer-local")
+    print_info(
+        "Buyer (intent: pay): config is local-authored and budget is private — "
+        "nothing to diff on-chain."
+    )
+    print_info(
+        "Edit your {slug}.md locally, then run: actp publish (re-links to agirails.app)."
+    )
+
+
 def diff(
+    path_arg: Optional[str] = typer.Argument(
+        None,
+        metavar="[PATH]",
+        help="Path to AGIRAILS.md (default: ./AGIRAILS.md)",
+    ),
     network: str = typer.Option(
-        "base-mainnet",
+        "base-sepolia",
         "--network",
         "-n",
         help="Network to check (base-sepolia, base-mainnet)",
@@ -57,7 +94,7 @@ def diff(
         None,
         "--path",
         "-p",
-        help="Path to AGIRAILS.md (default: ./AGIRAILS.md)",
+        help="Path to AGIRAILS.md (overrides positional PATH; back-compat)",
     ),
     rpc_url: Optional[str] = typer.Option(
         None,
@@ -67,14 +104,67 @@ def diff(
 ) -> None:
     """Compare local AGIRAILS.md with on-chain config state."""
     opts = get_global_options()
-    md_path = str(path or Path(opts.directory or Path.cwd()) / "AGIRAILS.md")
+    # TS takes the path as a positional [path] argument (default ./AGIRAILS.md).
+    # We accept both the positional PATH and the legacy `--path` option for
+    # backward compatibility; `--path` wins when supplied.
+    chosen_path = path or path_arg
 
-    # Resolve agent address
+    # When the user gave no explicit path (Commander default './AGIRAILS.md'),
+    # check the identity pointer first so a {slug}.md buyer/provider file is
+    # found instead of defaulting to AGIRAILS.md. Mirrors TS diff.ts:65-74.
+    if chosen_path is None:
+        identity_path = resolve_identity_path(
+            str(opts.directory) if opts.directory else None
+        )
+        if identity_path:
+            md_path = identity_path
+        else:
+            md_path = str(Path(opts.directory or Path.cwd()) / "AGIRAILS.md")
+    else:
+        md_path = str(chosen_path)
+
+    # AIP-18 DEC-3: a pure buyer (intent: pay) is never anchored on-chain — its
+    # config is local-authored and its budget is private (never synced). An
+    # on-chain diff doesn't apply, so report that honestly instead of the
+    # misleading "no-remote / run publish". Mirrors TS diff.ts:76-108.
+    try:
+        if Path(md_path).exists():
+            from agirails.config.agirailsmd import parse_agirails_md_v4
+
+            with open(md_path, "r", encoding="utf-8") as f:
+                v4 = parse_agirails_md_v4(f.read())
+            if v4.intent == "pay":
+                _emit_buyer_local(opts.output_format)
+                return
+    except Exception:
+        # Not a parseable v4 buyer file — fall through to the normal on-chain diff.
+        pass
+
+    # Resolve agent address.
+    #
+    # Resolution order (matches `actp pull`):
+    #   1. --address flag (explicit override)
+    #   2. ACTP_ADDRESS env var
+    #   3. config.address from .actp/config.json — for `wallet: 'auto'` this is
+    #      the Smart Wallet address, which is the identity AgentRegistry has
+    #      indexed (publish runs through Paymaster as msg.sender = Smart Wallet).
+    #      Reading the on-chain hash for the EOA signer in that flow returns 0x0
+    #      and surfaces a false "Pending chain sync" alarm. Mirrors TS
+    #      diff.ts:122-131.
+    #   4. EOA derived from the resolved private key (legacy single-wallet flow).
     agent_address = address
     if not agent_address:
         agent_address = os.environ.get("ACTP_ADDRESS")
     if not agent_address:
-        # Try to resolve from keystore
+        # config.address (Smart Wallet for wallet:auto) before EOA fallback.
+        try:
+            cfg = load_config(opts.directory)
+            if cfg.get("address"):
+                agent_address = cfg["address"]
+        except Exception:
+            pass
+    if not agent_address:
+        # Try to resolve from keystore (EOA)
         try:
             import asyncio
             from agirails.wallet.keystore import resolve_private_key, ResolvePrivateKeyOptions

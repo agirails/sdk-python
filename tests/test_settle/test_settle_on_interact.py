@@ -166,3 +166,67 @@ class TestDuckTyping:
 
         settler = SettleOnInteract(bare_runtime, PROVIDER, cooldown_s=0)
         await settler.sweep_now()  # Should not raise
+
+
+class TestReleaseRouter:
+    """release_router routes blockchain-path settlements through the adapter.
+
+    Mirrors TS SettleOnInteract.ts:73-79 — when a release router is provided,
+    settlements go through it (StandardAdapter -> SmartWalletRouter / Paymaster)
+    instead of the raw runtime.release_escrow.
+    """
+
+    @pytest.mark.asyncio
+    async def test_release_router_used_when_provided(self):
+        mock_runtime = AsyncMock()
+        mock_runtime.get_expired_delivered_transactions = AsyncMock(
+            return_value=[{"tx_id": "0xabc"}, {"tx_id": "0xdef"}]
+        )
+        mock_runtime.release_escrow = AsyncMock()
+
+        router = AsyncMock()
+        router.release_escrow = AsyncMock()
+
+        settler = SettleOnInteract(
+            mock_runtime, PROVIDER, cooldown_s=0, release_router=router
+        )
+        await settler.sweep_now()
+
+        # Router got both settlements; runtime.release_escrow was NOT called.
+        assert router.release_escrow.call_count == 2
+        router.release_escrow.assert_any_call("0xabc")
+        router.release_escrow.assert_any_call("0xdef")
+        mock_runtime.release_escrow.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_runtime_without_router(self):
+        mock_runtime = AsyncMock()
+        mock_runtime.get_expired_delivered_transactions = AsyncMock(
+            return_value=[{"tx_id": "0xabc"}]
+        )
+        mock_runtime.release_escrow = AsyncMock()
+
+        # No release_router -> runtime path (backward compat).
+        settler = SettleOnInteract(mock_runtime, PROVIDER, cooldown_s=0)
+        await settler.sweep_now()
+
+        mock_runtime.release_escrow.assert_called_once_with("0xabc")
+
+    @pytest.mark.asyncio
+    async def test_router_error_is_swallowed(self):
+        mock_runtime = AsyncMock()
+        mock_runtime.get_expired_delivered_transactions = AsyncMock(
+            return_value=[{"tx_id": "0xabc"}, {"tx_id": "0xdef"}]
+        )
+        router = AsyncMock()
+        router.release_escrow = AsyncMock(
+            side_effect=[Exception("paymaster down"), None]
+        )
+
+        settler = SettleOnInteract(
+            mock_runtime, PROVIDER, cooldown_s=0, release_router=router
+        )
+        await settler.sweep_now()  # Must not raise
+
+        # Both attempted despite first failure.
+        assert router.release_escrow.call_count == 2

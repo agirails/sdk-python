@@ -26,8 +26,13 @@ Example:
 """
 
 from agirails.builders.quote import (
+    AIP2_QUOTE_TYPES,
+    AIP2QuoteTypes,
+    LegacyQuoteBuilder,
     Quote,
     QuoteBuilder,
+    QuoteMessage,
+    QuoteParams,
     create_quote,
 )
 from agirails.builders.delivery_proof import (
@@ -53,9 +58,15 @@ from agirails.builders.counter_accept import (
 )
 
 __all__ = [
-    # Quote
-    "Quote",
+    # Quote (AIP-2 signed — TS parity)
     "QuoteBuilder",
+    "QuoteMessage",
+    "QuoteParams",
+    "AIP2_QUOTE_TYPES",
+    "AIP2QuoteTypes",
+    # Quote (legacy fluent — Python-only)
+    "Quote",
+    "LegacyQuoteBuilder",
     "create_quote",
     # Delivery Proof
     "DeliveryProof",

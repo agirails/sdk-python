@@ -33,6 +33,7 @@ from agirails.config.networks import NetworkConfig, get_network
 
 if TYPE_CHECKING:
     from agirails.protocol.eas import EASHelper
+    from agirails.builders.quote import QuoteMessage
 from agirails.errors import EscrowError, TransactionError, ValidationError
 from agirails.errors.network import TransientRPCError
 from agirails.protocol.escrow import CreateEscrowParams, EscrowVault, generate_escrow_id
@@ -353,6 +354,35 @@ class BlockchainRuntime:
         """Current account address."""
         return self.account.address
 
+    @staticmethod
+    def _validate_service_hash(service_description: Optional[str]) -> str:
+        """Resolve the bytes32 service/routing hash for an on-chain tx.
+
+        PARITY: BlockchainRuntime.ts:1162-1178 (validateServiceHash).
+          - Empty/None → ZeroHash.
+          - Already a valid bytes32 → used VERBATIM (it IS the routing key).
+          - Raw (legacy) string → keccak256(utf8(string)), 0x-prefixed.
+
+        Re-hashing an already-valid bytes32 would double-hash the routing key
+        and break cross-SDK provider matching (the SHARED ROUTING RULE).
+        """
+        zero_hash = "0x" + "0" * 64
+        if not service_description:
+            return zero_hash
+
+        from agirails.utils.helpers import ServiceHash
+
+        # If already a valid bytes32 routing key, use it directly.
+        if ServiceHash.is_valid_hash(service_description):
+            return service_description
+
+        # Legacy raw string: hash it (0x-prefixed, matches TS keccak256).
+        _logger.warning(
+            "service_description is not a valid bytes32 hash - hashing now "
+            "(use ServiceHash.hash() for best practice)"
+        )
+        return ServiceHash.hash(service_description)
+
     # =========================================================================
     # IACTPRuntime Implementation
     # =========================================================================
@@ -379,11 +409,15 @@ class BlockchainRuntime:
                 value=params.deadline,
             )
 
-        # Create service hash from description
-        service_hash = "0x" + "0" * 64  # Zero hash as default
-        if params.service_description:
-            # Hash the service description
-            service_hash = self.w3.keccak(text=params.service_description).hex()
+        # Resolve the bytes32 service/routing hash from the description.
+        # PARITY: BlockchainRuntime.ts:1162-1178 (validateServiceHash). The
+        # on-chain serviceHash IS the routing key: a requester emits
+        # keccak256(utf8(serviceType-or-description)) and a provider matches on
+        # the SAME bytes32. If the caller already passes a valid bytes32 routing
+        # key, use it VERBATIM — re-hashing it would yield
+        # keccak256(utf8("0x…hash…")), a double-hash that no provider's routing
+        # key can match. Only a raw (legacy) string gets hashed here.
+        service_hash = self._validate_service_hash(params.service_description)
 
         # Create transaction on-chain
         tx_id = await self.kernel.create_transaction(
@@ -491,6 +525,30 @@ class BlockchainRuntime:
         """
         amount_int = int(new_amount) if isinstance(new_amount, str) else new_amount
         await self.kernel.accept_quote(tx_id, amount_int)
+
+    async def submit_quote(self, tx_id: str, quote: "QuoteMessage") -> None:
+        """Submit an AIP-2 price quote on-chain (INITIATED → QUOTED).
+
+        PARITY: BlockchainRuntime.ts:600-610. The canonical quote hash is
+        recomputed here (signer-independent) to guarantee the wire format
+        matches what any receiver's verifier reconstructs from the
+        ``QuoteMessage``, then handed to the kernel's ``submit_quote`` wrapper
+        which encodes the proof + transitions state. See AIP-2.1-DRAFT §3.5.
+
+        Args:
+            tx_id: Transaction ID (must be in INITIATED state on-chain).
+            quote: The signer-independent ``QuoteMessage`` to anchor.
+        """
+        # compute_hash is signer-independent (strips the signature before
+        # hashing), so a no-arg builder yields the same hash every verifier
+        # computes. PARITY: BlockchainRuntime.ts:604-605.
+        from agirails.builders.quote import QuoteBuilder
+
+        quote_hash = QuoteBuilder().compute_hash(quote)
+
+        # The kernel wrapper handles proof encoding + state transition +
+        # confirmations. PARITY: BlockchainRuntime.ts:609.
+        await self.kernel.submit_quote(tx_id, quote_hash)
 
     async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
         """
@@ -642,6 +700,217 @@ class BlockchainRuntime:
 
         results = await asyncio.gather(*[_fetch(e) for e in events])
         return [tx for tx in results if tx is not None]
+
+    @property
+    def _sweep_block_window(self) -> int:
+        """Bounded catch-up sweep window (blocks). PARITY: BlockchainRuntime.ts:177-180.
+
+        Default ~4 h on Base L2 (~2 s blocks). Operators on a restrictive RPC
+        (small eth_getLogs cap) can override via ``ACTP_SWEEP_BLOCK_WINDOW``.
+        Precedence: env > default 7200.
+        """
+        import os
+
+        raw = os.environ.get("ACTP_SWEEP_BLOCK_WINDOW")
+        if raw:
+            try:
+                val = int(raw)
+                if val > 0:
+                    return val
+            except (TypeError, ValueError):
+                pass
+        return 7200
+
+    async def get_transactions_by_provider(
+        self,
+        provider: str,
+        state: Optional[Union[State, str]] = None,
+        limit: int = 100,
+    ) -> List[MockTransaction]:
+        """Get transactions filtered by provider address.
+
+        PARITY: BlockchainRuntime.ts:721-770 (PRD-event-driven-provider-listening
+        §5.2). Bounded catch-up sweep over a recent block window:
+          1. Query TransactionCreated events (provider-indexed) from
+             ``current - sweep_block_window`` to current.
+          2. Sort newest-first by (block_number, log_index) so a busy window
+             doesn't truncate the freshest jobs at ``limit``.
+          3. Hydrate each candidate via ``get_transaction`` and apply the state
+             filter; re-check provider post-hydration (defends against a
+             false-positive topic match).
+          4. Reverse before returning so consumers process the selected batch
+             oldest-first — matches Mock semantics.
+
+        Provider comparison is case-insensitive.
+
+        Args:
+            provider: Provider Ethereum address (any case).
+            state: Optional state filter (e.g., 'INITIATED').
+            limit: Max results (default 100, 0 = unlimited).
+        """
+        if isinstance(state, str):
+            state = State(state)
+
+        current_block = await self.w3.eth.block_number
+        from_block = max(0, current_block - self._sweep_block_window)
+
+        # Query provider-indexed TransactionCreated events over the bounded
+        # window. EventMonitor chunks eth_getLogs to the RPC's cap internally.
+        history = await self.events.get_events(
+            EventFilter(
+                event_types=["TransactionCreated"],
+                provider=provider,
+                from_block=from_block,
+                to_block=current_block,
+            ),
+        )
+
+        # Newest-first by (block_number, log_index). PARITY: ts:735-739.
+        recent_first = sorted(
+            history,
+            key=lambda e: (e.block_number or 0, e.log_index or 0),
+            reverse=True,
+        )
+
+        target = provider.lower()
+        results: List[MockTransaction] = []
+
+        for h in recent_first:
+            tx_id = getattr(h, "transaction_id", None)
+            if not tx_id:
+                continue
+
+            hydrated = await self.get_transaction(tx_id)
+            if hydrated is None:
+                continue
+            # Re-check post-hydration: between the event filter and the contract
+            # read the TX may have moved (e.g. INITIATED → CANCELLED / QUOTED).
+            # PARITY: ts:760-761.
+            if state is not None and hydrated.state != state:
+                continue
+            if hydrated.provider.lower() != target:
+                continue
+
+            results.append(hydrated)
+            if limit > 0 and len(results) >= limit:
+                break
+
+        # Oldest-first matches Mock semantics so downstream consumers see the
+        # same ordering on both runtimes. PARITY: ts:769.
+        results.reverse()
+        return results
+
+    def subscribe_provider_jobs(
+        self,
+        provider: str,
+        on_job: Callable[[MockTransaction], Any],
+        poll_interval: float = 2.0,
+    ) -> Callable[[], None]:
+        """Subscribe to live ``TransactionCreated`` events for a provider.
+
+        PARITY: BlockchainRuntime.ts:793-826 (subscribeProviderJobs). Public on
+        the class (NOT on the runtime interface) so callers can feature-detect
+        support with ``hasattr(runtime, "subscribe_provider_jobs")`` — keeping
+        the runtime contract narrow. MockRuntime deliberately does not
+        implement this (mock providers receive jobs via polling against
+        in-memory state).
+
+        TS uses an ethers push subscription (``contract.on``). web3.py has no
+        equivalent push primitive for HTTP providers, so this runs a bounded
+        polling loop over new blocks — same observable behavior: each newly
+        created INITIATED job for ``provider`` is hydrated and handed to
+        ``on_job`` exactly once.
+
+        Hydration is best-effort (PARITY: ts:799-819):
+          - tx not yet visible after the event fires (RPC eventual consistency)
+            → skip; the next poll / catch-up sweep picks it up.
+          - tx hydrated but no longer INITIATED (cancelled/quoted between event
+            emission and our read) → drop silently; we don't double-process.
+
+        Args:
+            provider: Provider Ethereum address.
+            on_job: Callback invoked with the hydrated INITIATED MockTransaction.
+            poll_interval: Seconds between polls (live subscription cadence).
+
+        Returns:
+            A cleanup function that cancels the subscription.
+        """
+        target = provider.lower()
+        seen: set[str] = set()
+        cancelled = asyncio.Event()
+
+        async def _watch() -> None:
+            try:
+                last_block = await self.w3.eth.block_number
+            except Exception as err:  # pragma: no cover - startup RPC blip
+                _logger.warning("subscribe_provider_jobs: initial block fetch failed: %s", err)
+                last_block = 0
+
+            while not cancelled.is_set():
+                try:
+                    current_block = await self.w3.eth.block_number
+                    if current_block > last_block:
+                        history = await self.events.get_events(
+                            EventFilter(
+                                event_types=["TransactionCreated"],
+                                provider=provider,
+                                from_block=last_block + 1,
+                                to_block=current_block,
+                            ),
+                        )
+                        for h in history:
+                            tx_id = getattr(h, "transaction_id", None)
+                            if not tx_id or tx_id in seen:
+                                continue
+                            seen.add(tx_id)
+                            try:
+                                tx = await self.get_transaction(tx_id)
+                            except Exception as err:
+                                _logger.warning(
+                                    "subscribe_provider_jobs: hydration error for %s: %s",
+                                    tx_id,
+                                    err,
+                                )
+                                continue
+                            if tx is None:
+                                # Not yet visible — let the next poll retry.
+                                _logger.warning(
+                                    "subscribe_provider_jobs: tx %s not yet visible, will retry",
+                                    tx_id,
+                                )
+                                seen.discard(tx_id)
+                                continue
+                            if tx.state != State.INITIATED:
+                                # Moved on between emission and read — don't process.
+                                _logger.debug(
+                                    "subscribe_provider_jobs: tx %s no longer INITIATED (%s), skipping",
+                                    tx_id,
+                                    tx.state,
+                                )
+                                continue
+                            if tx.provider.lower() != target:
+                                continue
+                            on_job(tx)
+                        last_block = current_block
+                except asyncio.CancelledError:
+                    break
+                except Exception as err:
+                    # Transient RPC error — log and keep watching (don't crash
+                    # the agent). PARITY intent: best-effort live listener.
+                    _logger.warning("subscribe_provider_jobs: poll error: %s", err)
+
+                try:
+                    await asyncio.wait_for(cancelled.wait(), timeout=poll_interval)
+                except asyncio.TimeoutError:
+                    pass
+
+        task = asyncio.ensure_future(_watch())
+
+        def _cleanup() -> None:
+            cancelled.set()
+            task.cancel()
+
+        return _cleanup
 
     async def get_expired_delivered_transactions(
         self, provider_address: str

@@ -28,7 +28,6 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -750,19 +749,40 @@ async def request(
         else:
             requester_address = _get_requester_address(wallet)
 
-        # Build service metadata as JSON
-        # PARITY FIX: Use separators=(',', ':') to match JS JSON.stringify() (no whitespace)
-        # PARITY FIX: Use only {service, input, timestamp} - no extra metadata keys merged
-        # PARITY FIX: Use ensure_ascii=False for unicode parity
-        service_metadata = json.dumps(
-            {
-                "service": validated_service,
-                "input": input,
-                "timestamp": int(time.time() * 1000),
-            },
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
+        # PRD §5.6 / TS request.ts:127-161 parity: put the bytes32 routing key
+        # on-chain, NOT a JSON metadata blob.
+        #
+        # Pre-4.0.0 this site passed json.dumps({service, input, timestamp}) as
+        # `service_description`. BlockchainRuntime then hashed the whole JSON
+        # string (blockchain_runtime.py:386 `w3.keccak(text=service_description)`),
+        # so the on-chain serviceHash was keccak256(JSON) — which never matched
+        # `provider.register_service(name)` (keyed by keccak256(utf8(name)),
+        # provider.py:226-229) and routing failed silently on real chains.
+        #
+        # The fix: pass the *plain validated service name* as
+        # `service_description`. BlockchainRuntime then computes
+        # serviceHash = keccak256(utf8(validated_service)) — byte-identical to
+        # the TS path, where request.ts:145 pre-hashes the same string
+        # (keccak256(toUtf8Bytes(validatedService))) and BlockchainRuntime's
+        # validateServiceHash (BlockchainRuntime.ts:1162-1178) passes a valid
+        # bytes32 through unchanged. Both SDKs land the same on-chain serviceHash:
+        #   keccak256(utf8(service))  ==  the provider's PRIMARY routing key.
+        #
+        # In mock mode the plain name is stored verbatim and matched by the
+        # provider's plain-string fallback (provider.py:599-601); on testnet/
+        # mainnet it is hashed once, hitting the provider's PRIMARY bytes32 path
+        # (provider.py:569-582). Both routes reach the same handler.
+        #
+        # `input` is NOT transported in 4.0.0 — the handler will see
+        # job.input = {} (TS request.ts:139-144). A future agirails.request.v1
+        # envelope on NegotiationChannel will restore this path (PRD §11).
+        if input is not None:
+            _logger.warning(
+                "input is not transported in 4.0.0 — handler will receive "
+                "job.input = {}. A future agirails.request.v1 envelope will "
+                "restore this path. See PRD §11."
+            )
+        service_description = validated_service
 
         # Create transaction using proper snake_case params
         # PARITY FIX: Use snake_case keys to match CreateTransactionParams
@@ -773,7 +793,7 @@ async def request(
             amount=amount_wei,
             deadline=deadline_ts,
             dispute_window=dispute_window,
-            service_description=service_metadata,
+            service_description=service_description,
         )
         tx_id = await effective_client.runtime.create_transaction(tx_params)
 

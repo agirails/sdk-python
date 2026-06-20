@@ -15,6 +15,8 @@ from typing import Optional
 import typer
 
 from agirails.cli.main import get_global_options
+from agirails.cli.utils.client import load_config
+from agirails.cli.utils.identity import resolve_identity_path
 from agirails.cli.utils.output import (
     OutputFormat,
     print_error,
@@ -27,12 +29,45 @@ from agirails.config.on_chain_state import OnChainConfigState, OnChainStateError
 from agirails.config.sync_operations import pull_config
 
 
+def _emit_buyer_local(output_format: OutputFormat) -> None:
+    """Emit the honest local-sovereign buyer-local result. Mirrors TS pull.ts:92-107."""
+    if output_format == OutputFormat.JSON:
+        print_json(
+            {
+                "written": False,
+                "status": "buyer-local",
+                "intent": "pay",
+                "note": (
+                    "Buyer config is local-authored; nothing to pull "
+                    "(budget stays private)."
+                ),
+            }
+        )
+        return
+    if output_format == OutputFormat.QUIET:
+        typer.echo("buyer-local")
+        return
+    print_success("Status: buyer-local")
+    print_info(
+        "Buyer (intent: pay): config is local-authored and budget is private — "
+        "nothing to pull."
+    )
+    print_info(
+        "Edit your {slug}.md locally, then run: actp publish to push the public fields."
+    )
+
+
 def pull(
+    path_arg: Optional[str] = typer.Argument(
+        None,
+        metavar="[PATH]",
+        help="Path to write config (default: ./AGIRAILS.md)",
+    ),
     force: bool = typer.Option(
         False, "--force", "-f", help="Overwrite local file without confirmation"
     ),
     network: str = typer.Option(
-        "base-mainnet",
+        "base-sepolia",
         "--network",
         "-n",
         help="Network to pull from (base-sepolia, base-mainnet)",
@@ -47,7 +82,7 @@ def pull(
         None,
         "--path",
         "-p",
-        help="Path to AGIRAILS.md (default: ./AGIRAILS.md)",
+        help="Path to AGIRAILS.md (overrides positional PATH; back-compat)",
     ),
     rpc_url: Optional[str] = typer.Option(
         None,
@@ -57,12 +92,51 @@ def pull(
 ) -> None:
     """Pull on-chain config to local AGIRAILS.md."""
     opts = get_global_options()
-    md_path = str(path or Path(opts.directory or Path.cwd()) / "AGIRAILS.md")
+    # TS takes the path as a positional [path] argument (default ./AGIRAILS.md).
+    # We accept both the positional PATH and the legacy `--path` option for
+    # backward compatibility; `--path` wins when supplied.
+    chosen_path = path or path_arg
+    md_path = str(chosen_path or Path(opts.directory or Path.cwd()) / "AGIRAILS.md")
 
-    # Resolve agent address
+    # AIP-18 DEC-3: a pure buyer (intent: pay) is local-authored and never
+    # anchored on-chain — there is nothing on-chain to pull, and its budget is
+    # private (never synced). Report that honestly instead of "No config
+    # published on-chain". Mirrors TS pull.ts:77-112.
+    try:
+        identity_path: Optional[str] = str(chosen_path) if chosen_path else None
+        if identity_path is None:
+            resolved = resolve_identity_path(
+                str(opts.directory) if opts.directory else None
+            )
+            if resolved:
+                identity_path = resolved
+        if identity_path and Path(identity_path).exists():
+            from agirails.config.agirailsmd import parse_agirails_md_v4
+
+            with open(identity_path, "r", encoding="utf-8") as f:
+                v4 = parse_agirails_md_v4(f.read())
+            if v4.intent == "pay":
+                _emit_buyer_local(opts.output_format)
+                return
+    except Exception:
+        # Not a parseable v4 buyer file — fall through to the normal on-chain pull.
+        pass
+
+    # Resolve agent address.
+    #
+    # Resolution order: --address > ACTP_ADDRESS > config.address (Smart Wallet
+    # for wallet:auto) > keystore EOA. Mirrors TS pull.ts:114-152.
     agent_address = address
     if not agent_address:
         agent_address = os.environ.get("ACTP_ADDRESS")
+    if not agent_address:
+        # config.address (Smart Wallet for wallet:auto) before EOA fallback.
+        try:
+            cfg = load_config(opts.directory)
+            if cfg.get("address"):
+                agent_address = cfg["address"]
+        except Exception:
+            pass
     if not agent_address:
         try:
             import asyncio

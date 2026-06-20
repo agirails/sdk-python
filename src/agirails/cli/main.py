@@ -26,6 +26,23 @@ from typing import Optional
 
 import typer
 
+# AIP-18 (4.6.2) — load `.env` from cwd before any command runs so the
+# auto-generated ACTP_KEY_PASSWORD that `actp init` writes is picked up by
+# every downstream command (publish, test, balance…) without the user having
+# to source or supply it inline. Mirrors TS `src/cli/index.ts:21-36`.
+# Idempotent: `override=False` means an existing shell/CI export wins over
+# `.env`, and a missing `.env` is a no-op. Wrapped in try/except so a missing
+# optional `python-dotenv` dependency or a malformed `.env` never blocks the
+# CLI from starting — every existing flow still works via the shell env.
+try:  # pragma: no cover - best-effort bootstrap
+    from dotenv import load_dotenv
+
+    load_dotenv(Path.cwd() / ".env", override=False)
+except Exception:
+    # Best-effort. Without python-dotenv the user falls back to supplying
+    # secrets via the shell environment, exactly like TS without `dotenv`.
+    pass
+
 from agirails.version import __version__
 from agirails.cli.utils.output import (
     OutputFormat,
@@ -135,6 +152,7 @@ from agirails.cli.commands import claim_code as claim_code_cmd
 from agirails.cli.commands import repair as repair_cmd
 from agirails.cli.commands import verify as verify_cmd
 from agirails.cli.commands import request as request_cmd
+from agirails.cli.commands import agent as agent_cmd
 
 # Register commands
 app.command(name="init")(init_cmd.init)
@@ -182,6 +200,9 @@ app.command(name="verify")(verify_cmd.verify)
 
 # Level 1 negotiated job request (PRD §5.6)
 app.command(name="request")(request_cmd.request)
+
+# Always-on agent listener (warns on public RPC)
+app.command(name="agent")(agent_cmd.agent)
 
 # Deploy subcommand group
 deploy_app = typer.Typer(

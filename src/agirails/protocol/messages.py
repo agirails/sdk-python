@@ -14,6 +14,7 @@ Example:
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -29,10 +30,63 @@ except ImportError:
     LocalAccount = None  # type: ignore[misc, assignment]
 
 from agirails.config.networks import NetworkConfig, get_network
+from agirails.utils.canonical_json import canonical_json_dumps
 from agirails.utils.logger import Logger
+from agirails.utils.received_nonce_tracker import IReceivedNonceTracker
 
 # Module logger for debugging
 _logger = Logger("agirails.protocol.messages")
+
+
+# ============================================================================
+# EIP-712 type definitions for the generic ACTPMessage surface
+#
+# PARITY: 1:1 with sdk-js/src/types/eip712.ts. The Python SignedMessage path
+# (sign_request/sign_response/...) uses dataclass TYPE_DEFINITIONs; these mirror
+# the TS *generic-message* registry consumed by signMessage/signQuoteRequest/
+# signQuoteResponse so cross-SDK signatures over those message types match.
+# ============================================================================
+
+# ACTPMessageTypes — eip712.ts:146-156
+ACTP_MESSAGE_TYPE_DEFINITION = [
+    {"name": "type", "type": "string"},
+    {"name": "version", "type": "string"},
+    {"name": "from", "type": "string"},
+    {"name": "to", "type": "string"},
+    {"name": "timestamp", "type": "uint256"},
+    {"name": "nonce", "type": "bytes32"},
+    {"name": "payload", "type": "bytes"},
+]
+
+# QuoteRequestTypes — eip712.ts:24-35
+QUOTE_REQUEST_TYPE_DEFINITION = [
+    {"name": "from", "type": "string"},
+    {"name": "to", "type": "string"},
+    {"name": "timestamp", "type": "uint256"},
+    {"name": "nonce", "type": "bytes32"},
+    {"name": "serviceType", "type": "string"},
+    {"name": "requirements", "type": "string"},
+    {"name": "deadline", "type": "uint256"},
+    {"name": "disputeWindow", "type": "uint256"},
+]
+
+# QuoteResponseTypes — eip712.ts:52-64
+QUOTE_RESPONSE_TYPE_DEFINITION = [
+    {"name": "from", "type": "string"},
+    {"name": "to", "type": "string"},
+    {"name": "timestamp", "type": "uint256"},
+    {"name": "nonce", "type": "bytes32"},
+    {"name": "requestId", "type": "bytes32"},
+    {"name": "price", "type": "uint256"},
+    {"name": "currency", "type": "address"},
+    {"name": "deliveryTime", "type": "uint256"},
+    {"name": "terms", "type": "string"},
+]
+
+# Nonce format: bytes32 hex (0x + 64 hex chars) — MessageSigner.ts:164
+_NONCE_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
+# Sequential-nonce warning threshold — MessageSigner.ts:177 (< 0xFFFFFFFF).
+_LOW_ENTROPY_NONCE_MAX = 0xFFFFFFFF
 
 # secp256k1 curve order (n) - used for signature malleability protection
 # Per EIP-2, valid signatures must have s <= n/2 to prevent malleability
@@ -182,8 +236,8 @@ class MessageSigner:
         private_key: Ethereum private key (hex string with or without 0x)
         chain_id: Ethereum chain ID
         verifying_contract: Contract address for domain separator
-        domain_name: Protocol name (default: "ACTP")
-        domain_version: Protocol version (default: "1")
+        domain_name: Protocol name (default: "AGIRAILS" — matches TS MessageSigner)
+        domain_version: Protocol version (default: "1.0" — matches TS MessageSigner)
 
     Example:
         >>> signer = MessageSigner(
@@ -205,8 +259,9 @@ class MessageSigner:
         private_key: str,
         chain_id: int = 84532,
         verifying_contract: str = "",
-        domain_name: str = "ACTP",
-        domain_version: str = "1",
+        domain_name: str = "AGIRAILS",
+        domain_version: str = "1.0",
+        nonce_tracker: Optional[IReceivedNonceTracker] = None,
     ) -> None:
         if not HAS_ETH_ACCOUNT:
             raise ImportError(
@@ -223,6 +278,9 @@ class MessageSigner:
         self._verifying_contract = verifying_contract
         self._domain_name = domain_name
         self._domain_version = domain_version
+        # Optional replay protection (receiver side) — PARITY: MessageSigner.ts
+        # constructor `nonceTracker` option (MessageSigner.ts:48-51, 74-85).
+        self._nonce_tracker = nonce_tracker
 
     @classmethod
     def from_config(
@@ -501,6 +559,356 @@ class MessageSigner:
             signature="0x" + signature if not signature.startswith("0x") else signature,
             signer=signer,
         )
+
+    # ------------------------------------------------------------------
+    # Generic ACTPMessage surface (1:1 with TS MessageSigner.signMessage /
+    # signQuoteRequest / signQuoteResponse + ReceivedNonceTracker integration)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _recursive_sort(obj: Any) -> Any:
+        """Recursively sort dict keys for deterministic JSON.
+
+        PARITY: mirrors ``MessageSigner.recursiveSort``
+        (MessageSigner.ts:388-412). Lists keep order; only dict keys are sorted.
+        """
+        if obj is None:
+            return obj
+        if isinstance(obj, list):
+            return [MessageSigner._recursive_sort(item) for item in obj]
+        if isinstance(obj, dict):
+            return {k: MessageSigner._recursive_sort(obj[k]) for k in sorted(obj.keys())}
+        return obj
+
+    @classmethod
+    def _canonicalize_payload(cls, payload: Dict[str, Any]) -> str:
+        """Canonicalize a payload to a deterministic JSON string.
+
+        PARITY: ``MessageSigner.canonicalizePayload``
+        (MessageSigner.ts:381-383) → ``JSON.stringify(recursiveSort(payload))``.
+        ``canonical_json_dumps`` is byte-identical to ``JSON.stringify`` over
+        sorted keys (minimal separators, JS number formatting, unicode kept).
+        """
+        return canonical_json_dumps(cls._recursive_sort(payload))
+
+    def _encode_payload_bytes(self, payload: Dict[str, Any]) -> bytes:
+        """ABI-encode the canonical payload string as ``bytes`` (the ``payload``
+        field of the generic ACTPMessage typed struct).
+
+        PARITY: ``AbiCoder.encode(['string'], [canonicalizePayload(payload)])``
+        (MessageSigner.ts:190-194). Returns raw ABI bytes (TS feeds the hex into
+        the ``bytes`` typed field).
+        """
+        from eth_abi import encode
+
+        return encode(["string"], [self._canonicalize_payload(payload)])
+
+    @staticmethod
+    def _validate_and_warn_nonce(nonce: Optional[str]) -> None:
+        """Validate bytes32 nonce format and warn on low-entropy nonces.
+
+        PARITY: MessageSigner.ts:163-187 — hard error on bad format, warn (not
+        error) on sequential / repeated-digit nonces.
+        """
+        if not nonce or not _NONCE_RE.match(nonce):
+            raise ValueError(
+                f'Invalid nonce format: "{nonce}". '
+                "Nonce MUST be a bytes32 hex string (0x + 64 hex chars). "
+                "Use SecureNonce.generate_secure_nonce() to generate "
+                "cryptographically secure nonces. Never use sequential integers "
+                "(1, 2, 3...) or timestamps as nonces."
+            )
+
+        nonce_value = int(nonce, 16)
+        if nonce_value < _LOW_ENTROPY_NONCE_MAX:
+            _logger.warn(
+                "Nonce appears sequential - use SecureNonce.generate_secure_nonce()",
+                {"nonce": nonce},
+            )
+
+        hex_digits = nonce[2:]
+        first_digit = hex_digits[0]
+        if all(d == first_digit for d in hex_digits):
+            _logger.warn(
+                "Nonce has low entropy - use SecureNonce.generate_secure_nonce()",
+                {"nonce": nonce, "repeatedDigit": first_digit},
+            )
+
+    def sign_message(self, message: Dict[str, Any]) -> str:
+        """
+        Sign a generic ACTPMessage with EIP-712 (backward-compatible path).
+
+        PARITY: mirrors ``MessageSigner.signMessage``
+        (MessageSigner.ts:154-214). Validates the bytes32 ``nonce``, warns about
+        low-entropy nonces, canonically encodes the remaining payload fields,
+        and signs the generic ``ACTPMessage`` typed struct
+        (type, version, from, to, timestamp, nonce, payload).
+
+        Returns the raw signature hex (``0x``-prefixed), like the TS method —
+        NOT a :class:`SignedMessage`. For strict typed messages use
+        :meth:`sign_quote_request` / :meth:`sign_quote_response` /
+        :meth:`sign_delivery_proof_message`.
+
+        Args:
+            message: Dict with keys ``type``, ``version``, ``from``, ``to``,
+                ``timestamp``, ``nonce`` plus arbitrary payload fields.
+
+        Returns:
+            Signature hex (``0x``-prefixed, EIP-2 low-s normalized).
+        """
+        reserved = {"type", "version", "from", "to", "timestamp", "nonce", "signature"}
+        nonce = message.get("nonce")
+
+        # Security: validate nonce format / warn on low entropy (ts:163-187).
+        self._validate_and_warn_nonce(nonce)
+
+        payload = {k: v for k, v in message.items() if k not in reserved}
+        payload_bytes = self._encode_payload_bytes(payload)
+
+        typed_message = {
+            "type": message.get("type"),
+            "version": message.get("version"),
+            "from": message.get("from"),
+            "to": message.get("to"),
+            "timestamp": message.get("timestamp"),
+            "nonce": nonce,
+            "payload": payload_bytes,
+        }
+
+        typed_data = self._build_typed_data(
+            primary_type="ACTPMessage",
+            type_definition=ACTP_MESSAGE_TYPE_DEFINITION,
+            message=typed_message,
+        )
+        signature, _ = self._sign_typed_data(typed_data)
+        return "0x" + signature if not signature.startswith("0x") else signature
+
+    def sign_quote_request(self, data: Dict[str, Any]) -> str:
+        """
+        Sign a typed QuoteRequest (AIP-2) message.
+
+        PARITY: mirrors ``MessageSigner.signQuoteRequest``
+        (MessageSigner.ts:219-229). Uses the ``QuoteRequest`` EIP-712 type
+        (eip712.ts:24-35) and returns the raw signature hex.
+
+        Args:
+            data: QuoteRequest fields — ``from``, ``to``, ``timestamp``,
+                ``nonce``, ``serviceType``, ``requirements``, ``deadline``,
+                ``disputeWindow``.
+
+        Returns:
+            Signature hex (``0x``-prefixed, EIP-2 low-s normalized).
+        """
+        typed_data = self._build_typed_data(
+            primary_type="QuoteRequest",
+            type_definition=QUOTE_REQUEST_TYPE_DEFINITION,
+            message=data,
+        )
+        signature, _ = self._sign_typed_data(typed_data)
+        return "0x" + signature if not signature.startswith("0x") else signature
+
+    def sign_quote_response(self, data: Dict[str, Any]) -> str:
+        """
+        Sign a typed QuoteResponse (AIP-2) message.
+
+        PARITY: mirrors ``MessageSigner.signQuoteResponse``
+        (MessageSigner.ts:234-244). Uses the ``QuoteResponse`` EIP-712 type
+        (eip712.ts:52-64) and returns the raw signature hex.
+
+        Args:
+            data: QuoteResponse fields — ``from``, ``to``, ``timestamp``,
+                ``nonce``, ``requestId``, ``price``, ``currency``,
+                ``deliveryTime``, ``terms``.
+
+        Returns:
+            Signature hex (``0x``-prefixed, EIP-2 low-s normalized).
+        """
+        typed_data = self._build_typed_data(
+            primary_type="QuoteResponse",
+            type_definition=QUOTE_RESPONSE_TYPE_DEFINITION,
+            message=data,
+        )
+        signature, _ = self._sign_typed_data(typed_data)
+        return "0x" + signature if not signature.startswith("0x") else signature
+
+    @staticmethod
+    def _did_to_address(did: str) -> str:
+        """Convert a DID (or raw address) to an Ethereum address.
+
+        PARITY: mirrors ``MessageSigner.didToAddress``
+        (MessageSigner.ts:426-487). Handles legacy ``did:ethr:<address>`` and
+        canonical EIP-3770 ``did:ethr:<chainId>:<address>``.
+        """
+        did_prefix = "did:ethr:"
+        if did.startswith(did_prefix):
+            remainder = did[len(did_prefix):]
+            parts = remainder.split(":")
+            if len(parts) == 2:
+                chain_id_str, address = parts
+                if not chain_id_str.isdigit():
+                    raise ValueError(
+                        f"Invalid DID format: {did}. Expected "
+                        f"did:ethr:<chainId>:<address> but chainId "
+                        f'"{chain_id_str}" is not a number.'
+                    )
+                if not re.match(r"^0x[0-9a-fA-F]{40}$", address):
+                    raise ValueError(
+                        f"Invalid DID format: {did}. Expected "
+                        f"did:ethr:<chainId>:<address> but "
+                        f'"{address}" is not a valid Ethereum address.'
+                    )
+                return address
+            if len(parts) == 1 and re.match(r"^0x[0-9a-fA-F]{40}$", parts[0]):
+                return parts[0]
+            raise ValueError(
+                f"Invalid DID format: {did}. Expected did:ethr:<address> "
+                f"or did:ethr:<chainId>:<address>."
+            )
+
+        if re.match(r"^0x[0-9a-fA-F]{40}$", did):
+            return did
+
+        raise ValueError(
+            f"Invalid DID format: {did}. Expected Ethereum address (0x...) "
+            f"or DID (did:ethr:...)."
+        )
+
+    def address_to_did(self, address: str) -> str:
+        """Convert an Ethereum address to a canonical DID.
+
+        PARITY: mirrors ``MessageSigner.addressToDID``
+        (MessageSigner.ts:497-509). Uses ``did:ethr:<chainId>:<address>`` when a
+        chainId is configured, else legacy ``did:ethr:<address>``.
+        """
+        if not re.match(r"^0x[0-9a-fA-F]{40}$", address):
+            raise ValueError(f"Invalid Ethereum address: {address}")
+        if self._chain_id:
+            return f"did:ethr:{self._chain_id}:{address}"
+        return f"did:ethr:{address}"
+
+    def verify_message(self, message: Dict[str, Any], signature: str) -> bool:
+        """
+        Verify a generic ACTPMessage signature (with optional replay protection).
+
+        PARITY: mirrors ``MessageSigner.verifySignature``
+        (MessageSigner.ts:275-326). Recovers the signer from the generic
+        ``ACTPMessage`` typed struct, checks it matches ``from`` (DID→address),
+        and — if a ``nonce_tracker`` was supplied — validates+records the nonce
+        for replay protection, returning ``False`` on a detected replay.
+
+        Args:
+            message: The original ACTPMessage dict (same shape as
+                :meth:`sign_message`).
+            signature: Signature hex to verify.
+
+        Returns:
+            True if the signature is valid and (if tracking) the nonce is fresh.
+        """
+        reserved = {"type", "version", "from", "to", "timestamp", "nonce", "signature"}
+        nonce = message.get("nonce")
+        payload = {k: v for k, v in message.items() if k not in reserved}
+        payload_bytes = self._encode_payload_bytes(payload)
+
+        typed_message = {
+            "type": message.get("type"),
+            "version": message.get("version"),
+            "from": message.get("from"),
+            "to": message.get("to"),
+            "timestamp": message.get("timestamp"),
+            "nonce": nonce,
+            "payload": payload_bytes,
+        }
+
+        typed_data = self._build_typed_data(
+            primary_type="ACTPMessage",
+            type_definition=ACTP_MESSAGE_TYPE_DEFINITION,
+            message=typed_message,
+        )
+
+        try:
+            signable = encode_typed_data(full_message=typed_data)
+            recovered = Account.recover_message(  # type: ignore[union-attr]
+                signable,
+                signature=bytes.fromhex(signature.replace("0x", "")),
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            _logger.debug(f"Signature verification failed: {e}")
+            return False
+
+        expected_address = self._did_to_address(str(message.get("from", "")))
+        if recovered.lower() != expected_address.lower():
+            return False
+
+        # Replay protection (ts:316-323): only when a tracker is configured.
+        if self._nonce_tracker is not None:
+            result = self._nonce_tracker.validate_and_record(
+                str(message.get("from", "")), str(message.get("type", "")), str(nonce)
+            )
+            if not result.valid:
+                return False
+
+        return True
+
+    def verify_message_or_raise(self, message: Dict[str, Any], signature: str) -> None:
+        """
+        Verify a generic ACTPMessage signature, raising on failure.
+
+        PARITY: mirrors ``MessageSigner.verifySignatureOrThrow``
+        (MessageSigner.ts:332-374). Raises
+        :class:`SignatureVerificationError` on a signer mismatch and a
+        ``ValueError`` describing the replay on a nonce-tracker rejection.
+        """
+        from agirails.errors import SignatureVerificationError
+
+        reserved = {"type", "version", "from", "to", "timestamp", "nonce", "signature"}
+        nonce = message.get("nonce")
+        payload = {k: v for k, v in message.items() if k not in reserved}
+        payload_bytes = self._encode_payload_bytes(payload)
+
+        typed_message = {
+            "type": message.get("type"),
+            "version": message.get("version"),
+            "from": message.get("from"),
+            "to": message.get("to"),
+            "timestamp": message.get("timestamp"),
+            "nonce": nonce,
+            "payload": payload_bytes,
+        }
+
+        typed_data = self._build_typed_data(
+            primary_type="ACTPMessage",
+            type_definition=ACTP_MESSAGE_TYPE_DEFINITION,
+            message=typed_message,
+        )
+
+        signable = encode_typed_data(full_message=typed_data)
+        recovered = Account.recover_message(  # type: ignore[union-attr]
+            signable,
+            signature=bytes.fromhex(signature.replace("0x", "")),
+        )
+
+        expected_address = self._did_to_address(str(message.get("from", "")))
+        if recovered.lower() != expected_address.lower():
+            raise SignatureVerificationError(
+                "Generic ACTPMessage signature does not match sender",
+                expected_signer=expected_address,
+                actual_signer=recovered,
+            )
+
+        if self._nonce_tracker is not None:
+            result = self._nonce_tracker.validate_and_record(
+                str(message.get("from", "")), str(message.get("type", "")), str(nonce)
+            )
+            if not result.valid:
+                raise ValueError(
+                    f"Nonce replay attack detected: {result.reason}. "
+                    f"Received nonce: {result.received_nonce}. "
+                    + (
+                        f"Expected minimum: {result.expected_minimum}"
+                        if result.expected_minimum
+                        else ""
+                    )
+                )
 
     def verify_signature(
         self,

@@ -88,38 +88,87 @@ ERC8004_IDENTITY_ABI = [
     },
 ]
 
+# Canonical ERC-8004 Reputation Registry ABI. PARITY: TS types/erc8004.ts:252-259.
+# The on-chain signatures are:
+#   giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals,
+#                string tag1, string tag2, string endpoint, string feedbackURI,
+#                bytes32 feedbackHash)
+#   revokeLatest(uint256 agentId, uint64 feedbackIndex)
+#   getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2)
+#       -> (uint256 count, int256 summaryValue, uint8 summaryValueDecimals)
+#   readFeedback(uint256 agentId, uint64 feedbackIndex)
+#       -> (int128 value, uint8 valueDecimals, string tag1, string tag2,
+#           bool isRevoked, uint64 feedbackIndex)
+# (Matches ERC8004_REPUTATION_ABI_CANONICAL in erc8004/reputation_reporter.py.)
 ERC8004_REPUTATION_ABI = [
+    # Write — giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)
     {
         "inputs": [
             {"name": "agentId", "type": "uint256"},
-            {"name": "value", "type": "int8"},
-            {"name": "feedbackHash", "type": "bytes32"},
+            {"name": "value", "type": "int128"},
+            {"name": "valueDecimals", "type": "uint8"},
             {"name": "tag1", "type": "string"},
+            {"name": "tag2", "type": "string"},
+            {"name": "endpoint", "type": "string"},
+            {"name": "feedbackURI", "type": "string"},
+            {"name": "feedbackHash", "type": "bytes32"},
         ],
         "name": "giveFeedback",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function",
     },
+    # Write — revokeLatest(uint256,uint64)
     {
         "inputs": [
             {"name": "agentId", "type": "uint256"},
+            {"name": "feedbackIndex", "type": "uint64"},
+        ],
+        "name": "revokeLatest",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    # Read — getSummary(uint256,address[],string,string)
+    #     -> (uint256 count, int256 summaryValue, uint8 summaryValueDecimals)
+    {
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "clientAddresses", "type": "address[]"},
             {"name": "tag1", "type": "string"},
+            {"name": "tag2", "type": "string"},
         ],
         "name": "getSummary",
         "outputs": [
-            {"name": "positive", "type": "uint256"},
-            {"name": "negative", "type": "uint256"},
-            {"name": "total", "type": "uint256"},
+            {"name": "count", "type": "uint256"},
+            {"name": "summaryValue", "type": "int256"},
+            {"name": "summaryValueDecimals", "type": "uint8"},
         ],
         "stateMutability": "view",
         "type": "function",
     },
+    # Read — readFeedback(uint256,uint64)
     {
-        "inputs": [{"name": "agentId", "type": "uint256"}],
-        "name": "revokeLatest",
-        "outputs": [],
-        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "feedbackIndex", "type": "uint64"},
+        ],
+        "name": "readFeedback",
+        "outputs": [
+            {
+                "components": [
+                    {"name": "value", "type": "int128"},
+                    {"name": "valueDecimals", "type": "uint8"},
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
+                    {"name": "isRevoked", "type": "bool"},
+                    {"name": "feedbackIndex", "type": "uint64"},
+                ],
+                "name": "",
+                "type": "tuple",
+            }
+        ],
+        "stateMutability": "view",
         "type": "function",
     },
 ]

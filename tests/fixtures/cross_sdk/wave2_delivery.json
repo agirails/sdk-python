@@ -1,0 +1,203 @@
+{
+  "_meta": {
+    "generated_from": "@agirails/sdk dist delivery (TS 4.8.0)",
+    "note": "Deterministic AIP-16 byte-exact vectors. Do not hand-edit."
+  },
+  "ecdh": {
+    "privA": "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "privB": "0xa09f9e9d9c9b9a999897969594939291908f8e8d8c8b8a898887868584838281",
+    "pubA": "0x07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "pubB": "0x8345f35f3bd833c09af0825e20306ae392b04a7c3e02081c777905fd23033325",
+    "pubA_via_helper": "0x07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "sharedSecret": "0x675d4a8a5e485bfa1a681f8e6fc547fc1eb9fe895c8e6417b7b457a4dfcfc04f"
+  },
+  "hkdf": {
+    "info": "agirails-delivery-v1",
+    "v1": {
+      "sharedSecret": "0x675d4a8a5e485bfa1a681f8e6fc547fc1eb9fe895c8e6417b7b457a4dfcfc04f",
+      "txId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "sessionKey": "0x4157db2e06f925b97038c36e55f2a4ca497711af9838a6994a982b4484b1a30c"
+    },
+    "v2": {
+      "sharedSecret": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "txId": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "sessionKey": "0x74f653247f3cf517fb5ecf7b319c2b58f70224e5a5137ae172746679525bc196"
+    }
+  },
+  "aes_gcm": {
+    "sessionKey": "0x4157db2e06f925b97038c36e55f2a4ca497711af9838a6994a982b4484b1a30c",
+    "nonce": "0x0c0b0a090807060504030201",
+    "aad": "0x111111111111111111111111111111111111111111111111111111111111111170997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "plaintext": "{\"result\":\"ok\",\"value\":42}",
+    "with_aad": {
+      "ciphertext": "0x2bdb43b73173e00b9192a3c5ce3f53567e41543ff463c222b9f2",
+      "tag": "0xc99ad02b0480d646a724ff996cad14df"
+    },
+    "without_aad": {
+      "ciphertext": "0x2bdb43b73173e00b9192a3c5ce3f53567e41543ff463c222b9f2",
+      "tag": "0x0e0418647686cddeb3b0f34d25760aca"
+    }
+  },
+  "body_hash": {
+    "public_plaintext": "0xfafb066348d4a2071d4b51b55aa7c9d310841e3a399921c3f5a8f11a8cb43b51",
+    "encrypted_ciphertext": "0xcbe8bb743058d2db159dee2ea9283f9a483e727d5a600600b6157b53ec9ec931"
+  },
+  "eip712": {
+    "domain": {
+      "name": "AGIRAILS Delivery",
+      "version": "1",
+      "chainId": 84532,
+      "verifyingContract": "0x469CBADbACFFE096270594F0a31f0EEC53753411"
+    },
+    "privateKey": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "setup": {
+      "types": {
+        "DeliverySetupSignedV1": [
+          {
+            "name": "version",
+            "type": "uint8"
+          },
+          {
+            "name": "txId",
+            "type": "bytes32"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256"
+          },
+          {
+            "name": "kernelAddress",
+            "type": "address"
+          },
+          {
+            "name": "requesterAddress",
+            "type": "address"
+          },
+          {
+            "name": "signerAddress",
+            "type": "address"
+          },
+          {
+            "name": "buyerEphemeralPubkey",
+            "type": "bytes32"
+          },
+          {
+            "name": "acceptedChannels",
+            "type": "string[]"
+          },
+          {
+            "name": "expectedPrivacy",
+            "type": "string"
+          },
+          {
+            "name": "createdAt",
+            "type": "uint64"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint64"
+          },
+          {
+            "name": "smartWalletNonce",
+            "type": "uint256"
+          }
+        ]
+      },
+      "payload": {
+        "version": 1,
+        "txId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "chainId": 84532,
+        "kernelAddress": "0x469CBADbACFFE096270594F0a31f0EEC53753411",
+        "requesterAddress": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "buyerEphemeralPubkey": "0x07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+        "acceptedChannels": [
+          "relay-v1",
+          "mock-v1"
+        ],
+        "expectedPrivacy": "encrypted",
+        "createdAt": 1750000000,
+        "expiresAt": 1750003600,
+        "smartWalletNonce": 0
+      },
+      "digest": "0xbb1942a3f5352cfc3aef3a6b667c1fe12cb0fe8694b14046584082424e04e6fe",
+      "signature": "0x705b665f02d73ed72fd172cd6b918325c884176201e40ee1cad6ffa97dda47072c7d8045cc3113ca710d7e53a7778193f70df627677f6467e3bffb6a822e83161b"
+    },
+    "envelope": {
+      "types": {
+        "DeliveryEnvelopeSignedV1": [
+          {
+            "name": "version",
+            "type": "uint8"
+          },
+          {
+            "name": "txId",
+            "type": "bytes32"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256"
+          },
+          {
+            "name": "kernelAddress",
+            "type": "address"
+          },
+          {
+            "name": "providerAddress",
+            "type": "address"
+          },
+          {
+            "name": "signerAddress",
+            "type": "address"
+          },
+          {
+            "name": "scheme",
+            "type": "string"
+          },
+          {
+            "name": "providerEphemeralPubkey",
+            "type": "bytes32"
+          },
+          {
+            "name": "nonce",
+            "type": "bytes12"
+          },
+          {
+            "name": "payloadHash",
+            "type": "bytes32"
+          },
+          {
+            "name": "tag",
+            "type": "bytes16"
+          },
+          {
+            "name": "createdAt",
+            "type": "uint64"
+          },
+          {
+            "name": "smartWalletNonce",
+            "type": "uint256"
+          }
+        ]
+      },
+      "payload": {
+        "version": 1,
+        "txId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "chainId": 84532,
+        "kernelAddress": "0x469CBADbACFFE096270594F0a31f0EEC53753411",
+        "providerAddress": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+        "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "scheme": "x25519-aes256gcm-v1",
+        "providerEphemeralPubkey": "0x8345f35f3bd833c09af0825e20306ae392b04a7c3e02081c777905fd23033325",
+        "nonce": "0x0c0b0a090807060504030201",
+        "payloadHash": "0xcbe8bb743058d2db159dee2ea9283f9a483e727d5a600600b6157b53ec9ec931",
+        "tag": "0xc99ad02b0480d646a724ff996cad14df",
+        "createdAt": 1750000000,
+        "smartWalletNonce": 0
+      },
+      "digest": "0x03d3a0de06d3a60ab9fe8d89ed212f142fbc68bae0c886a80d74fa246a192e35",
+      "signature": "0x7786ee6ee5663fdcda2a176f210979ad31790932d58f981e925a059a119be9087c8ae9b1e64792e2a5a7b9814c7db2683bf7cfe204863b12c6f1d4ef1dd8efb31c"
+    }
+  }
+}

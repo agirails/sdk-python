@@ -1,0 +1,264 @@
+{
+  "_meta": {
+    "generated_from": "@agirails/sdk dist (TS 4.8.0)",
+    "note": "Byte-exact golden vectors for Python parity. Do not hand-edit."
+  },
+  "canonical": {
+    "empty_obj": {
+      "canonical": "{}",
+      "resultHash": "0xb48d38f93eaa084033fc5970bf96e559c33c4cdc07d889ab00b4d63f9590739d"
+    },
+    "simple": {
+      "canonical": "{\"a\":\"x\",\"b\":\"y\"}",
+      "resultHash": "0x00ba0b8ae2e044a0fdccf2678b8b40b6d4c87c6835cb6d39d79740878148477e"
+    },
+    "key_sort": {
+      "canonical": "{\"a\":1,\"b\":2}",
+      "resultHash": "0xb8ffb64722137f4b100665a52e3c943f8066e8ab8ba3b427e6f4b404defd82b0"
+    },
+    "int": {
+      "canonical": "{\"n\":1}",
+      "resultHash": "0x232f233e61375896b50467077a0a746f4b74c418ab0effaa362493b69c58e46b"
+    },
+    "float_int_valued": {
+      "canonical": "{\"amount\":1}",
+      "resultHash": "0xe16c20d057c66e2e14fd6eb3b8f8c87cf15f009c5acae5d212d0bf4c9fdce148"
+    },
+    "float_60": {
+      "canonical": "{\"estimatedTime\":60}",
+      "resultHash": "0x2473ca6a0bb53ca40aa2cec108b71fbb92a3fef1ce5a370534f63b72a7a6d47e"
+    },
+    "neg_zero": {
+      "canonical": "{\"x\":0}",
+      "resultHash": "0x8fa0ad38eca26508b18108a0c6bfb9fda5d7bd2ba131d97af3701475dda07862"
+    },
+    "float_decimal": {
+      "canonical": "{\"rate\":0.1}",
+      "resultHash": "0xc7f7e45bece64013ddcb03cff29e25e1df3a1e141c346af22c57fe3ee8c8a2f5"
+    },
+    "float_decimal2": {
+      "canonical": "{\"marketRate\":0.0345}",
+      "resultHash": "0xcf3129e0692abd3d9eeb61eb5b3bda66ec81cf71f9592d1d21d53c14d1130f8d"
+    },
+    "float_neg": {
+      "canonical": "{\"v\":-1.5}",
+      "resultHash": "0x75dcf218463e34884ac01fad8d95c12ac54ecf930b50ca8db75429f43304b62b"
+    },
+    "large_e21": {
+      "canonical": "{\"big\":1e+21}",
+      "resultHash": "0xebf236c77a3f773594e4e439ed412b4d3395a9e2522c7dc77c8c413e0b31e024"
+    },
+    "large_e20": {
+      "canonical": "{\"big\":100000000000000000000}",
+      "resultHash": "0x105517490a046ea796e6e8fc0e754900dcfd4f0ae0968413ba9c8453ae27d42f"
+    },
+    "large_e16": {
+      "canonical": "{\"big\":10000000000000000}",
+      "resultHash": "0xb006d0cafd53a31675a4a073baa144191b7a11aaced580aa88648925e7bbbc2e"
+    },
+    "small_e7": {
+      "canonical": "{\"small\":1e-7}",
+      "resultHash": "0xe3e96e30c1c59ddf6981045331fa89ca94a4eb1c7fa47836a80c4153e3f2bafa"
+    },
+    "small_e6": {
+      "canonical": "{\"small\":0.000001}",
+      "resultHash": "0x1d7e830e7cb9898739e2d99d10d60338ac0f33304562291ef6ad8b4a53a4b8fd"
+    },
+    "small_e8_mant": {
+      "canonical": "{\"small\":1.5e-8}",
+      "resultHash": "0x7427be9c4dbc1e0fb8daf8b4e33fb171435ab1ebdda955794431761ab57c6baa"
+    },
+    "nested": {
+      "canonical": "{\"nested\":{\"a\":2,\"z\":1}}",
+      "resultHash": "0x136ed11edb7c93e7c0b9ece19f3e888da3979261d7ce74b41156f9ce14ec9cfa"
+    },
+    "array_floats": {
+      "canonical": "{\"arr\":[1,2.5,0,3]}",
+      "resultHash": "0xec5c86d8af41831686fdefff5eb4e7f98f2bbda27972ff344c3f8daaf0dd56e4"
+    },
+    "bool_null": {
+      "canonical": "{\"f\":false,\"n\":null,\"t\":true}",
+      "resultHash": "0x040259f2aff5e6fad4a5e58d1c86b418950512c3b32171c685f56271bd1a6e80"
+    },
+    "unicode": {
+      "canonical": "{\"emoji\":\"🎉\",\"txt\":\"héllo\"}",
+      "resultHash": "0x31e6fde8334812e8a63de30c744ec6c52e9cebff21f2377483799abaa8da4869"
+    },
+    "control_chars": {
+      "canonical": "{\"s\":\"line1\\nline2\\ttab\\\"quote\\\\back\"}",
+      "resultHash": "0x19f9ef60e650d3b0843c8a46a671e85c326bcea962c9c1dba6a78bba166ae434"
+    },
+    "u2028": {
+      "canonical": "{\"s\":\"a b c\"}",
+      "resultHash": "0xf8a85e5139517128ecca8f828c4e99ad95f7198e13c4b5da4afa00844c846d83"
+    },
+    "del_char": {
+      "canonical": "{\"s\":\"ab\"}",
+      "resultHash": "0xcbb1774155b63a745ad5a2c3bdbfc851cbb6f42ee5ba9cf103b3a7eced362cdc"
+    },
+    "string_top": {
+      "canonical": "\"hello\"",
+      "resultHash": "0xf6fb31fdcaf3bd3f8350b3591a8d548dd83b099e7a76446b1fdda2f5ebdd1232"
+    },
+    "number_top": {
+      "canonical": "42",
+      "resultHash": "0xccb1f717aa77602faf03a594761a36956b1c4cf44c6b336d1db57da799b331b8"
+    },
+    "float_top": {
+      "canonical": "1",
+      "resultHash": "0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6"
+    },
+    "bool_top": {
+      "canonical": "true",
+      "resultHash": "0x6273151f959616268004b58dbb21e5c851b7b8d04498b4aabee12291d22fc034"
+    },
+    "null_top": {
+      "canonical": "null",
+      "resultHash": "0xefbde2c3aee204a69b7696d4b10ff31137fe78e3946306284f806e2dfc68b805"
+    },
+    "deeply_nested": {
+      "canonical": "{\"a\":{\"b\":{\"c\":{\"d\":[1,2,{\"e\":5}]}}}}",
+      "resultHash": "0x264e97f32ccccb2410fe47b3c4f91da8a167ff20d38b3480434af75c09877099"
+    },
+    "justification": {
+      "canonical": "{\"breakdown\":{\"gpu\":0.4,\"overhead\":0.1},\"computeCost\":0.5,\"estimatedTime\":120,\"reason\":\"gpu\"}",
+      "resultHash": "0x5cee7982275e3de6b87da7709130e32347857d397d92a91985aa798501a9edeb"
+    }
+  },
+  "hashContent": {
+    "hello": {
+      "input": "hello",
+      "hash": "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
+    },
+    "delivery payload v1": {
+      "input": "delivery payload v1",
+      "hash": "0xf8b55e32a4a0554733e8ba25066a6e3c493d030e3df71e891425dae3f0e1e195"
+    },
+    "🎉 unicode": {
+      "input": "🎉 unicode",
+      "hash": "0x89d4d44a5765592dee8c1340210d53d4f2a735f42289b881f305397d0a4705a0"
+    },
+    "empty": {
+      "input": "",
+      "hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    },
+    "len1000": {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "hash": "0xb6a4ac1f51884d71f30fa397a5e155de3099e11fc0edef5d08b646e621e19de9"
+    }
+  },
+  "quote": {
+    "privateKey": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "kernelAddress": "0x469CBADbACFFE096270594F0a31f0EEC53753411",
+    "chainId": 84532,
+    "domain": {
+      "name": "AGIRAILS",
+      "version": "1",
+      "chainId": 84532,
+      "verifyingContract": "0x469CBADbACFFE096270594F0a31f0EEC53753411"
+    },
+    "types": {
+      "PriceQuote": [
+        {
+          "name": "txId",
+          "type": "bytes32"
+        },
+        {
+          "name": "provider",
+          "type": "string"
+        },
+        {
+          "name": "consumer",
+          "type": "string"
+        },
+        {
+          "name": "quotedAmount",
+          "type": "string"
+        },
+        {
+          "name": "originalAmount",
+          "type": "string"
+        },
+        {
+          "name": "maxPrice",
+          "type": "string"
+        },
+        {
+          "name": "currency",
+          "type": "string"
+        },
+        {
+          "name": "decimals",
+          "type": "uint8"
+        },
+        {
+          "name": "quotedAt",
+          "type": "uint256"
+        },
+        {
+          "name": "expiresAt",
+          "type": "uint256"
+        },
+        {
+          "name": "justificationHash",
+          "type": "bytes32"
+        },
+        {
+          "name": "chainId",
+          "type": "uint256"
+        },
+        {
+          "name": "nonce",
+          "type": "uint256"
+        }
+      ]
+    },
+    "quote": {
+      "type": "agirails.quote.v1",
+      "version": "1.0.0",
+      "txId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "provider": "did:ethr:84532:0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "consumer": "did:ethr:84532:0x000000000000000000000000000000000000dEaD",
+      "quotedAmount": "7500000",
+      "originalAmount": "5000000",
+      "maxPrice": "10000000",
+      "currency": "USDC",
+      "decimals": 6,
+      "quotedAt": 1750000000,
+      "expiresAt": 1750003600,
+      "justification": {
+        "reason": "gpu compute",
+        "estimatedTime": 120,
+        "computeCost": 0.5
+      },
+      "chainId": 84532,
+      "nonce": 1,
+      "signature": ""
+    },
+    "signedMessage": {
+      "txId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "provider": "did:ethr:84532:0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "consumer": "did:ethr:84532:0x000000000000000000000000000000000000dEaD",
+      "quotedAmount": "7500000",
+      "originalAmount": "5000000",
+      "maxPrice": "10000000",
+      "currency": "USDC",
+      "decimals": 6,
+      "quotedAt": 1750000000,
+      "expiresAt": 1750003600,
+      "justificationHash": "0xc456dcc1d98341b72a3d20ce0b8134fc8d7dd9f53bc30abbc3cfa6bd7e89e122",
+      "chainId": 84532,
+      "nonce": 1
+    },
+    "justification": {
+      "reason": "gpu compute",
+      "estimatedTime": 120,
+      "computeCost": 0.5
+    },
+    "justificationHash": "0xc456dcc1d98341b72a3d20ce0b8134fc8d7dd9f53bc30abbc3cfa6bd7e89e122",
+    "eip712Digest": "0x2d0996f507a82b75ee8eb03b6c2ae72a02e96cd5725c53221faa27a401ca8663",
+    "computeHash": "0xc0d77406f66f0e2f27f69887f9e191a418c5df3e4276449958c63bd4132553d1",
+    "signature": "0x4b5331c09cbfa5ba7d1c71d0b9195843166f29197b84740fd3cf59cd69f23fa2143748b4c7032416a52aa6bf6de03093d8010c640972b3c3addb342580e0af0a1c"
+  }
+}

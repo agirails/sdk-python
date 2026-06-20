@@ -10,7 +10,10 @@ from __future__ import annotations
 import hashlib
 import time
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from agirails.builders.quote import QuoteMessage
 
 from agirails.errors import (
     TransactionNotFoundError,
@@ -443,12 +446,48 @@ class MockRuntime(IMockRuntime):
             tx.state = new_state
             tx.updated_at = current_time
 
-            # Set completed_at when transitioning to DELIVERED (parity with TS SDK)
+            # Set completed_at when transitioning to DELIVERED (parity with TS SDK).
+            # PROOF GUARD (PARITY: MockRuntime.ts:724-732): only store the delivery
+            # proof on the DELIVERED transition, and ONLY if not already set. The
+            # Agent writes the real delivery proof BEFORE transitioning and passes
+            # the dispute-window proof as the `proof` arg — overwriting (or storing
+            # proof on a non-DELIVERED transition like DISPUTED) would clobber the
+            # real proof.
             if new_state == State.DELIVERED:
                 tx.completed_at = current_time
+                if proof and not tx.delivery_proof:
+                    tx.delivery_proof = proof  # PARITY: TS uses 'deliveryProof'
 
-            if proof:
-                tx.delivery_proof = proof  # PARITY: TS uses 'deliveryProof'
+            # Handle escrow refund on CANCELLED state.
+            # PARITY: MockRuntime.ts:734-773 — refund the requester, zero out
+            # the escrow, and emit EscrowRefunded. The Python escrow model uses
+            # `amount` + `released` (vs TS `balance`/`locked`); an un-released
+            # escrow whose amount > 0 is the effective live balance.
+            if new_state == State.CANCELLED and tx.escrow_id is not None:
+                escrow = state.escrows.get(tx.escrow_id)
+                if escrow is not None and not escrow.released and int(escrow.amount) > 0:
+                    refund_amount = int(escrow.amount)
+
+                    # Return funds to requester (create the balance slot if absent)
+                    requester_key = tx.requester.lower()
+                    requester_balance = int(state.balances.get(requester_key, "0"))
+                    state.balances[requester_key] = str(requester_balance + refund_amount)
+
+                    # Clear escrow balance (released=True ⇒ get_escrow_balance → "0",
+                    # mirroring TS clearing escrow.balance to '0' and locked=False).
+                    escrow.released = True
+
+                    # Record EscrowRefunded event (TS MockEvent shape)
+                    self._emit_event(
+                        state,
+                        "EscrowRefunded",
+                        tx_id,
+                        {
+                            "escrowId": tx.escrow_id,
+                            "requester": tx.requester,
+                            "amount": str(refund_amount),
+                        },
+                    )
 
             # Emit event
             self._emit_event(
@@ -533,11 +572,106 @@ class MockRuntime(IMockRuntime):
 
         await self._state_manager.with_lock(accept)
 
-    async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
-        """Get a transaction by ID."""
+    async def submit_quote(self, tx_id: str, quote: "QuoteMessage") -> None:
+        """Submit an AIP-2 price quote: INITIATED → QUOTED with the canonical
+        quote hash stored on the transaction.
+
+        PARITY: MockRuntime.ts:862-890. AIP-2.1 designates this as the only
+        sanctioned entry point for reaching QUOTED. The canonical hash is
+        ``keccak256`` of the verifier-authoritative QuoteMessage shape
+        (signature stripped) — reuses the ported :class:`QuoteBuilder`
+        ``compute_hash`` so mock-mode buyers run the exact cross-reference
+        check they'd run against on-chain anchored quote metadata.
+
+        Raw ``transition_state(tx_id, 'QUOTED', custom_proof)`` still works
+        for backward compatibility but produces a hash the buyer-side
+        verifier cannot reconstruct from the QuoteMessage (legacy path).
+
+        Args:
+            tx_id: Transaction ID (must be in INITIATED state).
+            quote: The signer-independent ``QuoteMessage`` to anchor.
+
+        Raises:
+            TransactionNotFoundError: If transaction doesn't exist.
+            InvalidStateTransitionError: If not in INITIATED state.
+        """
         await self._ensure_initialized()
+
+        # Compute the canonical hash off the verifier-authoritative shape.
+        # compute_hash is signer-independent (strips the signature before
+        # hashing) so a no-arg builder yields the same hash any verifier
+        # computes. PARITY: MockRuntime.ts:867-868.
+        from agirails.builders.quote import QuoteBuilder
+
+        quote_hash = QuoteBuilder().compute_hash(quote)
+
+        async def stamp(state: MockState) -> MockState:
+            tx = state.transactions.get(tx_id)
+            if tx is None:
+                raise TransactionNotFoundError(tx_id)
+            if tx.state != State.INITIATED:
+                raise InvalidStateTransitionError(
+                    tx.state.value,
+                    State.QUOTED.value,
+                    tx_id=tx_id,
+                )
+            tx.quote_hash = quote_hash
+            return state
+
+        await self._state_manager.with_lock(stamp)
+
+        # transition_state handles the actual state bump + event emission.
+        # Passing the hash as `proof` for parity with BlockchainRuntime where
+        # the kernel reads the same bytes. PARITY: MockRuntime.ts:889.
+        await self.transition_state(tx_id, State.QUOTED, quote_hash)
+
+    async def get_transaction(self, tx_id: str) -> Optional[MockTransaction]:
+        """Get a transaction by ID.
+
+        AUTO-RELEASE: If the transaction is DELIVERED and its dispute window has
+        passed, it is automatically settled before being returned ("lazy
+        auto-release"). PARITY: MockRuntime.ts:525-532.
+        """
+        await self._ensure_initialized()
+        # First, check if auto-settle is needed (lazy auto-release).
+        await self._auto_settle_if_ready(tx_id)
+        # Then return the (possibly updated) transaction.
         state = await self._state_manager.load()
         return state.transactions.get(tx_id)
+
+    async def _auto_settle_if_ready(self, tx_id: str) -> None:
+        """Auto-settle a DELIVERED transaction whose dispute window has expired.
+
+        When anyone reads a DELIVERED transaction with an expired dispute window
+        and a linked escrow, it is settled atomically. Mirrors the on-chain
+        permissionless settlement window. PARITY: MockRuntime.ts:542-565.
+
+        Pre-checks without the lock to avoid unnecessary lock acquisition; the
+        actual settlement re-validates state inside ``release_escrow``'s lock,
+        so a concurrent state change (already settled / disputed) is safely
+        ignored.
+        """
+        precheck = await self._state_manager.load()
+        pre_tx = precheck.transactions.get(tx_id)
+        if pre_tx is None or pre_tx.state != State.DELIVERED:
+            return
+        # completed_at is set on the DELIVERED transition; fall back to
+        # updated_at for parity with release_escrow's window math.
+        completed_at = (
+            pre_tx.completed_at if pre_tx.completed_at is not None else pre_tx.updated_at
+        )
+        if precheck.blockchain.timestamp < completed_at + pre_tx.dispute_window:
+            return
+        if not pre_tx.escrow_id:
+            return
+
+        # Settle atomically; release_escrow re-checks state under the lock.
+        try:
+            await self.release_escrow(pre_tx.escrow_id)
+        except Exception:
+            # Already settled, disputed, window edge race, or other concurrent
+            # change — ignore. PARITY: MockRuntime.ts:562-564.
+            pass
 
     async def get_all_transactions(
         self,
@@ -748,3 +882,110 @@ class MockRuntime(IMockRuntime):
         await self._ensure_initialized()
         state = await self._state_manager.load()
         return state.balances.get(address.lower(), "0")
+
+    async def transfer(self, from_addr: str, to_addr: str, amount: str) -> None:
+        """Transfer USDC tokens between addresses.
+
+        PARITY: MockRuntime.ts:1215-1262. Debits ``from_addr``, credits
+        ``to_addr`` (creating the slot if absent) and emits a ``Transfer``
+        event. Balances are keyed by lowercased address in the Python state
+        model (vs the TS ``accounts[addr].usdcBalance`` map) — semantically
+        identical.
+
+        Args:
+            from_addr: Sender address.
+            to_addr: Recipient address.
+            amount: Amount to transfer in USDC wei (string).
+
+        Raises:
+            InsufficientBalanceError: If the sender has insufficient funds.
+        """
+        await self._ensure_initialized()
+
+        async def do_transfer(state: MockState) -> MockState:
+            from_key = from_addr.lower()
+            to_key = to_addr.lower()
+            from_balance = int(state.balances.get(from_key, "0"))
+            transfer_amount = int(amount)
+
+            if from_balance < transfer_amount:
+                raise InsufficientBalanceError(
+                    from_addr,
+                    transfer_amount,
+                    from_balance,
+                )
+
+            state.balances[from_key] = str(from_balance - transfer_amount)
+            to_balance = int(state.balances.get(to_key, "0"))
+            state.balances[to_key] = str(to_balance + transfer_amount)
+
+            self._emit_event(
+                state,
+                "Transfer",
+                "",
+                {"from": from_addr, "to": to_addr, "amount": amount},
+            )
+
+            return state
+
+        await self._state_manager.with_lock(do_transfer)
+
+    async def get_state(self) -> MockState:
+        """Get the complete mock state snapshot.
+
+        PARITY: MockRuntime.ts:1284-1286 (getState). Returns the current
+        ``MockState`` loaded from the state file. Async because the Python
+        state model is file-backed.
+        """
+        await self._ensure_initialized()
+        return await self._state_manager.load()
+
+    @property
+    def events(self) -> "_MockEventAccessor":
+        """Event access interface.
+
+        PARITY: MockRuntime.ts:320-329 / 351-361. Exposes ``get_all()``,
+        ``get_by_type(type)``, ``get_by_transaction(tx_id)`` and ``clear()``.
+        Methods are async because the Python event log is persisted in the
+        state file (vs the TS in-memory ``eventLog``).
+        """
+        return _MockEventAccessor(self)
+
+
+class _MockEventAccessor:
+    """Async accessor for the MockRuntime persisted event log.
+
+    PARITY: MockRuntime.ts events interface (getAll / getByType /
+    getByTransaction / clear).
+    """
+
+    def __init__(self, runtime: "MockRuntime") -> None:
+        self._runtime = runtime
+
+    async def get_all(self) -> List["MockEvent"]:
+        """Return all recorded events."""
+        await self._runtime._ensure_initialized()
+        state = await self._runtime._state_manager.load()
+        return list(state.events)
+
+    async def get_by_type(self, event_type: str) -> List["MockEvent"]:
+        """Return events filtered by event type."""
+        await self._runtime._ensure_initialized()
+        state = await self._runtime._state_manager.load()
+        return [e for e in state.events if e.event_type == event_type]
+
+    async def get_by_transaction(self, tx_id: str) -> List["MockEvent"]:
+        """Return events recorded for a specific transaction."""
+        await self._runtime._ensure_initialized()
+        state = await self._runtime._state_manager.load()
+        return [e for e in state.events if e.tx_id == tx_id]
+
+    async def clear(self) -> None:
+        """Clear all recorded events."""
+        await self._runtime._ensure_initialized()
+
+        async def _clear(state: MockState) -> MockState:
+            state.events = []
+            return state
+
+        await self._runtime._state_manager.with_lock(_clear)

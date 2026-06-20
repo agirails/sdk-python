@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import secrets
+import time
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -33,6 +35,7 @@ from agirails.utils.logging import get_logger
 # Module logger
 _logger = get_logger(__name__)
 from agirails.level1.config import (
+    DEFAULT_DELIVERY_CONFIG,
     AgentConfig,
     NetworkOption,
     ServiceConfig,
@@ -104,6 +107,29 @@ class _ServiceRegistration:
     handler: JobHandler
 
 
+class _TxLike:
+    """Minimal tx-shaped view derived from a Job.
+
+    Used as the event-payload source for ``_emit_job_decision`` when the
+    original transaction object is not threaded through. Exposes ``id``,
+    ``requester`` and ``amount`` (in USDC base units) so the decline/filter
+    payload matches the on-chain-sourced shape.
+    """
+
+    __slots__ = ("id", "requester", "amount", "service_description")
+
+    def __init__(self, job: Job) -> None:
+        self.id = job.id
+        self.requester = job.requester
+        # Job.budget is human USDC; convert back to 6-decimal base units so the
+        # payload's amount round-trips through _convert_amount_to_number.
+        try:
+            self.amount = str(int(round(job.budget * 1_000_000)))
+        except (TypeError, ValueError):
+            self.amount = "0"
+        self.service_description = (job.metadata or {}).get("service_description")
+
+
 class Agent:
     """
     Agent for processing jobs via ACTP protocol.
@@ -134,6 +160,24 @@ class Agent:
     # Polling interval in seconds
     POLL_INTERVAL = 2.0
 
+    # Bounded transient retry (TS Agent.MAX_JOB_ATTEMPTS = 3). A non-kernel
+    # failure (e.g. a handler throwing on bad input) is retried as transient;
+    # after this many recurrences it is treated as permanent and marked
+    # processed so polling does not retry it forever.
+    MAX_JOB_ATTEMPTS = 3
+
+    # Kernel revert reasons that signal a PERMANENT failure (the tx can never
+    # make forward progress). Mirrors TS permanentRevertReasons
+    # (Agent.ts:2033-2040). Matched against both plaintext and ABI-hex form.
+    _PERMANENT_REVERT_REASONS = (
+        "Transaction expired",  # ACTPKernel _enforceTiming after deadline
+        "Invalid transition",   # _isValidTransition reject (no recovery path)
+        "Only requester",       # wrong msg.sender for requester-only fn
+        "Only provider",        # wrong msg.sender for provider-only fn
+        "Not authorized",       # settle-before-window or wrong party
+        "Not participant",      # attestation anchoring without standing
+    )
+
     def __init__(self, config: AgentConfig) -> None:
         """
         Initialize agent.
@@ -159,9 +203,30 @@ class Agent:
         # Job tracking (security measure C-2: LRU cache)
         self._active_jobs: LRUCache[str, Job] = LRUCache(self.MAX_ACTIVE_JOBS)
         self._processed_jobs: LRUCache[str, bool] = LRUCache(self.MAX_PROCESSED_JOBS)
+        # Per-job failure counter for bounded retry (TS jobAttempts LRUCache).
+        self._job_attempts: LRUCache[str, int] = LRUCache(self.MAX_PROCESSED_JOBS)
 
         # Race condition prevention (security measure C-1)
         self._processing_locks: Set[str] = set()
+
+        # AIP-2.1 ProviderOrchestrator seam (TS Agent._providerOrchestrator).
+        # When set via set_provider_orchestrator(), the counter-offer pricing
+        # path would route the quote through it (BYO-brain / injectable
+        # decider). Optional — agents that don't opt in keep the legacy hash
+        # path. Stored here so the Agent honors an injected orchestrator
+        # exactly where TS does.
+        self._provider_orchestrator: Optional[Any] = None
+
+        # AIP-16 Phase 2e/3 — delivery hook dependencies. Captured from config;
+        # mutable so _ensure_aip16_auto_wire() can lazy-fill missing deps when
+        # ACTP_DELIVERY_CHANNEL=v1 is set. The hook activates only when ALL of
+        # (channel, signer, kernel_address, chain_id) are present AND the flag
+        # is set; otherwise it is a no-op and the legacy settlement path runs.
+        self._delivery_channel: Optional[Any] = config.delivery_channel
+        self._delivery_signer: Optional[Any] = config.delivery_signer
+        self._kernel_address: Optional[str] = config.kernel_address
+        self._chain_id: Optional[int] = config.chain_id
+        self._smart_wallet_nonce: Optional[int] = config.smart_wallet_nonce
 
         # Concurrency control (security measure MEDIUM-4)
         behavior = config.get_behavior()
@@ -380,6 +445,9 @@ class Agent:
         filter: Optional[ServiceFilter] = None,
         pricing: Optional[PricingStrategy] = None,
         timeout: Optional[int] = None,
+        description: Optional[str] = None,
+        capabilities: Optional[List[str]] = None,
+        delivery: Optional[Any] = None,
     ) -> Union[Agent, Callable[[JobHandler], JobHandler]]:
         """
         Register a service handler.
@@ -404,13 +472,18 @@ class Agent:
         Returns:
             Self (for chaining) or decorator function
         """
-        # Build ServiceConfig
+        # Build ServiceConfig. When given a string service name, accept the
+        # full ServiceConfig field set via keyword options (TS provide accepts
+        # a Partial<ServiceConfig> options arg — Agent.ts:771-810).
         if isinstance(service, str):
             config = ServiceConfig(
                 name=service,
+                description=description or "",
                 filter=filter,
                 pricing=pricing,
+                capabilities=capabilities,
                 timeout=timeout,
+                delivery=delivery,
             )
         else:
             config = service
@@ -597,6 +670,102 @@ class Agent:
                     # Don't let handler errors break the agent
                     pass
 
+    def set_provider_orchestrator(self, orchestrator: Any) -> None:
+        """Attach an AIP-2.1 ProviderOrchestrator (BYO-brain seam).
+
+        Mirrors TS ``Agent.setProviderOrchestrator`` (Agent.ts:972-974). Once
+        set, the counter-offer pricing path can route the quote through the
+        orchestrator (which builds a signed AIP-2 QuoteMessage and may honor an
+        injected counter-decider) instead of the legacy ad-hoc hash.
+
+        Optional — agents that never call this keep the pre-AIP-2.1 hash
+        format which the buyer-side verifier still accepts via §3.6 legacy
+        fallback during the migration grace window.
+        """
+        self._provider_orchestrator = orchestrator
+
+    def safe_emit_error(self, error: Any) -> None:
+        """Emit 'error' only when a listener is attached; otherwise log it.
+
+        Mirrors TS ``safeEmitError`` (Agent.ts:1029-1035). A long-running
+        provider agent must NOT die on an unobserved error. Python never raises
+        on an unhandled event, but a silent no-op hides failures from
+        operators, so when no 'error' listener is attached we log at error
+        level instead of swallowing silently. Callers that DO attach an 'error'
+        listener still receive every error unchanged.
+        """
+        handlers = self._event_handlers.get("error")
+        if handlers:
+            self._emit("error", error)
+        else:
+            _logger.error(
+                "Agent error (no error listener attached; not crashing)",
+                extra={"agent": self.name, "error": str(error)},
+            )
+
+    def _emit_job_decision(
+        self,
+        event: str,
+        tx: Any,
+        registration: Optional[_ServiceRegistration],
+        detail: Dict[str, Any],
+    ) -> None:
+        """Emit a ``job:declined`` (economic) or ``job:filtered`` (policy) event.
+
+        Mirrors TS ``emitJobDecision`` (Agent.ts:1651-1691). These two events
+        fire MID-DECISION (right before ``_should_auto_accept`` returns), so a
+        misbehaving listener must never affect the accept/decline outcome.
+        We build the same machine-readable payload and swallow listener
+        exceptions.
+
+        Semantics:
+          * ``job:declined``  — economic: budget/price out of band. The agent
+            would take it at a different price.
+          * ``job:filtered``  — policy: a custom predicate / legacy filter /
+            auto-accept opt-out rejected it. Price is irrelevant.
+
+        Payload (second arg; first arg is the Job like other job:* events):
+          ``{jobId, requester, amount, reason, ...extra}``
+        """
+        job: Optional[Job] = None
+        try:
+            if registration is not None:
+                job = self._create_job_from_transaction(tx, registration.config.name)
+        except Exception:
+            job = None
+
+        payload: Dict[str, Any] = {
+            "jobId": getattr(tx, "id", None),
+            "requester": getattr(tx, "requester", None),
+            "amount": self._convert_amount_to_number(getattr(tx, "amount", None)),
+            **detail,
+        }
+
+        for handler in list(self._event_handlers.get(event, [])):
+            try:
+                result = handler(job, payload)
+                # Swallow async-listener rejections too: schedule the coroutine
+                # but attach a no-op exception handler so it can never crash the
+                # decision path.
+                if asyncio.iscoroutine(result):
+                    task = asyncio.ensure_future(result)
+                    task.add_done_callback(lambda t: t.exception())
+            except Exception:
+                # sync listener throw — swallowed; the decision continues.
+                pass
+
+    def _convert_amount_to_number(self, amount: Any) -> float:
+        """Convert a USDC base-unit amount to a float (6 decimals).
+
+        Mirrors TS ``convertAmountToNumber`` (Agent.ts:1794-1797).
+        """
+        if amount is None:
+            return 0.0
+        try:
+            return int(amount) / 1_000_000
+        except (TypeError, ValueError):
+            return 0.0
+
     # ═══════════════════════════════════════════════════════════
     # Internal: Polling
     # ═══════════════════════════════════════════════════════════
@@ -616,7 +785,10 @@ class Agent:
                         "traceback": traceback.format_exc(),
                     },
                 )
-                self._emit("error", e)
+                # TS safeEmitError: emit only when a listener is attached, else
+                # log — never crash the long-running daemon on an unobserved
+                # error.
+                self.safe_emit_error(e)
 
             # Wait for next poll interval or stop signal
             try:
@@ -686,7 +858,7 @@ class Agent:
 
             # Check auto-accept
             job = self._create_job_from_transaction(tx, registration.config.name)
-            if not await self._should_auto_accept(job, registration):
+            if not await self._should_auto_accept(job, registration, tx):
                 self._processed_jobs.set(tx_id, True)
                 return
 
@@ -715,13 +887,56 @@ class Agent:
         """
         # PRIMARY: on-chain hash routing.
         service_desc = getattr(tx, "service_description", None)
-        if isinstance(service_desc, str) and service_desc.startswith("0x"):
-            normalized = service_desc.lower()
-            zero_hash = "0x" + "0" * 64
-            if normalized != zero_hash:
-                by_hash = self._handlers_by_hash.get(normalized)
-                if by_hash is not None:
-                    return by_hash
+        # tx may carry the hash under either service_description (snake) or
+        # serviceHash (camel) depending on the runtime source. Mirror TS which
+        # reads tx.serviceHash; fall back to service_description for the
+        # Python runtime shape.
+        raw_hash = getattr(tx, "service_hash", None) or getattr(tx, "serviceHash", None)
+        if not isinstance(raw_hash, str):
+            raw_hash = service_desc if isinstance(service_desc, str) else None
+        zero_hash = "0x" + "0" * 64
+        normalized = raw_hash.lower() if isinstance(raw_hash, str) else None
+        if normalized is not None and normalized.startswith("0x") and normalized != zero_hash:
+            by_hash = self._handlers_by_hash.get(normalized)
+            if by_hash is not None:
+                return by_hash
+
+        # ZeroHash / missing-hash sole-handler fallback (raw-pay routing).
+        #
+        # Mirrors TS findServiceHandler (Agent.ts:1269-1299). A Level 0
+        # ``client.pay(provider, amount)`` creates an on-chain tx with
+        # serviceHash == ZeroHash and no parsable serviceDescription. When
+        # there is no routable hash AND exactly ONE handler is registered, the
+        # routing is unambiguous — route the raw-pay job to that sole handler.
+        #
+        # Guards (deliberately conservative — never guess):
+        #   * 0 handlers  → fall through (returns None, unchanged).
+        #   * 2+ handlers → ambiguous, fall through (returns None, unchanged).
+        #   * exactly 1   → route, with a warn-level log so operators can see
+        #                   raw-pay activations in production.
+        no_routable_hash = (
+            normalized is None
+            or normalized == zero_hash
+            or not (isinstance(service_desc, str) and service_desc)
+        )
+        # Distinguish "no hash / zero hash" from "hash present but unknown".
+        # When a non-zero routable hash was present but did not match a handler,
+        # this is NOT a raw-pay case — do not route to the sole handler.
+        hash_present_and_unmatched = (
+            normalized is not None
+            and normalized.startswith("0x")
+            and normalized != zero_hash
+        )
+        if (
+            not hash_present_and_unmatched
+            and no_routable_hash
+            and len(self._handlers_by_hash) == 1
+        ):
+            _logger.warning(
+                "ZeroHash (raw-pay) tx routed to the sole registered handler",
+                extra={"agent": self.name, "tx_id": getattr(tx, "id", None)},
+            )
+            return next(iter(self._handlers_by_hash.values()))
 
         # FALLBACK: legacy string-based dispatch.
         service_name = self._extract_service_name(tx)
@@ -782,30 +997,262 @@ class Agent:
         )
 
     async def _should_auto_accept(
-        self, job: Job, registration: _ServiceRegistration
+        self, job: Job, registration: _ServiceRegistration, tx: Any = None
     ) -> bool:
-        """Determine if job should be auto-accepted."""
+        """Determine if a job should be auto-accepted.
+
+        Mirrors TS ``shouldAutoAccept`` (Agent.ts:1379-1609) including the
+        decline/filter event taxonomy:
+
+          * service filter (min/max budget, custom) → job:declined /
+            job:filtered with a machine-readable reason
+          * pricing strategy → reject ⇒ job:declined; counter-offer ⇒ NOT a
+            decline (the agent RESPONDED with a price), returns False without
+            an event
+          * agent-level auto_accept false / callback decline → job:filtered
+
+        ``tx`` is the source transaction used to build the event payload; when
+        omitted (legacy callers) the job's own fields are used.
+        """
         behavior = self._config.get_behavior()
+        # The event payload prefers the raw tx (carries requester/amount in
+        # base units); fall back to a tx-like view derived from the job.
+        ev_tx = tx if tx is not None else _TxLike(job)
 
-        # Check service filter
-        if not registration.config.matches_job(job):
+        # --- Service-level filter (budget constraints + custom) ---
+        svc_filter = registration.config.filter
+        if svc_filter is not None:
+            if svc_filter.min_budget is not None and job.budget < svc_filter.min_budget:
+                self._emit_job_decision(
+                    "job:declined",
+                    ev_tx,
+                    registration,
+                    {"reason": "budget_below_minimum", "minBudget": svc_filter.min_budget},
+                )
+                return False
+            if svc_filter.max_budget is not None and job.budget > svc_filter.max_budget:
+                self._emit_job_decision(
+                    "job:declined",
+                    ev_tx,
+                    registration,
+                    {"reason": "budget_above_maximum", "maxBudget": svc_filter.max_budget},
+                )
+                return False
+            if svc_filter.custom is not None:
+                custom_result = svc_filter.custom(job)
+                if hasattr(custom_result, "__await__"):
+                    custom_result = await custom_result
+                if not custom_result:
+                    self._emit_job_decision(
+                        "job:filtered",
+                        ev_tx,
+                        registration,
+                        {"reason": "custom_filter", "filter": "custom"},
+                    )
+                    return False
+
+        # --- Pricing strategy ---
+        if registration.config.pricing is not None:
+            try:
+                calculation = calculate_price(registration.config.pricing, job)
+            except Exception as e:  # pragma: no cover - defensive parity
+                # If pricing calculation fails, reject the job for safety.
+                _logger.error(
+                    "Pricing calculation failed, rejecting job",
+                    extra={"agent": self.name, "job_id": job.id, "error": str(e)},
+                )
+                self._emit_job_decision(
+                    "job:declined",
+                    ev_tx,
+                    registration,
+                    {"reason": "pricing_error", "detail": str(e)},
+                )
+                return False
+
+            if calculation.decision == "reject":
+                self._emit_job_decision(
+                    "job:declined",
+                    ev_tx,
+                    registration,
+                    {"reason": "pricing_rejected", "detail": calculation.reason},
+                )
+                return False
+
+            # counter-offer: the agent RESPONDED with a price — NOT a decline.
+            # Returning False here keeps the job out of the accept pipeline; the
+            # buyer-side negotiation/quote path handles the counter. We do NOT
+            # emit a decline/filter event (TS Agent.ts:1611-1614).
+            #
+            # Before returning, anchor the provider's ideal price as a QUOTED
+            # transition on-chain (mirror TS Agent.ts:1504-1565). Two paths:
+            #   1. AIP-2.1 canonical (preferred) — when set_provider_orchestrator()
+            #      was called, route the quote through the orchestrator so it
+            #      builds a signed AIP-2 QuoteMessage, computes the canonical
+            #      hash, and submits via runtime.submit_quote (state transition
+            #      + hash storage in one). Buyer-side BuyerOrchestrator can
+            #      verify end-to-end.
+            #   2. Legacy ad-hoc hash (fallback) — when no orchestrator is
+            #      configured, emit the historical
+            #      keccak256(JSON.stringify({txId, providerIdealPrice,
+            #      actualEscrow, provider})) shape; the buyer's verifier accepts
+            #      it via the §3.6 legacy fallback during the migration grace.
+            #
+            # ACTP invariant either way: tx.amount is immutable. The QUOTED
+            # proof documents the provider's ideal price for the audit trail but
+            # does NOT change the on-chain escrow amount.
+            if calculation.decision == "counter-offer":
+                await self._submit_counter_quote(job, tx, calculation)
+                return False
+
+        # --- Agent-level auto_accept behavior ---
+        auto_accept = behavior.auto_accept
+
+        if auto_accept is True:
+            return True
+
+        # Blanket opt-out: surface it so a consumer counting "every job we
+        # didn't take" sees it (TS Agent.ts:1587-1593).
+        if auto_accept is False:
+            self._emit_job_decision(
+                "job:filtered",
+                ev_tx,
+                registration,
+                {"reason": "auto_accept_disabled", "filter": "auto_accept"},
+            )
             return False
 
-        # Check pricing strategy
-        pricing = registration.config.pricing or DEFAULT_PRICING_STRATEGY
-        price_calc = calculate_price(pricing, job)
-        if price_calc.decision == "reject":
-            return False
+        # It's a function — evaluate it (per-job programmatic gate).
+        if callable(auto_accept):
+            decision = auto_accept(job)
+            if hasattr(decision, "__await__"):
+                decision = await decision
+            if not decision:
+                self._emit_job_decision(
+                    "job:filtered",
+                    ev_tx,
+                    registration,
+                    {"reason": "auto_accept_callback", "filter": "auto_accept"},
+                )
+            return bool(decision)
 
-        # Check auto_accept setting
-        if isinstance(behavior.auto_accept, bool):
-            return behavior.auto_accept
+        return False
 
-        # Call auto_accept function
-        result = behavior.auto_accept(job)
-        if hasattr(result, "__await__"):
-            return await result
-        return result
+    def _find_service_type_for_tx(self, tx: Any) -> str:
+        """Resolve a service-type label for an outbound quote.
+
+        Mirror of TS ``findServiceTypeForTx`` (Agent.ts:987-993): prefer the
+        handler the routing resolved, else the first registered service name,
+        else the generic ``"general"`` fallback.
+        """
+        matched = self._find_service_handler(tx)
+        if matched is not None:
+            return matched.config.name
+        if self._services:
+            return next(iter(self._services.keys()))
+        return "general"
+
+    async def _submit_counter_quote(
+        self, job: Job, tx: Any, calculation: Any
+    ) -> None:
+        """Anchor the provider's counter-offer as a QUOTED transition on-chain.
+
+        Mirror of TS Agent.ts:1504-1565. Two paths (orchestrator seam vs legacy
+        ad-hoc hash); both are best-effort — a quote-submission failure is
+        logged and swallowed so the (already-decided) counter does not crash the
+        poll loop (TS wraps the whole block in try/catch returning false).
+        """
+        if self._client is None:
+            return
+        try:
+            provider_ideal_price = str(int(round(calculation.price * 1_000_000)))
+
+            if self._provider_orchestrator is not None:
+                # AIP-2.1 canonical path: route through the orchestrator so it
+                # builds + signs an AIP-2 QuoteMessage and submits via
+                # runtime.submit_quote (state transition + canonical hash in
+                # one). chain_id read from the runtime's network config; default
+                # 84532 (Base Sepolia) when absent (TS Agent.ts:1509-1510).
+                # Lazy import to avoid a negotiation→level1 import cycle; the
+                # orchestrator seam is only exercised when an orchestrator was
+                # explicitly injected via set_provider_orchestrator().
+                from agirails.negotiation.provider_policy import IncomingRequest
+
+                runtime = getattr(self._client, "runtime", None)
+                chain_id = getattr(
+                    getattr(runtime, "config", None), "chain_id", None
+                ) or 84532
+                req = IncomingRequest(
+                    tx_id=tx.id,
+                    consumer=f"did:ethr:{chain_id}:{tx.requester}",
+                    offered_amount=str(tx.amount),
+                    # No separate ceiling on Transaction — set max to the
+                    # provider's quoted price so the orchestrator's policy band
+                    # check passes (TS Agent.ts:1516-1519).
+                    max_price=provider_ideal_price,
+                    deadline=int(getattr(tx, "deadline", 0) or 0),
+                    service_type=self._find_service_type_for_tx(tx),
+                    currency="USDC",
+                    unit="job",
+                )
+                result = await self._provider_orchestrator.quote(
+                    req, f"did:ethr:{chain_id}:{self.address}"
+                )
+                _logger.info(
+                    "AIP-2.1 quote submitted via ProviderOrchestrator",
+                    extra={
+                        "agent": self.name,
+                        "tx_id": tx.id,
+                        "action": getattr(
+                            getattr(result, "decision", None), "action", None
+                        ),
+                        "reason": getattr(
+                            getattr(result, "decision", None), "reason", None
+                        ),
+                        "channel_error": getattr(result, "channel_error", None),
+                    },
+                )
+                return
+
+            # Legacy ad-hoc hash path. Buyer's verifier matches via §3.6 legacy
+            # fallback. Existing pre-AIP-2.1 agents continue to function
+            # unchanged. JSON key order + separators mirror TS JSON.stringify
+            # ({txId, providerIdealPrice, actualEscrow, provider}) so the
+            # keccak256 hash is byte-identical cross-SDK (TS Agent.ts:1547-1551).
+            from eth_hash.auto import keccak as _keccak
+
+            quote_json = json.dumps(
+                {
+                    "txId": tx.id,
+                    "providerIdealPrice": provider_ideal_price,
+                    "actualEscrow": str(tx.amount),
+                    "provider": self.address,
+                },
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            quote_hash = "0x" + _keccak(quote_json.encode("utf-8")).hex()
+            if abi_encode is not None:
+                proof = "0x" + abi_encode(["bytes32"], [bytes.fromhex(quote_hash[2:])]).hex()
+            else:
+                # Fallback: bytes32 ABI-encodes to itself (already 32 bytes).
+                proof = quote_hash
+
+            await self._client.standard.transition_state(tx.id, "QUOTED", proof)
+            _logger.info(
+                "Counter-offer quoted via legacy hash (no providerOrchestrator configured)",
+                extra={
+                    "agent": self.name,
+                    "tx_id": tx.id,
+                    "provider_ideal_price": provider_ideal_price,
+                    "actual_escrow": str(tx.amount),
+                    "reason": getattr(calculation, "reason", None),
+                },
+            )
+        except Exception as quote_error:  # noqa: BLE001 — quote submit non-fatal
+            _logger.error(
+                "Counter-offer submission failed",
+                extra={"agent": self.name, "tx_id": tx.id, "error": str(quote_error)},
+            )
 
     # ═══════════════════════════════════════════════════════════
     # Internal: Job Processing
@@ -825,25 +1272,60 @@ class Agent:
             self._concurrency_semaphore.release()
 
     async def _execute_job(self, job: Job, registration: _ServiceRegistration) -> None:
-        """Execute a job handler."""
+        """Execute a job handler.
+
+        State transitions are state-gated for idempotency (TS processJob,
+        Agent.ts:1928-1949): re-read the current tx state before transitioning,
+        only do COMMITTED → IN_PROGRESS when state is COMMITTED, skip when
+        already IN_PROGRESS, and bail for CANCELLED/DISPUTED/etc.
+
+        Success marks the job processed + clears its retry counter; failure is
+        routed through bounded retry (:meth:`_fail_job`) which decides whether
+        to mark it processed (permanent / max-attempts) or leave it for the
+        next poll (transient).
+        """
         self._emit("job:started", job)
         start_time = asyncio.get_event_loop().time()
 
-        # AUDIT FIX: Transition to IN_PROGRESS before starting work
-        # Contract requires: COMMITTED -> IN_PROGRESS -> DELIVERED
+        # State-gated IN_PROGRESS transition (idempotent re-delivery safety).
+        # For runtimes without get_transaction default to COMMITTED — matches
+        # both the mock entry state (post-linkEscrow) and the blockchain
+        # canonical entry state from polling.
+        current_state = "COMMITTED"
         if self._client is not None:
             try:
-                await self._client.standard.transition_state(job.id, "IN_PROGRESS")
-                _logger.debug(
-                    "Job transitioned to IN_PROGRESS",
-                    extra={"agent": self.name, "job_id": job.id},
-                )
-            except Exception as e:
+                current_tx = await self._client.runtime.get_transaction(job.id)
+                if current_tx is not None:
+                    raw_state = getattr(current_tx, "state", None)
+                    current_state = getattr(raw_state, "value", raw_state) or "COMMITTED"
+            except Exception:
+                current_state = "COMMITTED"
+
+        if self._client is not None:
+            if current_state == "COMMITTED":
+                try:
+                    await self._client.standard.transition_state(job.id, "IN_PROGRESS")
+                    _logger.debug(
+                        "Job transitioned to IN_PROGRESS",
+                        extra={"agent": self.name, "job_id": job.id},
+                    )
+                except Exception as e:
+                    _logger.warning(
+                        "Failed to transition job to IN_PROGRESS",
+                        extra={"agent": self.name, "job_id": job.id, "error": str(e)},
+                    )
+                    # Don't fail the job - it might already be IN_PROGRESS
+            elif current_state != "IN_PROGRESS":
+                # Tx is in some non-workable state (CANCELLED, DISPUTED, etc.) —
+                # bail without acting on it (TS Agent.ts:1932-1940).
                 _logger.warning(
-                    "Failed to transition job to IN_PROGRESS",
-                    extra={"agent": self.name, "job_id": job.id, "error": str(e)},
+                    "Skipping job; tx no longer in workable state",
+                    extra={"agent": self.name, "job_id": job.id, "state": current_state},
                 )
-                # Don't fail the job - it might already be IN_PROGRESS
+                self._active_jobs.delete(job.id)
+                elapsed = asyncio.get_event_loop().time() - start_time
+                self._update_job_stats(elapsed)
+                return
 
         try:
             # Create context
@@ -865,26 +1347,31 @@ class Agent:
             # Handle result
             if isinstance(result, JobResult):
                 if result.success:
-                    await self._complete_job(job, result.output)
+                    await self._complete_job(job, result.output, registration)
                 else:
                     await self._fail_job(job, result.error or "Unknown error")
             else:
                 # Treat any return value as success
-                await self._complete_job(job, result)
+                await self._complete_job(job, result, registration)
 
         except Exception as e:
             await self._fail_job(job, str(e))
 
         finally:
-            # Update stats
+            # Update stats. PROCESSED-marking is handled by _complete_job
+            # (success) / _fail_job (bounded retry) — NOT here, so a
+            # transiently-failed job can be retried on the next poll (TS does
+            # NOT unconditionally mark processed in finally). We DO always
+            # remove from active_jobs (idempotent; TS always removes too) so a
+            # cancelled/aborted job does not strand the active set and block
+            # stop()/_wait_for_active_jobs.
             elapsed = asyncio.get_event_loop().time() - start_time
             self._update_job_stats(elapsed)
-
-            # Mark as processed
-            self._processed_jobs.set(job.id, True)
             self._active_jobs.delete(job.id)
 
-    async def _complete_job(self, job: Job, output: Any) -> None:
+    async def _complete_job(
+        self, job: Job, output: Any, registration: Optional[_ServiceRegistration] = None
+    ) -> None:
         """Mark job as completed."""
         self._stats.jobs_completed += 1
         self._stats.total_earned += job.budget
@@ -899,6 +1386,21 @@ class Agent:
                 "budget": job.budget,
             },
         )
+
+        # Security: Use ProofGenerator to create an authenticated, structured
+        # delivery proof (mirror TS Agent.ts:1842-1859). This carries txId,
+        # keccak256 contentHash, timestamp, and metadata (service / completedAt
+        # / size / mimeType) — NOT just the ABI-encoded disputeWindow uint256
+        # the kernel needs for the DELIVERED transition. The structured JSON is
+        # what a buyer reads off ``tx.delivery_proof`` (mock path) and what the
+        # cross-SDK delivery-verification surface expects.
+        delivery_proof_json = self._build_delivery_proof_json(job, output)
+
+        # AIP-16 Phase 2e — publish a delivery envelope between handler
+        # completion and the on-chain DELIVERED transition. Strictly opt-in
+        # (ACTP_DELIVERY_CHANNEL=v1 + all four delivery deps). Failures are
+        # logged and swallowed — they MUST NOT block settlement.
+        await self._maybe_publish_delivery_envelope(job, output)
 
         # Transition to DELIVERED with dispute window proof
         # AUDIT FIX: Must encode disputeWindow as uint256 proof for DELIVERED transition
@@ -924,16 +1426,183 @@ class Agent:
                 )
 
                 await self._client.standard.transition_state(job.id, "DELIVERED", dispute_window_proof)
+
+                # Attach the structured delivery proof to the MockRuntime tx
+                # state so a buyer reads the rich proof (not the disputeWindow
+                # bytes). Mirror TS Agent.ts:1898-1906 — there the agent sets
+                # ``tx.deliveryProof`` BEFORE transitioning and the MockRuntime
+                # guard (MockRuntime.ts:729 ``if (proof && !tx.deliveryProof)``)
+                # prevents the disputeWindow proof param from overwriting it.
+                # The Python MockRuntime lacks that guard, so we instead
+                # re-attach AFTER the transition to reach the identical
+                # observable end-state without touching the runtime. Mock-only;
+                # the real BlockchainRuntime has no ``_state_manager`` and the
+                # on-chain DELIVERED proof is the kernel-submitted bytes.
+                await self._attach_mock_delivery_proof(job.id, delivery_proof_json)
             except Exception as e:
                 _logger.warning(
                     "Failed to transition job to DELIVERED",
                     extra={"job_id": job.id, "error": str(e)},
                 )
 
+        # SUCCESS: mark processed, clear active + retry counter (TS Agent.ts
+        # 1952-1954). Do this only on success so transient failures retry.
+        self._processed_jobs.set(job.id, True)
+        self._active_jobs.delete(job.id)
+        self._job_attempts.delete(job.id)
+
         self._emit("job:completed", job, output)
 
+    def _build_delivery_proof_json(self, job: Job, result: Any) -> str:
+        """Build the structured delivery-proof JSON string (TS Agent.ts:1842-1859).
+
+        Mirrors ``ProofGenerator.generateDeliveryProof`` + the outer
+        ``JSON.stringify({ ...deliveryProof, result })`` wrapper:
+
+          * ``deliverable`` = ``result`` when already a string, else its
+            compact JSON.stringify form (no whitespace).
+          * ``contentHash`` = keccak256(utf8(deliverable)) — keccak256 per
+            Yellow Paper §11.4.1, matching the TS ``ProofGenerator``.
+          * computed ``size`` (UTF-8 byte length) + ``mimeType`` are enforced
+            on top of user metadata so they cannot be spoofed.
+          * the original ``result`` is spread back in for buyer convenience.
+
+        The whole proof is best-effort: a serialization failure degrades to a
+        minimal proof rather than aborting the DELIVERED transition.
+        """
+        from eth_hash.auto import keccak
+
+        try:
+            deliverable = (
+                result
+                if isinstance(result, str)
+                else json.dumps(result, separators=(",", ":"), ensure_ascii=False)
+            )
+        except Exception:
+            deliverable = str(result)
+
+        deliverable_bytes = deliverable.encode("utf-8")
+        content_hash = "0x" + keccak(deliverable_bytes).hex()
+
+        # Spread user metadata first, then enforce computed fields (TS:112-114).
+        user_metadata = dict(job.metadata) if isinstance(job.metadata, dict) else {}
+        user_metadata.pop("size", None)
+        mime_type = user_metadata.pop("mimeType", None) or "application/octet-stream"
+
+        delivery_proof = {
+            "type": "delivery.proof",  # Required per AIP-4 (TS:117)
+            "txId": job.id,
+            "contentHash": content_hash,
+            "timestamp": int(time.time() * 1000),  # Date.now() — ms (TS:120)
+            "metadata": {
+                "service": job.service,
+                "completedAt": int(time.time() * 1000),
+                **user_metadata,
+                "size": len(deliverable_bytes),  # Enforced (TS:124)
+                "mimeType": mime_type,  # Enforced (TS:125)
+            },
+        }
+
+        # Outer wrapper: include the original result for convenience (TS:1856-1859).
+        try:
+            return json.dumps(
+                {**delivery_proof, "result": result},
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except Exception:
+            # Result not JSON-serializable — fall back to the proof alone.
+            return json.dumps(delivery_proof, separators=(",", ":"), ensure_ascii=False)
+
+    async def _attach_mock_delivery_proof(
+        self, tx_id: str, delivery_proof_json: str
+    ) -> None:
+        """Attach the structured proof to the MockRuntime tx (TS Agent.ts:1898-1906).
+
+        Mock-only. The real BlockchainRuntime has no ``_state_manager`` and the
+        on-chain DELIVERED proof is the kernel-submitted disputeWindow bytes, so
+        this is a no-op there. Best-effort: any failure is swallowed so it can
+        never block the (already-completed) DELIVERED transition.
+        """
+        if self._client is None:
+            return
+        runtime = getattr(self._client, "runtime", None)
+        state_manager = getattr(runtime, "_state_manager", None)
+        if state_manager is None:
+            return  # BlockchainRuntime / non-mock — nothing to poke.
+
+        try:
+            async def _update(state: Any) -> Any:
+                tx = state.transactions.get(tx_id)
+                if tx is not None:
+                    tx.delivery_proof = delivery_proof_json
+                return state
+
+            await state_manager.with_lock(_update)
+        except Exception as e:
+            _logger.warning(
+                "Failed to attach structured delivery proof to mock state",
+                extra={"job_id": tx_id, "error": str(e)},
+            )
+
     async def _fail_job(self, job: Job, error: str) -> None:
-        """Mark job as failed."""
+        """Mark job as failed, applying bounded retry semantics.
+
+        Mirrors TS processJob's catch block (Agent.ts:2020-2087):
+
+          * permanent kernel revert (Transaction expired / Invalid transition /
+            Only requester|provider / Not authorized|participant, plaintext OR
+            ABI-hex) → mark processed so polling never retries.
+          * otherwise transient: retry on the next poll, but after
+            MAX_JOB_ATTEMPTS recurrences mark processed so a job that keeps
+            failing (e.g. a handler throwing on bad input) does not spin every
+            poll cycle forever.
+        """
+        error_message = error or ""
+        error_message_lower = error_message.lower()
+
+        # Permanent-failure detection — plaintext AND ABI-hex form. Bundler
+        # simulation reverts surface the kernel reason ABI-encoded, so match
+        # the UTF-8 bytes' hex too.
+        is_permanent = False
+        for reason in self._PERMANENT_REVERT_REASONS:
+            if reason in error_message:
+                is_permanent = True
+                break
+            hex_reason = reason.encode("utf-8").hex().lower()
+            if hex_reason in error_message_lower:
+                is_permanent = True
+                break
+
+        self._active_jobs.delete(job.id)
+
+        if is_permanent:
+            self._processed_jobs.set(job.id, True)
+            _logger.warning(
+                "Job failed with a permanent kernel revert — marking processed "
+                "so polling does not retry forever",
+                extra={"agent": self.name, "job_id": job.id, "reason": error_message[:200]},
+            )
+        else:
+            attempts = (self._job_attempts.get(job.id) or 0) + 1
+            if attempts >= self.MAX_JOB_ATTEMPTS:
+                self._processed_jobs.set(job.id, True)
+                self._job_attempts.delete(job.id)
+                _logger.warning(
+                    "Job failed repeatedly — marking processed after max attempts "
+                    "so polling does not retry forever",
+                    extra={
+                        "agent": self.name,
+                        "job_id": job.id,
+                        "attempts": attempts,
+                        "reason": error_message[:200],
+                    },
+                )
+            else:
+                self._job_attempts.set(job.id, attempts)
+                # Leave job.id OUT of processed_jobs so the next poll re-attempts.
+                self._processed_jobs.delete(job.id)
+
         self._stats.jobs_failed += 1
         self._stats.update_success_rate()
 
@@ -948,6 +1617,270 @@ class Agent:
         )
 
         self._emit("job:failed", job, error)
+
+    # ═══════════════════════════════════════════════════════════
+    # Internal: AIP-16 Delivery Hook
+    # ═══════════════════════════════════════════════════════════
+
+    async def _ensure_aip16_auto_wire(self) -> None:
+        """AIP-16 4.6.1 zero-config wire-up of channel delivery deps.
+
+        Mirrors TS ``ensureAip16AutoWire`` (Agent.ts:2151-2197). When
+        ``ACTP_DELIVERY_CHANNEL=v1`` is set, lazily resolve any missing
+        delivery dep:
+
+          * delivery_channel → RelayDeliveryChannel(base_url=AGIRAILS_RELAY_URL)
+          * kernel_address   → networkConfig.contracts.actp_kernel
+          * chain_id         → networkConfig.chain_id
+          * delivery_signer  → eth_account LocalAccount from the resolved key
+
+        Idempotent — only fills holes. Any failure logs and leaves the field
+        unset; the dependency gate then no-ops the publish (prior behavior).
+        """
+        import os
+
+        if os.environ.get("ACTP_DELIVERY_CHANNEL") != "v1":
+            return
+
+        if self._delivery_channel is None:
+            try:
+                from agirails.delivery.relay_delivery_channel import (
+                    RelayDeliveryChannel,
+                    RelayDeliveryChannelOptions,
+                )
+
+                base_url = os.environ.get("AGIRAILS_RELAY_URL") or "https://www.agirails.app"
+                self._delivery_channel = RelayDeliveryChannel(
+                    RelayDeliveryChannelOptions(base_url=base_url)
+                )
+            except Exception as err:
+                _logger.warning(
+                    "AIP-16 auto-wire: RelayDeliveryChannel import/construct failed",
+                    extra={"agent": self.name, "error": str(err)},
+                )
+
+        if self._kernel_address is None or not isinstance(self._chain_id, int):
+            try:
+                from agirails.config.networks import get_network
+
+                network_name = (
+                    "base-sepolia"
+                    if self.network == "testnet"
+                    else "base-mainnet"
+                    if self.network == "mainnet"
+                    else self.network
+                )
+                net = get_network(network_name)
+                if self._kernel_address is None:
+                    self._kernel_address = net.contracts.actp_kernel
+                if not isinstance(self._chain_id, int):
+                    self._chain_id = net.chain_id
+            except Exception as err:
+                _logger.warning(
+                    "AIP-16 auto-wire: failed to derive kernel/chain_id",
+                    extra={"agent": self.name, "error": str(err)},
+                )
+
+        if self._delivery_signer is None and self.network in ("testnet", "mainnet"):
+            try:
+                from eth_account import Account
+
+                from agirails.wallet.keystore import (
+                    ResolvePrivateKeyOptions,
+                    resolve_private_key,
+                )
+
+                state_dir = (
+                    str(self._config.state_directory)
+                    if self._config.state_directory is not None
+                    else None
+                )
+                pk = await resolve_private_key(
+                    state_dir, ResolvePrivateKeyOptions(network=self.network)
+                )
+                if pk:
+                    self._delivery_signer = Account.from_key(pk)
+            except Exception as err:
+                _logger.warning(
+                    "AIP-16 auto-wire: failed to resolve delivery_signer",
+                    extra={"agent": self.name, "error": str(err)},
+                )
+
+    async def _maybe_publish_delivery_envelope(self, job: Job, result: Any) -> None:
+        """AIP-16 Phase 2e — build + publish a delivery envelope for ``job``.
+
+        Mirrors TS ``maybePublishDeliveryEnvelope`` (Agent.ts:2199-2412).
+        Strictly opt-in and best-effort:
+
+          * Gated by ``ACTP_DELIVERY_CHANNEL=v1`` (read per-call so tests can
+            flip it without reconstructing the agent).
+          * Zero-config auto-wire lazily fills missing deps.
+          * Requires ALL of (channel, signer, kernel_address, chain_id).
+          * Per-service ``delivery.mode == 'channel'`` (default).
+          * Idempotency: current tx state MUST be COMMITTED.
+          * Channel publish / builder failures are logged and SWALLOWED — they
+            MUST NOT throw out of this hook (settlement is the source of truth).
+        """
+        import os
+
+        if os.environ.get("ACTP_DELIVERY_CHANNEL") != "v1":
+            return
+
+        await self._ensure_aip16_auto_wire()
+
+        # Constructor-side dependency gate.
+        if (
+            self._delivery_channel is None
+            or self._delivery_signer is None
+            or self._kernel_address is None
+            or not isinstance(self._chain_id, int)
+        ):
+            return
+
+        # Service-config gate — fall back to DEFAULT_DELIVERY_CONFIG (channel).
+        registration = self._services.get(job.service)
+        delivery_cfg = (
+            registration.config.delivery
+            if registration is not None and registration.config.delivery is not None
+            else DEFAULT_DELIVERY_CONFIG
+        )
+        if delivery_cfg.mode != "channel":
+            return
+
+        # Idempotency: tx state MUST be COMMITTED (skip on poll re-delivery).
+        try:
+            current_tx = None
+            if self._client is not None:
+                current_tx = await self._client.runtime.get_transaction(job.id)
+            raw_state = getattr(current_tx, "state", None) if current_tx else None
+            state = getattr(raw_state, "value", raw_state)
+            if current_tx is None or state != "COMMITTED":
+                _logger.debug(
+                    "AIP-16: skipping envelope publish (tx not in COMMITTED)",
+                    extra={"agent": self.name, "job_id": job.id, "state": state},
+                )
+                return
+        except Exception as state_err:
+            _logger.warning(
+                "AIP-16: failed to read tx state before envelope publish; skipping hook",
+                extra={"agent": self.name, "job_id": job.id, "error": str(state_err)},
+            )
+            return
+
+        # Resolve signer/provider addresses.
+        try:
+            signer_address = self._delivery_signer.address
+        except Exception as signer_err:
+            _logger.warning(
+                "AIP-16: delivery_signer.address failed; skipping envelope publish",
+                extra={"agent": self.name, "job_id": job.id, "error": str(signer_err)},
+            )
+            return
+
+        provider_address = self.address or signer_address
+        if (
+            not provider_address
+            or not provider_address.startswith("0x")
+            or len(provider_address) != 42
+        ):
+            _logger.warning(
+                "AIP-16: unable to resolve provider_address; skipping envelope publish",
+                extra={"agent": self.name, "job_id": job.id, "provider_address": provider_address},
+            )
+            return
+
+        # Build + publish. The whole block is wrapped: channel/builder errors
+        # NEVER throw out of this hook — they are logged at warn and swallowed.
+        try:
+            from agirails.delivery.envelope_builder import (
+                BuildEncryptedEnvelopeParams,
+                BuildPublicEnvelopeParams,
+                DeliveryEnvelopeBuilder,
+            )
+
+            builder = DeliveryEnvelopeBuilder(self._delivery_signer)
+            smart_wallet_nonce = (
+                self._smart_wallet_nonce if self._smart_wallet_nonce is not None else 0
+            )
+
+            if delivery_cfg.privacy == "encrypted":
+                get_setups = getattr(self._delivery_channel, "get_setups", None)
+                if not callable(get_setups):
+                    _logger.warning(
+                        "AIP-16: encrypted service requires channel.get_setups; "
+                        "skipping envelope publish",
+                        extra={"agent": self.name, "job_id": job.id},
+                    )
+                    return
+                try:
+                    setups = await get_setups(job.id)
+                except Exception:
+                    setups = []
+                setup = setups[0] if setups else None
+                buyer_pubkey = None
+                if setup is not None:
+                    signed = setup.get("signed") if isinstance(setup, dict) else None
+                    if isinstance(signed, dict):
+                        buyer_pubkey = signed.get("buyerEphemeralPubkey")
+                if not buyer_pubkey:
+                    _logger.warning(
+                        "AIP-16: encrypted service has no setup on channel; "
+                        "skipping envelope publish",
+                        extra={
+                            "agent": self.name,
+                            "job_id": job.id,
+                            "setups_found": len(setups),
+                        },
+                    )
+                    return
+                built = builder.build_encrypted(
+                    BuildEncryptedEnvelopeParams(
+                        tx_id=job.id,
+                        chain_id=self._chain_id,
+                        kernel_address=self._kernel_address,
+                        provider_address=provider_address,
+                        signer_address=signer_address,
+                        payload=result,
+                        buyer_ephemeral_pubkey=buyer_pubkey,
+                        smart_wallet_nonce=smart_wallet_nonce,
+                    )
+                )
+                await self._delivery_channel.publish_envelope(built["wire"])
+                _logger.info(
+                    "AIP-16: encrypted envelope published",
+                    extra={
+                        "agent": self.name,
+                        "job_id": job.id,
+                        "scheme": built["wire"]["signed"]["scheme"],
+                    },
+                )
+            else:
+                built = builder.build_public(
+                    BuildPublicEnvelopeParams(
+                        tx_id=job.id,
+                        chain_id=self._chain_id,
+                        kernel_address=self._kernel_address,
+                        provider_address=provider_address,
+                        signer_address=signer_address,
+                        payload=result,
+                        smart_wallet_nonce=smart_wallet_nonce,
+                    )
+                )
+                await self._delivery_channel.publish_envelope(built["wire"])
+                _logger.info(
+                    "AIP-16: public envelope published",
+                    extra={
+                        "agent": self.name,
+                        "job_id": job.id,
+                        "scheme": built["wire"]["signed"]["scheme"],
+                    },
+                )
+        except Exception as publish_err:
+            # CRITICAL: must NOT re-raise. Settlement is the source of truth.
+            _logger.warning(
+                "AIP-16: envelope publish failed; settlement continues",
+                extra={"agent": self.name, "job_id": job.id, "error": str(publish_err)},
+            )
 
     def _update_job_stats(self, elapsed: float) -> None:
         """Update average job time."""

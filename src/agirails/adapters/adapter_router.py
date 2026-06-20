@@ -191,12 +191,20 @@ class AdapterRouter:
                 "provider first (e.g. client.register_adapter(x402_adapter))."
             )
 
-        # 4. ERC-8004 identity -> erc8004 (when registered)
+        # 4. ERC-8004 identity -> erc8004 (when registered).
+        # Mirrors TS `metadata.identity?.type === 'erc8004'`
+        # (AdapterRouter.ts:175). The identity may be a PaymentIdentity dataclass
+        # (attribute access) OR a plain dict (TypedDict-shaped), so read both.
         identity = metadata.get("identity") if isinstance(metadata, dict) else None
-        if identity and hasattr(identity, "type") and identity.type == "erc8004":
-            erc8004 = self._registry.get("erc8004")
-            if erc8004 and erc8004.can_handle(params):
-                return erc8004
+        if identity is not None:
+            if isinstance(identity, dict):
+                identity_type = identity.get("type")
+            else:
+                identity_type = getattr(identity, "type", None)
+            if identity_type == "erc8004":
+                erc8004 = self._registry.get("erc8004")
+                if erc8004 and erc8004.can_handle(params):
+                    return erc8004
 
         # 5. Find first adapter that can handle it (by priority)
         for adapter in self._registry.get_by_priority():
@@ -230,8 +238,16 @@ class AdapterRouter:
         if not params.to:
             raise ValidationError("Invalid payment params: to is required")
 
-        if params.amount is None:
-            raise ValidationError("Invalid payment params: amount is required")
+        if not isinstance(params.to, str):
+            raise ValidationError("Invalid payment params: to must be a string")
+
+        # Amount: mirror the TS Zod schema (types/adapter.ts:196):
+        #   union([string.min(1), number.positive()]).optional()
+        # i.e. an OPTIONAL amount that, when present, is either a non-empty
+        # string or a strictly-positive number. ACTP adapters re-check presence
+        # at pay() time; x402 URL targets legitimately omit it.
+        if params.amount is not None:
+            self._validate_amount(params.amount)
 
         # Security checks on 'to' field
         if isinstance(params.to, str):
@@ -256,6 +272,47 @@ class AdapterRouter:
             raise ValidationError(
                 f"Description too long: maximum {MAX_DESCRIPTION_LENGTH} characters"
             )
+
+    @staticmethod
+    def _validate_amount(amount: Any) -> None:
+        """Validate the ``amount`` field, mirroring the TS Zod union
+        (types/adapter.ts:196): a non-empty string OR a strictly-positive number.
+
+        Args:
+            amount: The amount value to validate (already known non-None).
+
+        Raises:
+            ValidationError: If the amount is an empty string, a non-positive
+                number, or an unsupported type.
+        """
+        from decimal import Decimal
+
+        # bool is an int subclass — reject it (it is neither a valid string
+        # nor a meaningful numeric amount).
+        if isinstance(amount, bool):
+            raise ValidationError(
+                "Invalid payment params: amount must be a non-empty string "
+                "or a positive number"
+            )
+
+        if isinstance(amount, str):
+            if amount == "":
+                raise ValidationError(
+                    "Invalid payment params: amount string must not be empty"
+                )
+            return
+
+        if isinstance(amount, (int, float, Decimal)):
+            if amount <= 0:
+                raise ValidationError(
+                    "Invalid payment params: amount must be a positive number"
+                )
+            return
+
+        raise ValidationError(
+            "Invalid payment params: amount must be a non-empty string or a "
+            "positive number"
+        )
 
     @staticmethod
     def is_http_endpoint(to: str) -> bool:

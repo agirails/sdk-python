@@ -69,6 +69,31 @@ BASE_SEPOLIA_RPC_URL = os.environ.get("BASE_SEPOLIA_RPC", "https://sepolia.base.
 BASE_MAINNET_RPC_URL = os.environ.get("BASE_MAINNET_RPC", "https://mainnet.base.org")
 
 
+def using_public_rpc(network: str) -> bool:
+    """True when the active network falls back to the bundled PUBLIC RPC.
+
+    Mirrors TS ``usingPublicRpc`` (config/networks.ts:31-36). Returns True when
+    no ``BASE_SEPOLIA_RPC`` / ``BASE_MAINNET_RPC`` override is set for the
+    network in use. Public RPCs serve one-shot transactions fine but cap
+    ``eth_getLogs`` (~2000 blocks) and garbage-collect long-lived filters — so a
+    24/7 provider listener that watches on-chain may silently miss jobs.
+    Long-running listeners should warn on this.
+
+    Args:
+        network: Network name (e.g. 'base-sepolia', 'base-mainnet', 'mock').
+
+    Returns:
+        True if the bundled public RPC is being used (no env override).
+    """
+    n = network.lower()
+    if "mock" in n:
+        return False
+    if "mainnet" in n:
+        return not os.environ.get("BASE_MAINNET_RPC")
+    # testnet / base-sepolia / default
+    return not os.environ.get("BASE_SEPOLIA_RPC")
+
+
 @dataclass(frozen=True)
 class ContractAddresses:
     """Contract addresses for a network."""

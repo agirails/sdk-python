@@ -73,6 +73,10 @@ class TestX402AutoRegistrationEdges:
         rt = bootstrap._runtime
         wallet = MagicMock()
         wallet.send_transaction = MagicMock()
+        # No EIP-712 signing -> legacy path (the one that calls get_network).
+        # A sign_typed_data-capable wallet routes to native x402 v2 instead,
+        # which performs no network lookup.
+        wallet.sign_typed_data = None
 
         info = ACTPClientInfo(mode="testnet", address="0x" + "c" * 40)
         client = ACTPClient(rt, "0x" + "c" * 40, info, None, wallet_provider=wallet)

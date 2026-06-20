@@ -20,6 +20,10 @@ lib64/
 # generic `lib/` rule above is meant for build/venv directories.
 !src/agirails/cli/lib/
 !src/agirails/cli/lib/**
+# ...but the blanket un-ignore above also re-includes byte-compiled caches;
+# re-exclude them so __pycache__ under cli/lib stays out of the worktree status.
+src/agirails/cli/lib/**/__pycache__/
+src/agirails/cli/lib/**/*.py[cod]
 parts/
 sdist/
 var/

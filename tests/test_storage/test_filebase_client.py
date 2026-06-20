@@ -514,6 +514,10 @@ class TestCIDValidation:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
+            # .stream is a sync call (not awaited); a bare AsyncMock leaks a
+            # "coroutine never awaited" warning. These tests only assert the CID
+            # passes validation, so make stream raise synchronously.
+            mock_client.stream = MagicMock(side_effect=RuntimeError("download not mocked"))
             mock_client_class.return_value = mock_client
 
             with pytest.raises(Exception) as exc_info:
@@ -533,6 +537,10 @@ class TestCIDValidation:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
+            # .stream is a sync call (not awaited); a bare AsyncMock leaks a
+            # "coroutine never awaited" warning. These tests only assert the CID
+            # passes validation, so make stream raise synchronously.
+            mock_client.stream = MagicMock(side_effect=RuntimeError("download not mocked"))
             mock_client_class.return_value = mock_client
 
             with pytest.raises(Exception) as exc_info:
@@ -588,6 +596,10 @@ class TestGatewayWhitelist:
                 mock_client = AsyncMock()
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
+                # Sync stream stub so a bare AsyncMock doesn't leak a
+                # "coroutine never awaited" warning (this test only checks the
+                # gateway is allowed past the SSRF guard).
+                mock_client.stream = MagicMock(side_effect=RuntimeError("download not mocked"))
                 mock_client_class.return_value = mock_client
 
                 try:

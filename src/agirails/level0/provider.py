@@ -460,9 +460,10 @@ class Provider:
                     if tx_id in self._active_jobs:
                         continue
 
-                    # Find handler for this service
-                    service_name = self._extract_service_name(tx)
-                    handler = self.get_handler(service_name)
+                    # Find handler for this service. Hash-first, with a
+                    # ZeroHash sole-handler raw-pay fallback (TS parity).
+                    service_name = self._resolve_service_name(tx)
+                    handler = self.get_handler(service_name) if service_name else None
                     if handler is None:
                         _logger.debug(
                             f"No handler for service '{service_name}'",
@@ -539,6 +540,60 @@ class Provider:
         """Convert camelCase to snake_case."""
         import re
         return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+
+    def _resolve_service_name(self, tx: Any) -> Optional[str]:
+        """Resolve a service name for a transaction (dispatch entry point).
+
+        Wraps :meth:`_extract_service_name` with the ZeroHash sole-handler
+        raw-pay fallback (mirrors TS findServiceHandler Agent.ts:1269-1299): a
+        Level 0 ``client.pay(provider, amount)`` creates an on-chain tx with
+        serviceHash == ZeroHash and no parsable serviceDescription, so the name
+        extraction yields ``"unknown"``. When there is no routable
+        service name AND exactly ONE service is registered, route the raw-pay
+        job to that sole handler.
+
+        Guards (conservative — never guess):
+          * 0 services → no fallback (returns "unknown").
+          * 2+ services → ambiguous, no fallback (returns "unknown").
+          * exactly 1 → route to the sole service, with a warn-level log.
+        """
+        name = self._extract_service_name(tx)
+        if name and name != "unknown":
+            return name
+
+        # No routable service name. Distinguish a raw-pay (zero/missing hash)
+        # from a present-but-unknown bytes32 hash: only the former routes to
+        # the sole handler.
+        service_desc = (
+            self._get_tx_field(tx, "serviceDescription")
+            or self._get_tx_field(tx, "service_description")
+            or self._get_tx_field(tx, "serviceHash")
+            or self._get_tx_field(tx, "service_hash")
+            or ""
+        )
+        zero_hash = "0x" + "0" * 64
+        is_bytes32 = (
+            isinstance(service_desc, str)
+            and service_desc.lower().startswith("0x")
+            and len(service_desc) == 66
+        )
+        no_routable_hash = (not service_desc) or (
+            is_bytes32 and service_desc.lower() == zero_hash
+        )
+        if no_routable_hash:
+            with self._lock:
+                if len(self._services) == 1:
+                    sole = next(iter(self._services.keys()))
+                    _logger.warning(
+                        "ZeroHash (raw-pay) tx routed to the sole registered handler",
+                        extra={
+                            "provider": self._config.name or "unnamed",
+                            "service": sole,
+                        },
+                    )
+                    return sole
+
+        return name
 
     def _extract_service_name(self, tx: Any) -> str:
         """

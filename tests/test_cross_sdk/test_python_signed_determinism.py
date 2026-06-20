@@ -47,10 +47,15 @@ def _load_manifest():
 
 
 def test_python_signed_manifest_exists():
-    """Sanity: committed fixtures present."""
+    """Sanity: committed fixtures present and stamped with the current SDK version."""
+    from agirails import __version__
+
     assert MANIFEST.exists()
     manifest = _load_manifest()
-    assert manifest["python_sdk_version"].startswith("3.")  # 3.x
+    # Version-agnostic: the committed fixtures must be stamped with the SDK
+    # version that generated them (regenerate via
+    # scripts/generate_python_parity_vectors.py after a version bump).
+    assert manifest["python_sdk_version"] == __version__
     assert len(manifest["fixtures"]) == 4
 
 

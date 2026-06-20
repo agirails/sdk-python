@@ -378,3 +378,58 @@ class TestQuoteOfferFinalOffer:
             final_offer=True,
         )
         assert offer.final_offer is True
+
+
+class TestOnChainServiceDescriptionRoutingKey:
+    """TS parity (BuyerOrchestrator.ts:444-449): the on-chain serviceDescription
+    MUST be the bytes32 routing key keccak(task) — matching what a provider
+    registers via Agent.provide(name) → keccak(name) — NOT a JSON blob.
+
+    The Python BlockchainRuntime hashes service_description with
+    w3.keccak(text=...), so the buyer must pass the RAW task string here so the
+    resulting on-chain serviceHash equals keccak(task). Pre-4.0.0 the buyer
+    passed json.dumps({service, session}); the runtime then hashed the whole
+    JSON, so the on-chain hash could never equal keccak(taskName) and provider
+    routing silently missed (the exact bug this guards against).
+    """
+
+    @pytest.mark.asyncio
+    async def test_buyer_passes_raw_task_string_not_json_blob(self, tmp_dir: str):
+        from eth_hash.auto import keccak as _keccak
+
+        agents = [mock_agent("agent-a", 0.80, 90, "0xA")]
+
+        captured: list = []
+
+        class CapturingRuntime(MockRuntime):
+            async def create_transaction(self, params: CreateTransactionParams) -> str:
+                captured.append(params.service_description)
+                tx_id = await super().create_transaction(params)
+                # auto-quote so the round completes
+                self._transactions[tx_id].state = "QUOTED"
+                return tx_id
+
+        runtime = CapturingRuntime()
+        policy = make_policy()
+
+        with patch(
+            "agirails.negotiation.buyer_orchestrator.discover_agents",
+            make_discover_mock(agents),
+        ):
+            orchestrator = BuyerOrchestrator(policy, runtime, "0xBuyer", tmp_dir)
+            result = await orchestrator.negotiate(
+                OrchestratorConfig(poll_interval_ms=50)
+            )
+
+        assert result.success is True
+        assert len(captured) == 1
+        service_description = captured[0]
+        # 1. It is the RAW task string, NOT a JSON blob.
+        assert service_description == policy.task
+        assert not service_description.strip().startswith("{")
+        assert "session" not in service_description
+        # 2. The on-chain serviceHash the runtime computes from it equals the
+        #    bytes32 routing key a provider registers via keccak(name).
+        expected_routing_key = "0x" + _keccak(policy.task.encode("utf-8")).hex()
+        runtime_hash = "0x" + _keccak(service_description.encode("utf-8")).hex()
+        assert runtime_hash == expected_routing_key

@@ -15,7 +15,7 @@ CRITICAL ACTP COMPLIANCE:
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, runtime_checkable
 
 from agirails.adapters.types import AdapterMetadata, UnifiedPayParams
 
@@ -102,5 +102,63 @@ class IAdapter(Protocol):
 
         Raises:
             ValidationError: If params are invalid.
+        """
+        ...
+
+    async def get_status(self, tx_id: str) -> Any:
+        """
+        Get transaction status by ID, with action hints.
+
+        Mirrors TS ``IAdapter.getStatus`` (IAdapter.ts:208). Returns a
+        ``TransactionStatus`` (current state plus what can be done next).
+
+        Args:
+            tx_id: Transaction ID.
+
+        Returns:
+            Transaction status with action hints.
+
+        Raises:
+            Exception: If the transaction is not found.
+        """
+        ...
+
+    async def start_work(self, tx_id: str) -> None:
+        """
+        Transition to IN_PROGRESS (provider starts work).
+
+        Mirrors TS ``IAdapter.startWork`` (IAdapter.ts:225). ACTP requires this
+        explicit transition before delivery.
+
+        Args:
+            tx_id: Transaction ID.
+        """
+        ...
+
+    async def deliver(self, tx_id: str, proof: Optional[str] = None) -> None:
+        """
+        Transition to DELIVERED (provider completes work).
+
+        Mirrors TS ``IAdapter.deliver`` (IAdapter.ts:241). When no proof is
+        supplied, adapters encode the transaction's dispute window as proof.
+
+        Args:
+            tx_id: Transaction ID.
+            proof: Optional delivery proof (ABI-encoded dispute window).
+        """
+        ...
+
+    async def release(
+        self, escrow_id: str, attestation_uid: Optional[str] = None
+    ) -> None:
+        """
+        Release escrow funds (EXPLICIT settlement).
+
+        Mirrors TS ``IAdapter.release`` (IAdapter.ts:260). This is the ONLY way
+        to settle — there is NO auto-settle.
+
+        Args:
+            escrow_id: Escrow ID (usually same as txId).
+            attestation_uid: Optional attestation UID for verification.
         """
         ...

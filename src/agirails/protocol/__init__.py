@@ -86,6 +86,7 @@ try:
     from agirails.protocol.kernel import (
         ACTPKernel,
         CreateTransactionParams,
+        EconomicParams,
         TransactionView,
     )
     from agirails.protocol.nonce import (
@@ -100,6 +101,7 @@ try:
         DELIVERY_SCHEMA,
         DELIVERY_SCHEMA_AIP6,
         DELIVERY_SCHEMA_AIP4,
+        DELIVERY_SCHEMA_AIP4_LEGACY,
         ZERO_BYTES32,
     )
     from agirails.protocol.agent_registry import (
@@ -113,6 +115,7 @@ try:
         # Kernel
         "ACTPKernel",
         "CreateTransactionParams",
+        "EconomicParams",
         "TransactionView",
         # Escrow
         "EscrowVault",
@@ -139,6 +142,7 @@ try:
         "DELIVERY_SCHEMA",
         "DELIVERY_SCHEMA_AIP6",
         "DELIVERY_SCHEMA_AIP4",
+        "DELIVERY_SCHEMA_AIP4_LEGACY",
         "ZERO_BYTES32",
         # Agent Registry
         "AgentRegistry",

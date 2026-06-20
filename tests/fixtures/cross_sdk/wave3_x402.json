@@ -1,0 +1,74 @@
+{
+  "_meta": {
+    "generated_from": "@x402/evm EIP-3009 (TS 4.8.0)",
+    "note": "x402 v2 exact-scheme signing oracle. Do not hand-edit."
+  },
+  "eip3009": {
+    "authorizationTypes": {
+      "TransferWithAuthorization": [
+        {
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "name": "value",
+          "type": "uint256"
+        },
+        {
+          "name": "validAfter",
+          "type": "uint256"
+        },
+        {
+          "name": "validBefore",
+          "type": "uint256"
+        },
+        {
+          "name": "nonce",
+          "type": "bytes32"
+        }
+      ]
+    },
+    "privateKey": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "signerAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "domain": {
+      "name": "USDC",
+      "version": "2",
+      "chainId": 84532,
+      "verifyingContract": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    },
+    "authorization": {
+      "from": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "to": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+      "value": "10000000",
+      "validAfter": "1750000000",
+      "validBefore": "1750003600",
+      "nonce": "0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a"
+    },
+    "digest": "0x4b8a49312cef5f35a40e051e0562e429c5890c1c1b3258de1a0f1ee0d7622ca6",
+    "signature": "0xde4b729088895a826162b9dd247efdbf467554a08e0a27a9e9ebf4bc8e616c8d4c265875b2a879bc1eafa68f6f1c5c7a7579681f55c63660b7b7d4109e4ba8fc1c"
+  },
+  "x402_payment_payload": {
+    "x402Version": 2,
+    "payload": {
+      "authorization": {
+        "from": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "to": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+        "value": "10000000",
+        "validAfter": "1750000000",
+        "validBefore": "1750003600",
+        "nonce": "0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a"
+      },
+      "signature": "0xde4b729088895a826162b9dd247efdbf467554a08e0a27a9e9ebf4bc8e616c8d4c265875b2a879bc1eafa68f6f1c5c7a7579681f55c63660b7b7d4109e4ba8fc1c"
+    }
+  },
+  "x_payment_header_b64": "eyJ4NDAyVmVyc2lvbiI6Miwic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiYmFzZS1zZXBvbGlhIiwicGF5bG9hZCI6eyJhdXRob3JpemF0aW9uIjp7ImZyb20iOiIweDcwOTk3OTcwQzUxODEyZGMzQTAxMEM3ZDAxYjUwZTBkMTdkYzc5QzgiLCJ0byI6IjB4OTBGNzliZjZFQjJjNGY4NzAzNjVFNzg1OTgyRTFmMTAxRTkzYjkwNiIsInZhbHVlIjoiMTAwMDAwMDAiLCJ2YWxpZEFmdGVyIjoiMTc1MDAwMDAwMCIsInZhbGlkQmVmb3JlIjoiMTc1MDAwMzYwMCIsIm5vbmNlIjoiMHg3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhN2E3YTdhIn0sInNpZ25hdHVyZSI6IjB4ZGU0YjcyOTA4ODg5NWE4MjYxNjJiOWRkMjQ3ZWZkYmY0Njc1NTRhMDhlMGEyN2E5ZTllYmY0YmM4ZTYxNmM4ZDRjMjY1ODc1YjJhODc5YmMxZWFmYTY4ZjZmMWM1YzdhNzU3OTY4MWY1NWM2MzY2MGI3YjdkNDEwOWU0YmE4ZmMxYyJ9fQ==",
+  "constants": {
+    "x402Version": 2,
+    "validAfterOffsetSec": -600,
+    "usdcBaseSepolia": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  }
+}

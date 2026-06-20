@@ -54,6 +54,7 @@ from agirails.adapters import (
     StandardAdapter,
     StandardTransactionParams,
     TransactionDetails,
+    TransactionStatus,
     X402Adapter,
     DEFAULT_DEADLINE_SECONDS,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
@@ -340,8 +341,12 @@ from agirails.builders import (
     CounterOfferMessage,
     CounterOfferParams,
     DeliveryProofBuilder,
+    LegacyQuoteBuilder,
     MessageNonceManager,
     QuoteBuilder,
+    QuoteMessage,
+    QuoteParams,
+    AIP2QuoteTypes,
 )
 
 # Web Receipts (AIP-7 §6 — agirails.app public receipt artifact)
@@ -352,6 +357,10 @@ from agirails.receipts import (
     ReceiptUploadResult,
     ReceiptUploadSuccess,
     upload_receipt,
+    push_receipt_on_settled,
+    format_settled_line,
+    PushReceiptArgs,
+    PushReceiptResult,
 )
 
 # Storage Layer (AIP-7 §4 - Hybrid Storage)
@@ -417,6 +426,26 @@ from agirails.negotiation import (
     NegotiationResult,
     RoundResult,
     OrchestratorConfig,
+    RequoteGuardViolation,
+    ProviderPolicyEngine,
+    verify_quote_hash_on_chain,
+    VerifyOnChainResult,
+)
+
+# AIP-16 secure delivery channel (encrypted envelopes, EIP-712, Mock/Relay).
+from agirails.delivery import (
+    DeliverySetupBuilder,
+    BuildSetupParams,
+    DeliveryEnvelopeBuilder,
+    BuildPublicEnvelopeParams,
+    BuildEncryptedEnvelopeParams,
+    MockDeliveryChannel,
+    MockDeliveryChannelOptions,
+    RelayDeliveryChannel,
+    RelayDeliveryChannelOptions,
+    DeliveryChannel,
+    DeliverySubscription,
+    build_envelope_aad,
 )
 
 __all__ = [
@@ -437,6 +466,7 @@ __all__ = [
     "StandardAdapter",
     "StandardTransactionParams",
     "TransactionDetails",
+    "TransactionStatus",
     "X402Adapter",
     "DEFAULT_DEADLINE_SECONDS",
     "DEFAULT_DISPUTE_WINDOW_SECONDS",
@@ -665,6 +695,10 @@ __all__ = [
     # Builders
     "DeliveryProofBuilder",
     "QuoteBuilder",
+    "QuoteMessage",
+    "QuoteParams",
+    "AIP2QuoteTypes",
+    "LegacyQuoteBuilder",
     "CounterOfferBuilder",
     "CounterOfferMessage",
     "CounterOfferParams",
@@ -680,6 +714,10 @@ __all__ = [
     "ReceiptUploadResult",
     "ReceiptUploadSuccess",
     "upload_receipt",
+    "push_receipt_on_settled",
+    "format_settled_line",
+    "PushReceiptArgs",
+    "PushReceiptResult",
     # Storage Layer (AIP-7 §4 - Hybrid Storage)
     # Clients
     "FilebaseClient",
@@ -736,6 +774,23 @@ __all__ = [
     "SessionStore",
     "SessionMapping",
     "BuyerOrchestrator",
+    "ProviderPolicyEngine",
+    "verify_quote_hash_on_chain",
+    "VerifyOnChainResult",
+    "RequoteGuardViolation",
+    # AIP-16 delivery channel
+    "DeliverySetupBuilder",
+    "BuildSetupParams",
+    "DeliveryEnvelopeBuilder",
+    "BuildPublicEnvelopeParams",
+    "BuildEncryptedEnvelopeParams",
+    "MockDeliveryChannel",
+    "MockDeliveryChannelOptions",
+    "RelayDeliveryChannel",
+    "RelayDeliveryChannelOptions",
+    "DeliveryChannel",
+    "DeliverySubscription",
+    "build_envelope_aad",
     "NegotiationResult",
     "RoundResult",
     "OrchestratorConfig",

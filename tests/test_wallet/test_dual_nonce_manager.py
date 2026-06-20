@@ -160,9 +160,87 @@ class TestDualNonceManager:
         assert mgr._cached_actp_nonce is None
 
     @pytest.mark.asyncio
-    async def test_fallback_to_zero_on_missing_nonce(self) -> None:
-        """Falls back to 0 if requesterNonces is not available."""
+    async def test_derives_nonce_from_events_when_requester_nonces_missing(self) -> None:
+        """When requesterNonces is absent, derive ACTP nonce from logs.
+
+        Mirrors TS DualNonceManager.ts:164-210 — count == nonce.
+        """
         w3 = _make_mock_w3_no_nonce(entry_point_nonce=0)
+        # Deployment-block hint avoids the binary search; latest block via property.
+        type(w3.eth).block_number = property(lambda self: 100)
+        # get_code: code at hint (50) AND no code at hint-1 (49) → hint accepted.
+        w3.eth.get_code.side_effect = lambda addr, block: (
+            b"\x60\x80" if block >= 50 else b""
+        )
+        # 3 TransactionCreated logs for this requester → derived nonce = 3.
+        w3.eth.get_logs.return_value = [
+            {"logIndex": 0}, {"logIndex": 1}, {"logIndex": 2},
+        ]
+
+        mgr = DualNonceManager(
+            w3, SENDER, ACTP_KERNEL, known_deployment_block=50
+        )
+
+        async def callback(nonces: NonceSet) -> EnqueueResult[str]:
+            assert nonces.actp_nonce == 3
+            return EnqueueResult(result="ok", success=True)
+
+        await mgr.enqueue(callback)
+        # Topic filter uses the zero-padded (32-byte) requester address.
+        filter_params = w3.eth.get_logs.call_args.args[0]
+        assert filter_params["address"] == Web3.to_checksum_address(ACTP_KERNEL)
+        assert len(filter_params["topics"]) == 3
+        requester_topic = filter_params["topics"][2]
+        assert requester_topic == "0x" + SENDER.lower().replace("0x", "").rjust(64, "0")
+
+    @pytest.mark.asyncio
+    async def test_adaptive_getlogs_chunking_halves_on_range_error(self) -> None:
+        """getLogs range errors halve the chunk size instead of failing outright.
+
+        Mirrors TS countRequesterTransactionCreatedEvents (DualNonceManager.ts:300-341).
+        """
+        w3 = _make_mock_w3_no_nonce(entry_point_nonce=0)
+        # Large range so the initial 10k chunk trips the RPC range cap.
+        type(w3.eth).block_number = property(lambda self: 100_000)
+        w3.eth.get_code.side_effect = lambda addr, block: (
+            b"\x60\x80" if block >= 0 else b""
+        )
+
+        calls = {"n": 0}
+
+        def get_logs(filter_params):
+            calls["n"] += 1
+            span = filter_params["toBlock"] - filter_params["fromBlock"] + 1
+            # Spans larger than 5000 error; once the chunk size halves it succeeds.
+            if span > 5000:
+                raise ValueError("query returned more than 10000 results")
+            return [{"logIndex": 0}]
+
+        w3.eth.get_logs.side_effect = get_logs
+
+        mgr = DualNonceManager(
+            w3, SENDER, ACTP_KERNEL, known_deployment_block=0
+        )
+
+        captured = {}
+
+        async def callback(nonces: NonceSet) -> EnqueueResult[str]:
+            captured["nonce"] = nonces.actp_nonce
+            return EnqueueResult(result="ok", success=True)
+
+        await mgr.enqueue(callback)
+        # At least one range error happened (first 10k chunk), then succeeded.
+        assert calls["n"] >= 2
+        assert captured["nonce"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_last_resort_zero_when_event_derivation_fails(self) -> None:
+        """Falls back to 0 only when event derivation itself fails."""
+        w3 = _make_mock_w3_no_nonce(entry_point_nonce=0)
+        type(w3.eth).block_number = property(lambda self: 100)
+        # No code anywhere → deployment-block search raises → last-resort 0.
+        w3.eth.get_code.side_effect = lambda addr, block: b""
+
         mgr = DualNonceManager(w3, SENDER, ACTP_KERNEL)
 
         async def callback(nonces: NonceSet) -> EnqueueResult[str]:
@@ -170,6 +248,26 @@ class TestDualNonceManager:
             return EnqueueResult(result="ok", success=True)
 
         await mgr.enqueue(callback)
+
+    @pytest.mark.asyncio
+    async def test_read_entry_point_nonce_is_public(self) -> None:
+        """read_entry_point_nonce is public (TS exposes it for retry loops)."""
+        w3 = _make_mock_w3(entry_point_nonce=42, actp_nonce=0)
+        mgr = DualNonceManager(w3, SENDER, ACTP_KERNEL)
+        assert await mgr.read_entry_point_nonce() == 42
+
+    @pytest.mark.asyncio
+    async def test_set_cached_actp_nonce_overrides(self) -> None:
+        """set_cached_actp_nonce pins the cache (TS DualNonceManager.ts:225-227)."""
+        w3 = _make_mock_w3(entry_point_nonce=0, actp_nonce=5)
+        mgr = DualNonceManager(w3, SENDER, ACTP_KERNEL)
+        mgr.set_cached_actp_nonce(9)
+
+        async def callback(nonces: NonceSet) -> EnqueueResult[str]:
+            assert nonces.actp_nonce == 9  # uses pinned cache, not chain read
+            return EnqueueResult(result="ok", success=True)
+
+        await mgr.enqueue(callback, increments_actp_nonce=False)
 
     @pytest.mark.asyncio
     async def test_invalidate_cache(self) -> None:

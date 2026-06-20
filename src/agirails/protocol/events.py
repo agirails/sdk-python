@@ -32,6 +32,24 @@ from web3 import AsyncWeb3
 from web3.contract import AsyncContract
 from web3.types import LogReceipt
 
+try:  # web3 v6/v7 expose these; guard the import so older shims don't break.
+    from web3.exceptions import (  # type: ignore
+        ABIEventNotFound,
+        MismatchedABI,
+        NoABIEventsFound,
+    )
+
+    # "Event genuinely not in the ABI" errors — the ONLY class of failure the
+    # per-event guards below are allowed to swallow. Real RPC / range-exhaustion
+    # errors must propagate. PARITY intent: do not silently drop real errors.
+    _ABI_EVENT_MISSING_ERRORS: tuple = (
+        NoABIEventsFound,
+        ABIEventNotFound,
+        MismatchedABI,
+    )
+except Exception:  # pragma: no cover - defensive for ABI-error import drift
+    _ABI_EVENT_MISSING_ERRORS = (AttributeError,)
+
 from agirails.config.networks import NetworkConfig
 from agirails.types.transaction import TransactionState
 
@@ -582,6 +600,80 @@ class EventMonitor:
     # Internal Methods
     # =========================================================================
 
+    # Heuristic substrings that mean the eth_getLogs block range was too large.
+    # PARITY: EventMonitor.ts:198-207 (isBlockRangeError).
+    _BLOCK_RANGE_ERROR_MARKERS = (
+        "block range",
+        "range is too",
+        "range too",
+        "up to a",
+        "more than",
+        "response size",
+        "query timeout",
+        "limit exceeded",
+        "-32600",
+        "-32005",
+    )
+
+    @classmethod
+    def _is_block_range_error(cls, err: BaseException) -> bool:
+        """Heuristic: does this error mean the eth_getLogs block range was too large?
+
+        PARITY: EventMonitor.ts:198-207.
+        """
+        message = str(err).lower()
+        return any(marker in message for marker in cls._BLOCK_RANGE_ERROR_MARKERS)
+
+    async def _query_logs_chunked(
+        self,
+        event_obj: Any,
+        from_block: int,
+        to_block: int,
+    ) -> List[LogReceipt]:
+        """Adaptive eth_getLogs over ``[from_block, to_block]``.
+
+        Tries the full window first; on a block-range error, splits the window
+        in half and retries each half — adapting to ANY RPC's eth_getLogs cap
+        (10, 1000, 10000, …) with no hardcoded chunk size. In practice a 10000
+        block window halves toward ~1000 on a standard-tier RPC. A single-block
+        window that still fails is a genuine error and is re-raised (NOT
+        swallowed). PARITY: EventMonitor.ts:182-196 (queryFilterChunked).
+        """
+        try:
+            log_filter = event_obj.create_filter(
+                fromBlock=from_block,
+                toBlock=to_block,
+            )
+            return await log_filter.get_all_entries()
+        except Exception as err:
+            # Single-block window or a non-range error → genuine. Re-raise so the
+            # caller's ABI-existence guard handles "event not in ABI" but real
+            # RPC failures are never silently dropped.
+            if from_block >= to_block or not self._is_block_range_error(err):
+                raise
+            mid = (from_block + to_block) // 2
+            lower = await self._query_logs_chunked(event_obj, from_block, mid)
+            upper = await self._query_logs_chunked(event_obj, mid + 1, to_block)
+            return [*lower, *upper]
+
+    async def _query_event_logs(
+        self,
+        event_obj: Any,
+        from_block: Union[int, str],
+        to_block: Union[int, str],
+    ) -> List[LogReceipt]:
+        """Query logs for one event, chunking adaptively when bounds are numeric.
+
+        Non-numeric bounds (e.g. ``"earliest"`` / ``"latest"``) fall through to a
+        single ``get_all_entries`` call — there's nothing to halve without
+        concrete block numbers. PARITY: EventMonitor.ts:131-136.
+        """
+        if isinstance(from_block, int) and isinstance(to_block, int):
+            return await self._query_logs_chunked(event_obj, from_block, to_block)
+
+        log_filter = event_obj.create_filter(fromBlock=from_block, toBlock=to_block)
+        return await log_filter.get_all_entries()
+
     async def _get_kernel_events(
         self,
         event_filter: Optional[EventFilter],
@@ -593,32 +685,32 @@ class EventMonitor:
 
         # TransactionCreated events
         try:
-            tx_created_filter = self.kernel_contract.events.TransactionCreated.create_filter(
-                fromBlock=from_block,
-                toBlock=to_block,
+            tx_created_logs = await self._query_event_logs(
+                self.kernel_contract.events.TransactionCreated,
+                from_block,
+                to_block,
             )
-            tx_created_logs = await tx_created_filter.get_all_entries()
 
             for log in tx_created_logs:
                 event = self._parse_transaction_created(log)
                 if self._matches_filter(event, event_filter):
                     events.append(event)
-        except Exception:
-            pass  # Event may not exist in ABI
+        except _ABI_EVENT_MISSING_ERRORS:
+            pass  # Event genuinely not in ABI — real RPC errors propagate.
 
         # StateTransitioned events
         try:
-            state_filter = self.kernel_contract.events.StateTransitioned.create_filter(
-                fromBlock=from_block,
-                toBlock=to_block,
+            state_logs = await self._query_event_logs(
+                self.kernel_contract.events.StateTransitioned,
+                from_block,
+                to_block,
             )
-            state_logs = await state_filter.get_all_entries()
 
             for log in state_logs:
                 event = self._parse_state_transitioned(log)
                 if self._matches_filter(event, event_filter):
                     events.append(event)
-        except Exception:
+        except _ABI_EVENT_MISSING_ERRORS:
             pass
 
         return events
@@ -634,32 +726,32 @@ class EventMonitor:
 
         # EscrowCreated events
         try:
-            escrow_created_filter = self.escrow_contract.events.EscrowCreated.create_filter(
-                fromBlock=from_block,
-                toBlock=to_block,
+            escrow_created_logs = await self._query_event_logs(
+                self.escrow_contract.events.EscrowCreated,
+                from_block,
+                to_block,
             )
-            escrow_created_logs = await escrow_created_filter.get_all_entries()
 
             for log in escrow_created_logs:
                 event = self._parse_escrow_created(log)
                 if self._matches_filter(event, event_filter):
                     events.append(event)
-        except Exception:
+        except _ABI_EVENT_MISSING_ERRORS:
             pass
 
         # EscrowPayout events
         try:
-            payout_filter = self.escrow_contract.events.EscrowPayout.create_filter(
-                fromBlock=from_block,
-                toBlock=to_block,
+            payout_logs = await self._query_event_logs(
+                self.escrow_contract.events.EscrowPayout,
+                from_block,
+                to_block,
             )
-            payout_logs = await payout_filter.get_all_entries()
 
             for log in payout_logs:
                 event = self._parse_escrow_payout(log)
                 if self._matches_filter(event, event_filter):
                     events.append(event)
-        except Exception:
+        except _ABI_EVENT_MISSING_ERRORS:
             pass
 
         return events

@@ -63,6 +63,7 @@ from agirails.negotiation.policy_engine import (
     PolicyViolation,
     QuoteOffer,
     Selection,
+    TargetUnitPrice,
 )
 
 # ============================================================================
@@ -70,9 +71,12 @@ from agirails.negotiation.policy_engine import (
 # ============================================================================
 
 from agirails.negotiation.decision_engine import (
+    BuyerQuoteDecider,
     CandidateStats,
     DEFAULT_WEIGHTS,
     DecisionEngine,
+    QuoteEvaluation,
+    QuoteForEvaluation,
     ScoreBreakdown,
     ScoredCandidate,
     ScoringWeights,
@@ -93,6 +97,7 @@ from agirails.negotiation.session_store import (
 # ============================================================================
 
 from agirails.negotiation.buyer_orchestrator import (
+    BuyerNegotiationContext,
     BuyerOrchestrator,
     CompleteEvent,
     DiscoveryEvent,
@@ -100,11 +105,74 @@ from agirails.negotiation.buyer_orchestrator import (
     OrchestratorConfig,
     ProgressEvent,
     QuoteReceivedEvent,
+    RequoteGuardViolation,
     RoundEndEvent,
     RoundResult,
     RoundStartEvent,
     ScoringEvent,
     WaitingQuoteEvent,
+)
+
+# ============================================================================
+# Provider-side orchestrator (AIP-2.1) + negotiation channel transport
+# ============================================================================
+
+from agirails.negotiation.provider_orchestrator import (
+    ProviderOrchestrator,
+    ProviderOrchestratorConfig,
+    QuoteDecision,
+    QuoteDecisionViolation,
+    QuoteResult,
+)
+from agirails.negotiation.negotiation_channel import (
+    COUNTERACCEPT_ENVELOPE,
+    COUNTEROFFER_ENVELOPE,
+    QUOTE_ENVELOPE,
+    DeliveredMessage,
+    MockChannel,
+    MockChannelConfig,
+    NegotiationChannel,
+    RelayChannel,
+    RelayChannelConfig,
+    NegotiationMessage,
+    NegotiationMessageType,
+    Subscription,
+    envelope_chain_id,
+    envelope_tx_id,
+    is_counter_accept_envelope,
+    is_counter_offer_envelope,
+    is_quote_envelope,
+)
+
+# ============================================================================
+# ProviderPolicy (AIP-2.1, TS parity) — provider-side pricing/counter policy.
+# NOTE: provider_policy.ProviderPolicy (human-amount shape) is namespaced here
+# to avoid colliding with server.policy.ProviderPolicy (base-unit v1).
+# ============================================================================
+
+from agirails.negotiation.provider_policy import (
+    CounterContext,
+    CounterDecider,
+    CounterDecision,
+    CounterEvaluation,
+    IncomingRequest,
+    PriceTerm,
+    ProviderPolicy,
+    ProviderPolicyEngine,
+    ProviderPolicyResult,
+    ProviderPolicyViolation,
+    ProviderPricing,
+    parse_ttl as provider_parse_ttl,
+)
+
+# ============================================================================
+# On-chain quote-hash verification (AIP-2.1 anchoring cross-check)
+# ============================================================================
+
+from agirails.negotiation.verify_quote_on_chain import (
+    VerifyOnChainResult,
+    VerifySource,
+    verify_quote_hash_on_chain,
 )
 
 __all__ = [
@@ -145,4 +213,50 @@ __all__ = [
     "QuoteReceivedEvent",
     "RoundEndEvent",
     "CompleteEvent",
+    "RequoteGuardViolation",
+    # ProviderPolicy (AIP-2.1, TS parity)
+    "ProviderPolicyEngine",
+    "ProviderPolicyViolation",
+    "ProviderPolicyResult",
+    "IncomingRequest",
+    "CounterEvaluation",
+    "PriceTerm",
+    "ProviderPricing",
+    # On-chain quote-hash verification
+    "verify_quote_hash_on_chain",
+    "VerifyOnChainResult",
+    "VerifySource",
+    # Injectable decider hooks (BYO-brain)
+    "BuyerQuoteDecider",
+    "QuoteForEvaluation",
+    "QuoteEvaluation",
+    "CounterDecider",
+    "CounterContext",
+    "CounterDecision",
+    # Provider orchestrator (AIP-2.1)
+    "ProviderOrchestrator",
+    "ProviderOrchestratorConfig",
+    "QuoteDecision",
+    "QuoteDecisionViolation",
+    "QuoteResult",
+    "BuyerNegotiationContext",
+    # Negotiation channel transport
+    "NegotiationChannel",
+    "MockChannel",
+    "MockChannelConfig",
+    "RelayChannel",
+    "RelayChannelConfig",
+    "TargetUnitPrice",
+    "NegotiationMessage",
+    "NegotiationMessageType",
+    "DeliveredMessage",
+    "Subscription",
+    "QUOTE_ENVELOPE",
+    "COUNTEROFFER_ENVELOPE",
+    "COUNTERACCEPT_ENVELOPE",
+    "is_quote_envelope",
+    "is_counter_offer_envelope",
+    "is_counter_accept_envelope",
+    "envelope_tx_id",
+    "envelope_chain_id",
 ]

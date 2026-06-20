@@ -18,7 +18,14 @@ from typing import Tuple
 
 import pytest
 
-KEYSTORE_PATH = Path("/Users/damir/.actp/mainnet-deployer/deployer")
+# Keystore location is machine-specific; override via ACTP_KEYSTORE_PATH.
+# Defaults to the per-user ~/.actp location (no hardcoded username).
+KEYSTORE_PATH = Path(
+    os.environ.get("ACTP_KEYSTORE_PATH", str(Path.home() / ".actp/mainnet-deployer/deployer"))
+)
+EXPECTED_SIGNER = os.environ.get(
+    "ACTP_EXPECTED_SIGNER", "0x1c4e1e01adc3bbbc7b2336e690aae54a6eb4eb1a"
+).lower()
 SEPOLIA_RPC = "https://sepolia.base.org"
 SEPOLIA_KERNEL = "0x9d25A874f046185d9237Cd4954C88D2B74B0021b"
 SEPOLIA_REGISTRY_EXPECTED = "0xD91F9aBfBf60b4a2Fd5317ab0cDF3F44faB5D656"
@@ -54,7 +61,7 @@ def sepolia_signer():
     signer = Account.from_key(private_key)
     # Smoke: confirm we got the expected mainnet-deployer EOA so we
     # don't accidentally use a wrong keystore.
-    assert signer.address.lower() == "0x1c4e1e01adc3bbbc7b2336e690aae54a6eb4eb1a"
+    assert signer.address.lower() == EXPECTED_SIGNER
     return signer
 
 

@@ -128,17 +128,43 @@ class TestAutopublishCommand:
 
             original_stat = Path.stat
 
-            def mock_stat(path_self):
-                # During init, return real stat
+            class _MtimeStat:
+                """Proxy a real stat result but override st_mtime so the
+                watcher's ``st_mtime != last_mtime`` trigger fires
+                deterministically. We can't rely on the filesystem bumping
+                mtime on the in-poll rewrite (a same-tick write on a coarse-
+                granularity CI filesystem keeps it unchanged), and os.utime can
+                raise OSError on some CI filesystems — which the poll loop
+                swallows via ``except OSError`` and then skips the change. This
+                touches nothing on disk and can't raise.
+                """
+
+                __slots__ = ("_real", "st_mtime", "st_mtime_ns")
+
+                def __init__(self, real, mtime):
+                    self._real = real
+                    self.st_mtime = float(mtime)
+                    self.st_mtime_ns = int(mtime) * 1_000_000_000
+
+                def __getattr__(self, name):
+                    return getattr(self._real, name)
+
+            # *args/**kwargs: Path.stat takes follow_symlinks (py3.10+); pass it
+            # through so internal stat() calls under py3.12 don't TypeError.
+            def mock_stat(path_self, *args, **kwargs):
+                real = original_stat(path_self, *args, **kwargs)
+                # During init (before the poll loop), return the real stat.
                 if not state["in_poll_loop"]:
-                    return original_stat(path_self)
-                # First poll: write changed content so mtime + hash differ
+                    return real
+                # First poll iteration in the loop: write changed content so the
+                # re-read hash differs, then hand back a forced-distinct mtime
+                # (year 2033, strictly > any real init mtime) to fire the trigger.
                 if not state["polled"]:
                     state["polled"] = True
                     md_path.write_text(
                         SAMPLE_MD + "\nChanged content.\n", encoding="utf-8"
                     )
-                return original_stat(path_self)
+                return _MtimeStat(real, 2_000_000_000)
 
             class ControlledStopEvent(threading.Event):
                 def __init__(self):

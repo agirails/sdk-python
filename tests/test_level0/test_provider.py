@@ -1272,3 +1272,81 @@ class TestProviderEdgeBranches:
 
         # Transaction should be processed
         assert provider.stats["jobs_received"] == 1
+
+
+# ============================================================================
+# ZeroHash sole-handler raw-pay routing (TS findServiceHandler parity)
+# ============================================================================
+
+
+class TestProviderZeroHashRawPayRouting:
+    """A Level 0 client.pay(provider, amount) creates a tx with
+    serviceHash == ZeroHash and no parsable description. When exactly ONE
+    service is registered, the provider routes that raw-pay job to the sole
+    handler (mirrors TS Agent.ts:1269-1299 via Provider._resolve_service_name).
+    """
+
+    def _tx(self, service_description=""):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id="0x" + "ab" * 32, service_description=service_description
+        )
+
+    def test_zero_hash_resolves_to_sole_service(self):
+        provider = Provider()
+
+        async def h(req):
+            return req
+
+        provider.register_service("echo", h)
+        tx = self._tx("0x" + "0" * 64)
+        assert provider._resolve_service_name(tx) == "echo"
+
+    def test_missing_description_resolves_to_sole_service(self):
+        provider = Provider()
+
+        async def h(req):
+            return req
+
+        provider.register_service("echo", h)
+        from types import SimpleNamespace
+
+        tx = SimpleNamespace(id="0x" + "cd" * 32)
+        assert provider._resolve_service_name(tx) == "echo"
+
+    def test_zero_hash_two_services_is_ambiguous(self):
+        provider = Provider()
+
+        async def h(req):
+            return req
+
+        provider.register_service("echo", h)
+        provider.register_service("translate", h)
+        tx = self._tx("0x" + "0" * 64)
+        # 2+ services -> ambiguous, no sole-handler routing.
+        assert provider._resolve_service_name(tx) == "unknown"
+
+    def test_unknown_nonzero_hash_not_routed_to_sole_service(self):
+        provider = Provider()
+
+        async def h(req):
+            return req
+
+        provider.register_service("echo", h)
+        # A present-but-unknown bytes32 hash is NOT raw-pay -> must NOT route.
+        tx = self._tx("0x" + "f" * 64)
+        assert provider._resolve_service_name(tx) == "unknown"
+
+    def test_known_hash_still_resolves(self):
+        from eth_hash.auto import keccak
+
+        provider = Provider()
+
+        async def h(req):
+            return req
+
+        provider.register_service("echo", h)
+        provider.register_service("translate", h)
+        tx = self._tx("0x" + keccak("translate".encode("utf-8")).hex())
+        assert provider._resolve_service_name(tx) == "translate"

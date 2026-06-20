@@ -174,6 +174,11 @@ class MockTransaction:
     escrow_id: Optional[str] = None
     service_description: Optional[str] = None
     delivery_proof: Optional[str] = None  # PARITY: TS uses 'deliveryProof'
+    # AIP-2.1 canonical quote hash, set by submit_quote on INITIATED → QUOTED.
+    # PARITY: TS MockState.Transaction.quoteHash (MockRuntime.ts:883). The
+    # buyer-side verifier reconstructs the same keccak256 of the canonical
+    # QuoteMessage JSON to cross-check the on-chain anchored hash.
+    quote_hash: Optional[str] = None
 
     # V3 (2026-05 Base mainnet redeploy) TransactionView fields. Populated
     # by BlockchainRuntime.get_transaction; mock runtime leaves them at
@@ -208,6 +213,7 @@ class MockTransaction:
             "escrowId": self.escrow_id,
             "serviceDescription": self.service_description,
             "deliveryProof": self.delivery_proof,  # PARITY: camelCase for JSON
+            "quoteHash": self.quote_hash,  # PARITY: TS tx.quoteHash (AIP-2.1)
             # V3 fields (camelCase for cross-SDK JSON parity).
             "platformFeeBpsLocked": self.platform_fee_bps_locked,
             "requesterPenaltyBpsLocked": self.requester_penalty_bps_locked,
@@ -242,6 +248,7 @@ class MockTransaction:
             service_description=data.get("serviceDescription", data.get("service_description")),
             # PARITY: Support both old 'proof' and new 'deliveryProof' keys
             delivery_proof=data.get("deliveryProof", data.get("delivery_proof", data.get("proof"))),
+            quote_hash=data.get("quoteHash", data.get("quote_hash")),
             platform_fee_bps_locked=int(data.get(
                 "platformFeeBpsLocked", data.get("platform_fee_bps_locked", 0)
             )),

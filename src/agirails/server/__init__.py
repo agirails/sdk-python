@@ -35,8 +35,11 @@ from agirails.server.quote_channel import (
     HandlerContext,
     HandlerResult,
     InMemoryDedupStore,
+    QuoteChannelClient,
+    QuoteChannelClientConfig,
     QuoteChannelHandler,
     TTL_GRACE_SECONDS,
+    assert_safe_peer_url,
     build_channel_path,
 )
 
@@ -67,6 +70,9 @@ __all__ = [
     "HandlerResult",
     "InMemoryDedupStore",
     "QuoteChannelHandler",
+    "QuoteChannelClient",
+    "QuoteChannelClientConfig",
+    "assert_safe_peer_url",
     "TTL_GRACE_SECONDS",
     "build_channel_path",
 ]

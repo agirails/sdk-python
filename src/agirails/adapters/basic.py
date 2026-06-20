@@ -25,7 +25,11 @@ from agirails.adapters.base import (
     DEFAULT_DEADLINE_SECONDS,
     DEFAULT_DISPUTE_WINDOW_SECONDS,
 )
-from agirails.adapters.types import AdapterMetadata, UnifiedPayParams
+from agirails.adapters.types import (
+    AdapterMetadata,
+    UnifiedPayParams,
+    UnifiedPayResult,
+)
 from agirails.errors import ValidationError
 from agirails.runtime.base import CreateTransactionParams
 from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
@@ -58,37 +62,92 @@ class BasicPayParams:
     """
     Parameters for basic pay() method.
 
+    Mirrors TS ``BasicPayParams`` (BasicAdapter.ts:45-57) plus the unified
+    HTTP/dispute fields (BasicAdapter.ts uses BasicPayParams for the address
+    path; the HTTP fields are ignored by the ACTP basic path and carried for
+    parity with ``UnifiedPayParams``).
+
     Args:
         to: Provider address to pay
         amount: Amount in USDC (string, int, or float)
         deadline: Optional deadline (default: 24 hours)
         description: Optional service description
+        dispute_window: Optional dispute window in seconds (min 3600, max
+            30 days). Default 172800 (2 days). TS parity, BasicAdapter.ts:56.
+        http_method: HTTP method for x402 paid requests. Ignored by the ACTP
+            basic path. TS parity, types/adapter.ts:168.
+        http_body: HTTP body for x402 paid requests. Ignored by the ACTP basic
+            path. TS parity, types/adapter.ts:171.
+        http_headers: Extra HTTP headers for x402 paid requests. Ignored by the
+            ACTP basic path. TS parity, types/adapter.ts:174.
     """
 
     to: str
     amount: Union[str, int, float]
     deadline: Optional[Union[str, int]] = None
     description: Optional[str] = None
+    dispute_window: Optional[int] = None
+    http_method: Optional[str] = None
+    http_body: Optional[Union[str, bytes, bytearray]] = None
+    http_headers: Optional[Dict[str, str]] = None
 
 
 @dataclass
-class BasicPayResult:
+class BasicPayResult(UnifiedPayResult):
     """
     Result from basic pay() method.
 
+    Subclasses :class:`UnifiedPayResult` so the basic ``pay()`` result satisfies
+    the unified-surface contract (TS parity, BasicAdapter.ts:400-412) and is an
+    ``isinstance`` of ``UnifiedPayResult``.
+
+    BACKWARD COMPAT: the historical ``BasicPayResult`` exposed ``amount`` as a
+    raw wei string and ``deadline`` as an int Unix timestamp. Those legacy
+    semantics are PRESERVED here unchanged. The TS-spec unified values (formatted
+    amount, ISO-8601 deadline) are additionally available as
+    ``amount_formatted`` and ``deadline_iso``.
+
     Args:
-        tx_id: Transaction ID (bytes32)
-        escrow_id: Escrow ID (bytes32)
-        state: Current transaction state
-        amount: Amount in wei (string)
-        deadline: Deadline timestamp
+        tx_id: Transaction ID (bytes32).
+        escrow_id: Escrow ID (bytes32).
+        state: Current transaction state.
+        amount: LEGACY — amount in wei (string). For the TS-spec formatted value
+            use ``amount_formatted``.
+        deadline: LEGACY — deadline as an int Unix timestamp. For the TS-spec
+            ISO-8601 string use ``deadline_iso``.
+        amount_formatted: Amount in human-readable USDC (TS ``UnifiedPayResult``
+            ``amount``).
+        deadline_iso: Deadline as an ISO-8601 string (TS ``UnifiedPayResult``
+            ``deadline``).
+        adapter: ID of the adapter that handled the payment ("basic").
+        success: Whether payment initiation succeeded.
+        release_required: True — ACTP requires an explicit ``release()``.
+        provider: Provider address (lowercase).
+        requester: Requester address (lowercase).
+        erc8004_agent_id: ERC-8004 agent ID, if resolved.
     """
 
-    tx_id: str
-    escrow_id: str
-    state: str
-    amount: str
-    deadline: int
+    # Legacy positional fields kept FIRST so existing positional/keyword
+    # construction (BasicPayResult(tx_id=, escrow_id=, state=, amount=,
+    # deadline=)) keeps working. ``amount``/``deadline`` shadow the parent's
+    # unified fields with legacy semantics by design (see class docstring).
+    tx_id: str = ""
+    escrow_id: Optional[str] = None
+    state: str = "COMMITTED"
+    amount: str = ""  # LEGACY wei string (overrides UnifiedPayResult.amount)
+    deadline: int = 0  # LEGACY unix int (overrides UnifiedPayResult.deadline)
+    # TS-spec unified values (formatted) live alongside the legacy ones.
+    amount_formatted: str = ""
+    deadline_iso: str = ""
+    adapter: str = "basic"
+    success: bool = True
+    release_required: bool = True
+    provider: str = ""
+    requester: str = ""
+    response: Optional[object] = None
+    error: Optional[str] = None
+    erc8004_agent_id: Optional[str] = None
+    fee_breakdown: Optional[object] = None
 
 
 class BasicAdapter(BaseAdapter):
@@ -112,13 +171,19 @@ class BasicAdapter(BaseAdapter):
 
     @property
     def metadata(self) -> AdapterMetadata:
-        """Adapter metadata — priority 50 (base level)."""
+        """Adapter metadata — priority 50 (base level).
+
+        Mirrors TS ``BasicAdapter.metadata`` (BasicAdapter.ts:118-126).
+        """
         return AdapterMetadata(
             id="basic",
+            name="Basic Adapter",
             priority=50,
             uses_escrow=True,
             supports_disputes=True,
             release_required=True,
+            requires_identity=False,
+            settlement_mode="explicit",
         )
 
     def can_handle(self, params: UnifiedPayParams) -> bool:
@@ -132,6 +197,48 @@ class BasicAdapter(BaseAdapter):
                 message="BasicAdapter requires a valid Ethereum address",
                 details={"field": "to", "value": params.to},
             )
+
+    def _build_pay_result(
+        self,
+        *,
+        tx_id: str,
+        escrow_id: str,
+        state: str,
+        amount_wei: str,
+        deadline: int,
+        provider: str,
+        erc8004_agent_id: Optional[str],
+    ) -> BasicPayResult:
+        """Assemble a :class:`BasicPayResult` (a ``UnifiedPayResult`` subclass).
+
+        Keeps the legacy ``amount`` (wei) / ``deadline`` (int) fields intact for
+        back-compat while populating the TS-spec unified fields (formatted amount,
+        ISO-8601 deadline, adapter id, requester/provider, release_required).
+        Mirrors TS ``BasicAdapter.pay`` UnifiedPayResult mapping
+        (BasicAdapter.ts:400-412).
+        """
+        from datetime import datetime, timezone
+
+        deadline_iso = (
+            datetime.fromtimestamp(deadline, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        return BasicPayResult(
+            tx_id=tx_id,
+            escrow_id=escrow_id,
+            state=state,
+            amount=amount_wei,  # LEGACY wei string (back-compat)
+            deadline=deadline,  # LEGACY unix int (back-compat)
+            amount_formatted=self.format_amount(amount_wei),
+            deadline_iso=deadline_iso,
+            adapter=self.metadata.id,
+            success=True,
+            release_required=True,  # ACTP requires explicit release()
+            provider=provider,
+            requester=self._requester_address,
+            erc8004_agent_id=erc8004_agent_id,
+        )
 
     async def pay(self, params: Union[BasicPayParams, UnifiedPayParams, dict]) -> BasicPayResult:
         """
@@ -161,15 +268,25 @@ class BasicAdapter(BaseAdapter):
             ...     "deadline": "24h"  # 24 hours from now
             ... })
         """
+        # ERC-8004 agent ID flows in only via UnifiedPayParams; captured before
+        # the BasicPayParams conversion so it can be threaded to the runtime and
+        # echoed back in the result (TS BasicAdapter.pay, BasicAdapter.ts:397).
+        agent_id: Optional[str] = None
+
         # Convert from dict or UnifiedPayParams
         if isinstance(params, dict):
             params = BasicPayParams(**params)
         elif isinstance(params, UnifiedPayParams):
+            agent_id = params.erc8004_agent_id
             params = BasicPayParams(
                 to=params.to,
                 amount=params.amount,
                 deadline=params.deadline,
                 description=params.description,
+                dispute_window=params.dispute_window,
+                http_method=params.http_method,
+                http_body=params.http_body,
+                http_headers=params.http_headers,
             )
 
         # Validate provider address
@@ -181,8 +298,9 @@ class BasicAdapter(BaseAdapter):
         # Parse deadline
         deadline = self.parse_deadline(params.deadline)
 
-        # Parse dispute window (use default)
-        dispute_window = self.validate_dispute_window(None)
+        # Validate dispute window bounds (defaults to 2 days when None).
+        # Mirrors TS BasicAdapter.payBasic (BasicAdapter.ts:192).
+        dispute_window = self.validate_dispute_window(params.dispute_window)
 
         # Create service hash from description
         if params.description:
@@ -217,7 +335,7 @@ class BasicAdapter(BaseAdapter):
                     deadline=deadline,
                     dispute_window=dispute_window,
                     service_hash=service_hash,
-                    agent_id="0",
+                    agent_id=agent_id or "0",
                     contracts=self._contract_addresses,
                 )
             )
@@ -226,19 +344,23 @@ class BasicAdapter(BaseAdapter):
                     message=f"Batched payment UserOp failed: {batched_result.hash}",
                     details={"tx_hash": batched_result.hash, "tx_id": batched_result.tx_id},
                 )
-            return BasicPayResult(
+            return self._build_pay_result(
                 tx_id=batched_result.tx_id,
                 escrow_id=batched_result.tx_id,  # batched path: escrowId == txId
                 state="COMMITTED",
-                amount=amount_wei,
+                amount_wei=amount_wei,
                 deadline=deadline,
+                provider=provider,
+                erc8004_agent_id=agent_id,
             )
 
         # ====================================================================
         # Legacy flow: sequential on-chain calls (EOA / mock)
         # ====================================================================
 
-        # Create transaction
+        # Create transaction (thread ERC-8004 agent ID when supplied; the
+        # runtime stores it as a uint256, defaulting to 0 — TS passes agentId
+        # through, BasicAdapter.ts:283).
         tx_params = CreateTransactionParams(
             requester=self._requester_address,
             provider=provider,
@@ -246,6 +368,7 @@ class BasicAdapter(BaseAdapter):
             deadline=deadline,
             dispute_window=dispute_window,
             service_description=service_hash,
+            agent_id=int(agent_id) if agent_id is not None else 0,
         )
         tx_id = await self._runtime.create_transaction(tx_params)
 
@@ -263,12 +386,14 @@ class BasicAdapter(BaseAdapter):
         else:
             state = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
 
-        return BasicPayResult(
+        return self._build_pay_result(
             tx_id=tx_id,
             escrow_id=escrow_id,
             state=state,
-            amount=amount_wei,
+            amount_wei=amount_wei,
             deadline=deadline,
+            provider=provider,
+            erc8004_agent_id=agent_id,
         )
 
     async def get_transaction(self, tx_id: str) -> Optional[Dict]:
@@ -362,3 +487,153 @@ class BasicAdapter(BaseAdapter):
             can_complete=can_complete,
             can_dispute=can_dispute,
         )
+
+    # ==========================================================================
+    # IAdapter lifecycle methods
+    # ==========================================================================
+
+    async def get_status(self, tx_id: str) -> "TransactionStatus":
+        """
+        Get transaction status with action hints (IAdapter compliance).
+
+        Mirrors TS ``BasicAdapter.getStatus`` (BasicAdapter.ts:490-522), which
+        is byte-for-byte identical to ``StandardAdapter.getStatus``.
+
+        Args:
+            tx_id: Transaction ID.
+
+        Returns:
+            TransactionStatus with state + action hints.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        from datetime import datetime, timezone
+
+        from agirails.adapters.standard import TransactionStatus
+        from agirails.wallet.smart_wallet_router import compute_dispute_window_ends
+
+        tx = await self._runtime.get_transaction(tx_id)
+        if tx is None:
+            raise RuntimeError(f"Transaction {tx_id} not found")
+
+        now = self._runtime.time.now()
+        state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
+
+        dispute_window_ends: Optional[int] = None
+        if tx.completed_at:
+            dispute_window_ends = compute_dispute_window_ends(
+                tx.completed_at, tx.dispute_window
+            )
+
+        def _iso(ts: int) -> str:
+            return (
+                datetime.fromtimestamp(ts, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+
+        return TransactionStatus(
+            state=state_str,
+            can_start_work=state_str == "COMMITTED",
+            can_deliver=state_str == "IN_PROGRESS",
+            can_release=(
+                state_str == "DELIVERED"
+                and dispute_window_ends is not None
+                and now >= dispute_window_ends
+            ),
+            can_dispute=(
+                state_str == "DELIVERED"
+                and dispute_window_ends is not None
+                and now < dispute_window_ends
+            ),
+            amount=self.format_amount(tx.amount),
+            deadline=_iso(tx.deadline),
+            dispute_window_ends=(
+                _iso(dispute_window_ends)
+                if dispute_window_ends is not None
+                else None
+            ),
+            provider=tx.provider,
+            requester=tx.requester,
+        )
+
+    async def start_work(self, tx_id: str) -> None:
+        """
+        Transition to IN_PROGRESS (provider starts work). IAdapter compliance.
+
+        When Smart Wallet is active, routes through the wallet provider so
+        msg.sender == Smart Wallet. Mirrors TS ``BasicAdapter.startWork``
+        (BasicAdapter.ts:536-542).
+
+        Args:
+            tx_id: Transaction ID.
+        """
+        from agirails.runtime.types import State
+
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, "IN_PROGRESS", "0x", label="startWork"
+            )
+            return
+        await self._runtime.transition_state(tx_id, State.IN_PROGRESS)
+
+    async def deliver(self, tx_id: str, proof: Optional[str] = None) -> None:
+        """
+        Transition to DELIVERED (provider completes work). IAdapter compliance.
+
+        When no proof is provided, fetches the transaction's actual
+        disputeWindow and encodes it. Mirrors TS ``BasicAdapter.deliver``
+        (BasicAdapter.ts:557-573).
+
+        Args:
+            tx_id: Transaction ID.
+            proof: Optional ABI-encoded dispute-window proof. Defaults to the
+                transaction's own disputeWindow.
+
+        Raises:
+            RuntimeError: If transaction not found.
+        """
+        from agirails.runtime.types import State
+
+        delivery_proof = proof
+        if not delivery_proof:
+            tx = await self._runtime.get_transaction(tx_id)
+            if tx is None:
+                raise RuntimeError(f"Transaction {tx_id} not found")
+            delivery_proof = self.encode_dispute_window_proof(tx.dispute_window)
+
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            await router.send_transition(
+                tx_id, "DELIVERED", delivery_proof, label="deliver"
+            )
+            return
+        await self._runtime.transition_state(tx_id, State.DELIVERED, delivery_proof)
+
+    async def release(
+        self, escrow_id: str, attestation_uid: Optional[str] = None
+    ) -> None:
+        """
+        Release escrow funds (EXPLICIT settlement). IAdapter compliance.
+
+        When Smart Wallet is active, validates preconditions + attestation,
+        then sends transitionState(SETTLED). Otherwise calls
+        ``runtime.release_escrow``. Mirrors TS ``BasicAdapter.release``
+        (BasicAdapter.ts:583-592).
+
+        Args:
+            escrow_id: Escrow ID (usually same as txId).
+            attestation_uid: Optional EAS attestation UID.
+        """
+        router = self._smart_wallet_router
+        if router is not None and router.should_route():
+            from agirails.wallet.smart_wallet_router import SmartWalletRouter
+
+            tx_id = SmartWalletRouter.extract_tx_id(escrow_id)
+            await router.validate_release_preconditions(tx_id)
+            await router.verify_release_attestation(tx_id, attestation_uid)
+            await router.send_settle(tx_id)
+            return
+        await self._runtime.release_escrow(escrow_id, attestation_uid)

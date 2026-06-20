@@ -302,3 +302,23 @@ class TestIsNonTransient:
         """HTTP errors are transient."""
         err = BundlerHTTPError("HTTP 503")
         assert _is_non_transient(err) is False
+
+    def test_httpx_timeout_is_non_transient(self) -> None:
+        """A real timeout means the provider is hung -> fast failover.
+
+        Mirrors TS isNonTransient (BundlerClient.ts:275-278).
+        """
+        import httpx
+
+        err = httpx.ReadTimeout("timed out")
+        assert _is_non_transient(err) is True
+
+    def test_aborted_message_is_non_transient(self) -> None:
+        """An 'aborted' request message triggers immediate failover."""
+        err = Exception("This operation was aborted")
+        assert _is_non_transient(err) is True
+
+    def test_aa_validation_code_range_is_non_transient(self) -> None:
+        """ERC-4337 AA validation codes (-32521..-32500) are non-transient."""
+        assert _is_non_transient(BundlerRPCError(code=-32500, message="AA")) is True
+        assert _is_non_transient(BundlerRPCError(code=-32521, message="AA")) is True
