@@ -4,12 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from typer.testing import CliRunner
+
+# Strip ANSI escapes + collapse whitespace. Typer renders BadParameter via rich
+# when rich is installed (it is in CI): the message lands in a colorized, width-
+# wrapped box, so e.g. "--network" arrives as `\x1b[..m-\x1b[0m\x1b[..m-network`
+# and tokens may wrap across lines. Normalize before substring assertions so the
+# behavioral check ("invalid --network is rejected with a clear message") holds
+# whether or not rich is present.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _clean(output: str) -> str:
+    return re.sub(r"\s+", " ", _ANSI_RE.sub("", output))
 
 from agirails.cli.lib.run_request import (
     DeliveryTimeoutError,
@@ -237,7 +250,7 @@ class TestRequestCli:
             ],
         )
         assert result.exit_code != 0
-        assert "Invalid --network" in result.output
+        assert "Invalid --network" in _clean(result.output)
 
     def test_quote_timeout_exits_2(self):
         """PRD §5.6: quote timeout → exit code 2 (provider offline)."""
