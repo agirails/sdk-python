@@ -75,6 +75,7 @@ try:
     )
     from agirails.protocol.events import (
         ACTPEvent,
+        DisputeSplitRecordedEvent,
         EscrowCreatedEvent,
         EscrowPayoutEvent,
         EventFilter,
@@ -82,6 +83,7 @@ try:
         EventType,
         StateTransitionedEvent,
         TransactionCreatedEvent,
+        UMADisputeEscalatedEvent,
     )
     from agirails.protocol.kernel import (
         ACTPKernel,
@@ -131,6 +133,8 @@ try:
         "StateTransitionedEvent",
         "EscrowCreatedEvent",
         "EscrowPayoutEvent",
+        "DisputeSplitRecordedEvent",
+        "UMADisputeEscalatedEvent",
         # Nonce
         "NonceManager",
         "NonceManagerPool",

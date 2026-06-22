@@ -153,6 +153,7 @@ class ACTPClient:
         network_id: Optional[str] = None,
         erc8004_identity_registry_address: Optional[str] = None,
         pending_is_stale: bool = False,
+        dispute_client: Optional[object] = None,
     ) -> None:
         """
         Initialize ACTPClient.
@@ -195,6 +196,16 @@ class ACTPClient:
         self._wallet_provider = wallet_provider
         self._contract_addresses = contract_addresses
         self._reputation_reporter = reputation_reporter
+
+        # AIP-14b dispute facade (PRD P2-9). Present (non-None) only when the
+        # dispute contract addresses are configured for the network (Phase 6+);
+        # None on mock mode and pre-deployment networks, so existing flows are
+        # unaffected. Composes BondEscalation + CompositeMediator +
+        # EvaluatorClient + UMAHelper + DisputeSplitIndexer behind one object.
+        # PARITY: TS ``client.dispute`` (ACTPClient.ts). For the legacy
+        # single-shot kernel path see ``ACTPKernel.raise_dispute`` /
+        # ``resolve_dispute`` (their docstrings steer here).
+        self.dispute = dispute_client
 
         # Lazy-publish state (consumed by get_activation_calls()).
         self._lazy_scenario = lazy_scenario
@@ -525,6 +536,38 @@ class ACTPClient:
             except Exception as exc:  # pragma: no cover - best-effort
                 _logger.warn(f"ReputationReporter wiring skipped: {exc}")
 
+        # AIP-14b DISPUTE FACADE (PRD P2-9): wire client.dispute ONLY when the
+        # dispute contracts are configured for this network. Addresses are None
+        # until Phase 6 (testnet) / later (mainnet), so on undeployed networks
+        # this stays None and existing flows are unchanged. Best-effort — a
+        # wiring failure must never block create(). Mirrors TS ACTPClient.create
+        # (present iff the dispute addresses are configured).
+        dispute_client: Optional[object] = None
+        if config.mode in ("testnet", "mainnet"):
+            try:
+                from agirails.config.networks import get_network as _get_network
+
+                _net = _get_network(
+                    network_id
+                    or ("base-sepolia" if config.mode == "testnet" else "base-mainnet")
+                )
+                _contracts = _net.contracts
+                if getattr(_contracts, "bond_escalation", None) and getattr(
+                    _contracts, "composite_mediator", None
+                ):
+                    from agirails.dispute.dispute_client import DisputeClient
+
+                    # runtime is a BlockchainRuntime on real networks; it exposes
+                    # `.w3` and `.account` (blockchain_runtime.py:179-180).
+                    _w3 = getattr(runtime, "w3", None)
+                    _account = getattr(runtime, "account", None)
+                    if _w3 is not None:
+                        dispute_client = DisputeClient.from_config(
+                            _w3, _account, _net
+                        )
+            except Exception as exc:  # pragma: no cover - best-effort
+                _logger.warn(f"DisputeClient wiring skipped: {exc}")
+
         # Staleness check (TS ACTPClient.ts:1088-1108): recompute the local
         # AGIRAILS.md hash; if it differs from the pending publish's configHash
         # the cached publish is stale, so lazy activation is skipped. Best-effort
@@ -571,6 +614,7 @@ class ACTPClient:
             network_id=network_id,
             erc8004_identity_registry_address=erc8004_identity_registry_address,
             pending_is_stale=pending_is_stale,
+            dispute_client=dispute_client,
         )
 
         # Drift detection: non-blocking AGIRAILS.md sync check on startup

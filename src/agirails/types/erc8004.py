@@ -48,6 +48,13 @@ ACTP_FEEDBACK_TAGS: Dict[str, str] = {
     "SETTLED": "actp_settled",
     "DISPUTE_WON": "actp_dispute_won",
     "DISPUTE_LOST": "actp_dispute_lost",
+    # Neutral split-outcome trace (AIP-14b §3.4, §3.5, INV-22). A dispute that
+    # resolved to a SPLIT (CompositeMediator ruling-2 or kernel DISPUTED->CANCELLED).
+    # Carries NO on-chain penalty — written with value=0 — but is NOT
+    # reputation-invisible: indexers surface per-agent split rates.
+    # PARITY: TS ACTP_FEEDBACK_TAGS.DISPUTE_SPLIT — the tag STRING
+    # 'actp_dispute_split' is identical across both SDKs.
+    "DISPUTE_SPLIT": "actp_dispute_split",
 }
 
 # ---------------------------------------------------------------------------

@@ -58,6 +58,11 @@ dependencies = [
     "pyyaml>=6.0,<7.0",
     # CLI .env auto-load (AIP-18 §4.6.2) — parity with the TS CLI dotenv load.
     "python-dotenv>=1.0.0,<2.0.0",
+    # Evidence-bundle token cap (DISPUTE SYSTEM schema §4 / OQ-9). The cap is
+    # enforced over the canonical bytes with the cl100k_base tokenizer and MUST
+    # never be silently skipped, so the tokenizer is a core runtime dep (parity
+    # with the TS SDK's js-tiktoken dependency).
+    "tiktoken>=0.7.0,<1.0.0",
     "typing_extensions>=4.0.0,<5.0.0;python_version<'3.10'",
 ]
 

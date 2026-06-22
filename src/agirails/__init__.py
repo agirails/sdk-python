@@ -402,6 +402,33 @@ from agirails.storage import (
     CircuitBreakerConfig,
 )
 
+# Dispute Module — Evidence Bundle canonical serializer (AIP-14b / PRD P2-3)
+from agirails.dispute import (
+    serialize_bundle,
+    serialize_bundle_to_string,
+    bundle_hash,
+    compute_bundle_hash,
+    validate_bundle,
+    assert_supported_version,
+    count_bundle_tokens,
+    enforce_token_cap,
+    set_bundle_tokenizer,
+    pin_evidence_bundle,
+    EVIDENCE_BUNDLE_SCHEMA_VERSION,
+    SUPPORTED_BUNDLE_MAJOR,
+    MAX_BUNDLE_TOKENS,
+    EvidenceBundle,
+    EvidenceBundleSpec,
+    EvidenceBundleDelivery,
+    EvidenceBundleDispute,
+    EvidenceBundleTimelineEvent,
+    EvidenceBundleReasoning,
+    PinEvidenceBundleResult,
+    BundleTooLargeError,
+    UnsupportedBundleVersionError,
+    InvalidBundleError,
+)
+
 # Negotiation Module (autonomous buyer-side negotiation)
 from agirails.negotiation import (
     DEFAULT_WEIGHTS,
@@ -754,6 +781,30 @@ __all__ = [
     "DownloadResult",
     # Types - Circuit Breaker
     "CircuitBreakerConfig",
+    # Dispute — Evidence Bundle serializer (AIP-14b / PRD P2-3)
+    "serialize_bundle",
+    "serialize_bundle_to_string",
+    "bundle_hash",
+    "compute_bundle_hash",
+    "validate_bundle",
+    "assert_supported_version",
+    "count_bundle_tokens",
+    "enforce_token_cap",
+    "set_bundle_tokenizer",
+    "pin_evidence_bundle",
+    "EVIDENCE_BUNDLE_SCHEMA_VERSION",
+    "SUPPORTED_BUNDLE_MAJOR",
+    "MAX_BUNDLE_TOKENS",
+    "EvidenceBundle",
+    "EvidenceBundleSpec",
+    "EvidenceBundleDelivery",
+    "EvidenceBundleDispute",
+    "EvidenceBundleTimelineEvent",
+    "EvidenceBundleReasoning",
+    "PinEvidenceBundleResult",
+    "BundleTooLargeError",
+    "UnsupportedBundleVersionError",
+    "InvalidBundleError",
     # Negotiation Module
     "DEFAULT_WEIGHTS",
     "PolicyEngine",

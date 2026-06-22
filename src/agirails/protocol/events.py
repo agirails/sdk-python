@@ -75,6 +75,10 @@ class EventType(str, Enum):
     ESCROW_PAYOUT = "EscrowPayout"
     ESCROW_COMPLETED = "EscrowCompleted"
 
+    # Dispute events (PRD P2-5 / AIP-14b §3.4)
+    DISPUTE_SPLIT_RECORDED = "DisputeSplitRecorded"  # CompositeMediator
+    UMA_DISPUTE_ESCALATED = "UMADisputeEscalated"  # BondEscalation
+
 
 @dataclass
 class ACTPEvent:
@@ -227,6 +231,48 @@ class EscrowPayoutEvent(ACTPEvent):
         return base
 
 
+@dataclass
+class DisputeSplitRecordedEvent(ACTPEvent):
+    """CompositeMediator ruling-2 trace (AIP-14b §3.4). PARITY: TS DisputeEvent."""
+
+    tx_id: str = ""
+    requester: str = ""
+    provider: str = ""
+    split_bps: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        base = super().to_dict()
+        base.update(
+            {
+                "txId": self.tx_id,
+                "requester": self.requester,
+                "provider": self.provider,
+                "splitBps": self.split_bps,
+            }
+        )
+        return base
+
+
+@dataclass
+class UMADisputeEscalatedEvent(ACTPEvent):
+    """BondEscalation Tier-2 assertion pushed to UMA DVM (AIP-14b §8.5)."""
+
+    dispute_id: str = ""
+    assertion_id: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        base = super().to_dict()
+        base.update(
+            {
+                "disputeId": self.dispute_id,
+                "assertionId": self.assertion_id,
+            }
+        )
+        return base
+
+
 # Event type mapping
 EVENT_CLASSES = {
     EventType.TRANSACTION_CREATED: TransactionCreatedEvent,
@@ -234,6 +280,8 @@ EVENT_CLASSES = {
     EventType.ESCROW_LINKED: EscrowLinkedEvent,
     EventType.ESCROW_CREATED: EscrowCreatedEvent,
     EventType.ESCROW_PAYOUT: EscrowPayoutEvent,
+    EventType.DISPUTE_SPLIT_RECORDED: DisputeSplitRecordedEvent,
+    EventType.UMA_DISPUTE_ESCALATED: UMADisputeEscalatedEvent,
 }
 
 
@@ -289,6 +337,8 @@ class EventMonitor:
         kernel_contract: AsyncContract,
         escrow_contract: AsyncContract,
         w3: AsyncWeb3,
+        mediator_contract: Optional[AsyncContract] = None,
+        bond_escalation_contract: Optional[AsyncContract] = None,
     ) -> None:
         """
         Initialize EventMonitor.
@@ -297,10 +347,14 @@ class EventMonitor:
             kernel_contract: The ACTPKernel contract instance
             escrow_contract: The EscrowVault contract instance
             w3: The AsyncWeb3 instance
+            mediator_contract: Optional CompositeMediator (for DisputeSplitRecorded)
+            bond_escalation_contract: Optional BondEscalation (for UMADisputeEscalated)
         """
         self.kernel_contract = kernel_contract
         self.escrow_contract = escrow_contract
         self.w3 = w3
+        self.mediator_contract = mediator_contract
+        self.bond_escalation_contract = bond_escalation_contract
 
     @classmethod
     def from_config(
@@ -436,6 +490,202 @@ class EventMonitor:
             EventFilter(escrow_id=escrow_id),
             from_block=from_block,
         )
+
+    # =========================================================================
+    # Dispute surfacing (PRD P2-5 / AIP-14b §3.4)
+    # =========================================================================
+
+    async def get_dispute_events(
+        self,
+        from_block: Union[int, str] = "earliest",
+        to_block: Union[int, str] = "latest",
+    ) -> List[ACTPEvent]:
+        """
+        One-shot historical sweep of all three dispute signals across a block
+        window — the read half the split-rate indexer (P2-8) builds on.
+
+        Surfaces, block/log-ordered:
+            - kernel ``DISPUTED → CANCELLED`` transitions (admin-CANCELLED
+              included — OQ-11 counts these at the same weight as splits),
+            - ``DisputeSplitRecorded`` (if a mediator contract is wired),
+            - ``UMADisputeEscalated`` (if a BondEscalation contract is wired).
+
+        PARITY: TS ``EventMonitor.getDisputeEvents``.
+        """
+        events: List[ACTPEvent] = []
+
+        # Kernel DISPUTED→CANCELLED — filter StateTransitioned by from/to states.
+        try:
+            state_logs = await self._query_event_logs(
+                self.kernel_contract.events.StateTransitioned,
+                from_block,
+                to_block,
+            )
+            for log in state_logs:
+                event = self._parse_state_transitioned(log)
+                if (
+                    event.previous_state == TransactionState.DISPUTED
+                    and event.new_state == TransactionState.CANCELLED
+                ):
+                    events.append(event)
+        except _ABI_EVENT_MISSING_ERRORS:
+            pass
+
+        # CompositeMediator DisputeSplitRecorded (if wired).
+        if self.mediator_contract is not None:
+            try:
+                split_logs = await self._query_event_logs(
+                    self.mediator_contract.events.DisputeSplitRecorded,
+                    from_block,
+                    to_block,
+                )
+                for log in split_logs:
+                    events.append(self._parse_dispute_split_recorded(log))
+            except _ABI_EVENT_MISSING_ERRORS:
+                pass
+
+        # BondEscalation UMADisputeEscalated (if wired).
+        if self.bond_escalation_contract is not None:
+            try:
+                uma_logs = await self._query_event_logs(
+                    self.bond_escalation_contract.events.UMADisputeEscalated,
+                    from_block,
+                    to_block,
+                )
+                for log in uma_logs:
+                    events.append(self._parse_uma_dispute_escalated(log))
+            except _ABI_EVENT_MISSING_ERRORS:
+                pass
+
+        events.sort(key=lambda e: (e.block_number, e.log_index))
+        return events
+
+    async def on_dispute_split_recorded(
+        self,
+        callback: Callable[[DisputeSplitRecordedEvent], None],
+        poll_interval: float = 2.0,
+    ) -> asyncio.Task:
+        """
+        Subscribe to ``DisputeSplitRecorded`` (CompositeMediator ruling-2 trace).
+
+        Requires a ``mediator_contract`` to have been passed to the constructor.
+        PARITY: TS ``EventMonitor.onDisputeSplitRecorded``.
+
+        Raises:
+            ValueError: if no mediator contract was provided.
+        """
+        if self.mediator_contract is None:
+            raise ValueError(
+                "on_dispute_split_recorded: EventMonitor was constructed without "
+                "a CompositeMediator contract"
+            )
+        contract = self.mediator_contract
+
+        async def _watch() -> None:
+            last_block = await self.w3.eth.block_number
+            while True:
+                try:
+                    current_block = await self.w3.eth.block_number
+                    if current_block > last_block:
+                        logs = await self._query_event_logs(
+                            contract.events.DisputeSplitRecorded,
+                            last_block + 1,
+                            current_block,
+                        )
+                        for log in logs:
+                            callback(self._parse_dispute_split_recorded(log))
+                        last_block = current_block
+                    await asyncio.sleep(poll_interval)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    await asyncio.sleep(poll_interval)
+
+        return asyncio.create_task(_watch())
+
+    async def on_disputed_to_cancelled(
+        self,
+        callback: Callable[[StateTransitionedEvent], None],
+        poll_interval: float = 2.0,
+    ) -> asyncio.Task:
+        """
+        Subscribe to kernel ``DISPUTED → CANCELLED`` transitions — the
+        kernel-level split path (admin-CANCELLED disputes route here without
+        touching CompositeMediator). OQ-11 counts these in the headline
+        split-rate at the SAME weight as ``DisputeSplitRecorded``.
+        PARITY: TS ``EventMonitor.onDisputedToCancelled``.
+        """
+
+        async def _watch() -> None:
+            last_block = await self.w3.eth.block_number
+            while True:
+                try:
+                    current_block = await self.w3.eth.block_number
+                    if current_block > last_block:
+                        logs = await self._query_event_logs(
+                            self.kernel_contract.events.StateTransitioned,
+                            last_block + 1,
+                            current_block,
+                        )
+                        for log in logs:
+                            event = self._parse_state_transitioned(log)
+                            if (
+                                event.previous_state == TransactionState.DISPUTED
+                                and event.new_state == TransactionState.CANCELLED
+                            ):
+                                callback(event)
+                        last_block = current_block
+                    await asyncio.sleep(poll_interval)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    await asyncio.sleep(poll_interval)
+
+        return asyncio.create_task(_watch())
+
+    async def on_uma_dispute_escalated(
+        self,
+        callback: Callable[[UMADisputeEscalatedEvent], None],
+        poll_interval: float = 2.0,
+    ) -> asyncio.Task:
+        """
+        Subscribe to BondEscalation ``UMADisputeEscalated`` — a Tier-2 assertion
+        was disputed and pushed to UMA's DVM (AIP-14b §8.5).
+
+        Requires a ``bond_escalation_contract`` to have been passed to the
+        constructor. PARITY: TS ``EventMonitor.onUMADisputeEscalated``.
+
+        Raises:
+            ValueError: if no BondEscalation contract was provided.
+        """
+        if self.bond_escalation_contract is None:
+            raise ValueError(
+                "on_uma_dispute_escalated: EventMonitor was constructed without "
+                "a BondEscalation contract"
+            )
+        contract = self.bond_escalation_contract
+
+        async def _watch() -> None:
+            last_block = await self.w3.eth.block_number
+            while True:
+                try:
+                    current_block = await self.w3.eth.block_number
+                    if current_block > last_block:
+                        logs = await self._query_event_logs(
+                            contract.events.UMADisputeEscalated,
+                            last_block + 1,
+                            current_block,
+                        )
+                        for log in logs:
+                            callback(self._parse_uma_dispute_escalated(log))
+                        last_block = current_block
+                    await asyncio.sleep(poll_interval)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    await asyncio.sleep(poll_interval)
+
+        return asyncio.create_task(_watch())
 
     # =========================================================================
     # Real-time Watching
@@ -777,10 +1027,19 @@ class EventMonitor:
         )
 
     def _parse_state_transitioned(self, log: LogReceipt) -> StateTransitionedEvent:
-        """Parse StateTransitioned event log."""
+        """Parse StateTransitioned event log.
+
+        The on-chain ABI names the fields ``oldState`` / ``newState`` /
+        ``triggeredBy`` (see ACTPKernel.json). Earlier code read the
+        non-existent ``previousState`` / ``actor`` keys, so state fields were
+        never populated against real logs — fixed here, with a fallback to the
+        legacy synthetic names so any existing caller keeps working. This decode
+        is load-bearing for P2-5 DISPUTED→CANCELLED surfacing (OQ-11).
+        """
         args = log.get("args", {})
-        prev_state = args.get("previousState")
+        prev_state = args.get("oldState", args.get("previousState"))
         new_state = args.get("newState")
+        actor = args.get("triggeredBy", args.get("actor", ""))
 
         return StateTransitionedEvent(
             event_type=EventType.STATE_TRANSITIONED,
@@ -793,7 +1052,7 @@ class EventMonitor:
             transaction_id=self._bytes_to_hex(args.get("transactionId", b"")),
             previous_state=TransactionState(prev_state) if prev_state is not None else None,
             new_state=TransactionState(new_state) if new_state is not None else None,
-            actor=args.get("actor", ""),
+            actor=actor,
             raw_data=dict(args),
         )
 
@@ -829,6 +1088,44 @@ class EventMonitor:
             escrow_id=self._bytes_to_hex(args.get("escrowId", b"")),
             recipient=args.get("recipient", ""),
             amount=args.get("amount", 0),
+            raw_data=dict(args),
+        )
+
+    def _parse_dispute_split_recorded(
+        self, log: LogReceipt
+    ) -> DisputeSplitRecordedEvent:
+        """Parse DisputeSplitRecorded event log. PARITY: decode_dispute_split_recorded."""
+        args = log.get("args", {})
+        return DisputeSplitRecordedEvent(
+            event_type=EventType.DISPUTE_SPLIT_RECORDED,
+            contract_address=log["address"],
+            block_number=log["blockNumber"],
+            transaction_hash="0x" + log["transactionHash"].hex()
+            if isinstance(log["transactionHash"], bytes)
+            else log["transactionHash"],
+            log_index=log["logIndex"],
+            tx_id=self._bytes_to_hex(args.get("txId", b"")),
+            requester=args.get("requester", ""),
+            provider=args.get("provider", ""),
+            split_bps=int(args.get("splitBps", 0)),
+            raw_data=dict(args),
+        )
+
+    def _parse_uma_dispute_escalated(
+        self, log: LogReceipt
+    ) -> UMADisputeEscalatedEvent:
+        """Parse UMADisputeEscalated event log (BondEscalation, AIP-14b §8.5)."""
+        args = log.get("args", {})
+        return UMADisputeEscalatedEvent(
+            event_type=EventType.UMA_DISPUTE_ESCALATED,
+            contract_address=log["address"],
+            block_number=log["blockNumber"],
+            transaction_hash="0x" + log["transactionHash"].hex()
+            if isinstance(log["transactionHash"], bytes)
+            else log["transactionHash"],
+            log_index=log["logIndex"],
+            dispute_id=self._bytes_to_hex(args.get("disputeId", b"")),
+            assertion_id=self._bytes_to_hex(args.get("assertionId", b"")),
             raw_data=dict(args),
         )
 

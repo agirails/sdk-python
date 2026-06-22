@@ -108,6 +108,12 @@ class ContractAddresses:
     identity_registry: Optional[str] = None  # AIP-7 (Sepolia only; ERC-1056 DID registry)
     x402_relay: Optional[str] = None  # deprecated since SDK 3.3.0 (zero on mainnet V3)
     erc8004_identity_registry: Optional[str] = None  # ERC-8004 canonical CREATE2 (same on all chains)
+    # AIP-14b three-tier dispute system (P2-2). None until the dispute stack is
+    # deployed: testnet lands in Phase 6, mainnet later. Keys mirror the TS SDK
+    # NetworkConfig.contracts (parity).
+    bond_escalation: Optional[str] = None  # BondEscalation (Tier-1 bonded escalation + AIRuling verifier)
+    composite_mediator: Optional[str] = None  # CompositeMediator (canonical 0/1/2 ruling → fund routing)
+    uma_optimistic_oracle_v3: Optional[str] = None  # UMA OptimisticOracleV3 (Tier-2 optimistic oracle)
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,9 @@ class NetworkConfig:
                 "identityRegistry": self.contracts.identity_registry,
                 "x402Relay": self.contracts.x402_relay,
                 "erc8004IdentityRegistry": self.contracts.erc8004_identity_registry,
+                "bondEscalation": self.contracts.bond_escalation,
+                "compositeMediator": self.contracts.composite_mediator,
+                "umaOptimisticOracleV3": self.contracts.uma_optimistic_oracle_v3,
             },
             "eas": {
                 "deliverySchemaUID": self.eas.delivery_schema_uid,

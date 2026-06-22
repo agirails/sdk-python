@@ -893,11 +893,21 @@ class ACTPKernel(ContractBase):
         gas_limit: Optional[int] = None,
     ) -> TransactionReceipt:
         """
-        Raise a dispute on a delivered transaction.
+        Raise a dispute on a delivered transaction (legacy single-shot kernel path).
 
         Reference: Yellow Paper §3.4 (Dispute Management)
 
         PARITY: Matches TS SDK raiseDispute() behavior.
+
+        TIERED FLOW: this is the PRE-AIP-14 path — it transitions the transaction
+        straight to DISPUTED, after which resolution historically required a
+        privileged :meth:`resolve_dispute`. The AIP-14b SUCCESSOR is the
+        three-tier bond game reached via the ``DisputeClient`` facade
+        (``client.dispute``): still call this to enter the kernel DISPUTED state,
+        but then drive resolution through ``client.dispute.bond`` (open ->
+        propose/AI -> challenge -> finalize / escalate_to_uma) and read state with
+        ``client.dispute.get_dispute_status()`` — NOT through ``resolve_dispute``.
+        See ``dispute/dispute_client.py`` (grep ``DisputeClient``).
 
         Args:
             transaction_id: The transaction ID (bytes32 hex string)
@@ -952,13 +962,22 @@ class ACTPKernel(ContractBase):
         gas_limit: Optional[int] = None,
     ) -> TransactionReceipt:
         """
-        Resolve a dispute with payment split.
+        Resolve a dispute with payment split (legacy privileged kernel path).
 
         Reference: Yellow Paper §3.4
 
         PARITY: Matches TS SDK resolveDispute() behavior.
         Disputes are settled via transitionState(SETTLED, proof) per §3.2.
         The kernel contract decodes the proof and handles escrow disbursement.
+
+        TIERED FLOW: this is the PRE-AIP-14 admin/mediator resolution. Under
+        AIP-14b resolution is driven by the bond game, not by a direct privileged
+        call here: route through the ``DisputeClient`` facade (``client.dispute``)
+        instead — ``client.dispute.bond.finalize()`` / ``escalate_to_uma()`` (then
+        the on-chain CompositeMediator settles), with
+        ``client.dispute.get_dispute_status()`` for the §9 sub-state.
+        ``resolve_dispute`` remains only for the legacy admin path. See
+        ``dispute/dispute_client.py`` (grep ``DisputeClient``).
 
         Args:
             transaction_id: The transaction ID (bytes32 hex string)
