@@ -109,3 +109,14 @@ class TestSDK2EscrowId:
             proof="",
         )
         assert r.transaction.escrow_id is None
+
+
+class TestReadOnlyRegistryConnect:
+    async def test_connect_builds_read_only_registry(self):
+        # Read-only factory used by the negotiate CLI to wire the F-5 guard.
+        # Construction is lazy (no network I/O), so this is fast + offline.
+        from agirails.protocol.agent_registry import AgentRegistry
+
+        reg = await AgentRegistry.connect("base-sepolia")
+        assert reg._account is None  # read-only: no signer
+        assert hasattr(reg, "get_service_descriptors")
