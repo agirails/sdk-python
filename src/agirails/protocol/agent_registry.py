@@ -554,6 +554,52 @@ class AgentRegistry:
             chain_id=config.chain_id,
         )
 
+    @classmethod
+    async def connect(
+        cls,
+        network: Union[str, NetworkConfig] = "base-sepolia",
+        rpc_url: Optional[str] = None,
+    ) -> "AgentRegistry":
+        """
+        Create a READ-ONLY AgentRegistry (no signer) for view calls such as
+        ``get_service_descriptors`` (e.g. the F-5 buyer price-band check).
+        Write methods will fail because there is no account.
+
+        Args:
+            network: Network name or config
+            rpc_url: Optional custom RPC URL
+
+        Returns:
+            Read-only AgentRegistry instance
+        """
+        if not HAS_WEB3:
+            raise ImportError(
+                "web3 is required for AgentRegistry. "
+                "Install with: pip install web3 eth-account"
+            )
+
+        config = get_network(network) if isinstance(network, str) else network
+
+        if not config.contracts.agent_registry:
+            raise ValueError(
+                f"AgentRegistry not deployed on {config.name}. "
+                "This feature requires the agent registry contract."
+            )
+
+        rpc = rpc_url or config.rpc_url
+        w3 = AsyncWeb3(AsyncWeb3.AsyncHTTPProvider(rpc))
+        abi = _load_agent_registry_abi()
+        contract = w3.eth.contract(
+            address=w3.to_checksum_address(config.contracts.agent_registry),
+            abi=abi,
+        )
+        return cls(
+            contract=contract,
+            account=None,  # type: ignore[arg-type]  # read-only: view calls don't sign
+            w3=w3,
+            chain_id=config.chain_id,
+        )
+
     @property
     def address(self) -> str:
         """Get account address."""
