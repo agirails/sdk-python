@@ -586,6 +586,42 @@ class ACTPKernel(ContractBase):
         receipt = await self._sign_and_send(tx)
         return self._to_receipt(receipt)
 
+    async def recovery_grace(self) -> int:
+        """F-6: the immutable recovery grace (seconds) configured on the kernel."""
+        return await self.contract.functions.recoveryGrace().call()
+
+    async def get_recovery_deadline(self, transaction_id: str) -> int:
+        """
+        F-6: timestamp at/after which a stalled IN_PROGRESS transaction becomes
+        recoverable (transaction deadline + recoveryGrace). SDK-side helper;
+        there is no on-chain getRecoveryDeadline.
+        """
+        tx = await self.get_transaction(transaction_id)
+        grace = await self.recovery_grace()
+        return tx.deadline + grace
+
+    async def recover_stalled_in_progress(
+        self,
+        transaction_id: str,
+        gas_limit: Optional[int] = None,
+    ) -> TransactionReceipt:
+        """
+        F-6: permissionlessly recover a stalled IN_PROGRESS transaction once
+        deadline + recoveryGrace has elapsed. Moves it to CANCELLED and refunds
+        the remaining escrow to the requester (no penalty). Callable by anyone.
+        """
+        tx_id_bytes = self._to_bytes32(transaction_id)
+        contract_fn = self.contract.functions.recoverStalledInProgress(tx_id_bytes)
+        effective_gas = gas_limit or await self._estimate_gas(
+            contract_fn,
+            GAS_LIMITS.get("recover_stalled_in_progress", GAS_LIMITS["transition_state"]),
+        )
+        tx = await contract_fn.build_transaction(
+            await self._build_tx_params(gas_limit=effective_gas)
+        )
+        receipt = await self._sign_and_send(tx)
+        return self._to_receipt(receipt)
+
     async def accept_quote(
         self,
         transaction_id: str,
