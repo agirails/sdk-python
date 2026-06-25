@@ -23,7 +23,10 @@ import inspect
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from agirails.protocol.agent_registry import AgentRegistry
 
 from agirails.builders.counter_offer import (
     CounterOfferBuilder,
@@ -240,6 +243,7 @@ class BuyerOrchestrator:
         negotiation: Optional[BuyerNegotiationContext] = None,
         client: Optional[Any] = None,
         decide_quote: Optional[BuyerQuoteDecider] = None,
+        agent_registry: Optional["AgentRegistry"] = None,
     ) -> None:
         # Fail-fast on partial negotiation context. Pre-fix bug: a developer who
         # set ``negotiation_channel`` but forgot private_key / chain_id got NO
@@ -277,6 +281,9 @@ class BuyerOrchestrator:
         self._session_store = SessionStore(actp_dir)
         self._negotiation = negotiation
         self._client = client
+        # F-5: optional, injected AgentRegistry for the pre-escrow price-band
+        # check. Fail-open when absent (parity with TS BuyerOrchestrator).
+        self._agent_registry = agent_registry
 
         # BYO-brain: the default decider delegates to the built-in
         # DecisionEngine, so when ``decide_quote`` is absent the per-quote
@@ -574,6 +581,32 @@ class BuyerOrchestrator:
                         round=round_idx + 1,
                         action="rejected",
                         reason=reason,
+                    )
+                )
+                continue
+
+            # F-5: reject out-of-band requests before creating the transaction,
+            # so the buyer never locks escrow on a price the provider's published
+            # band will refuse to settle. Mirrors TS BuyerOrchestrator.ts:447-462.
+            offer_base_units = self._to_base_units(offer.unit_price)
+            band_allowed, band_reason = await self._check_provider_price_band(
+                provider_address, offer_base_units
+            )
+            if not band_allowed:
+                rounds.append(
+                    RoundResult(
+                        round=round_idx + 1,
+                        provider_slug=candidate.slug,
+                        provider_address=provider_address,
+                        action="rejected",
+                        reason=band_reason or "out of price band",
+                    )
+                )
+                emit(
+                    RoundEndEvent(
+                        round=round_idx + 1,
+                        action="rejected",
+                        reason=band_reason or "out of price band",
                     )
                 )
                 continue
@@ -1609,6 +1642,57 @@ class BuyerOrchestrator:
                 ),
             )
         return None
+
+    async def _check_provider_price_band(
+        self, provider_address: str, amount_base_units: str
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        F-5: buyer-side pre-escrow price-band check. Escrow on ACTP is
+        requester-driven (the kernel pulls the buyer's USDC on linkEscrow before
+        the provider's policy filter runs), so a request priced outside the
+        provider's published [min_price, max_price] band would lock the buyer's
+        own capital until the deadline. This catches it before any escrow.
+
+        Returns (False, reason) to hard-reject an out-of-band amount, (True, None)
+        to proceed. Fail-open: no registry, a failed read, no matching descriptor,
+        or an unparseable amount all return (True, None). Mirrors TS
+        BuyerOrchestrator.ts:_checkProviderPriceBand.
+        """
+        if self._agent_registry is None:
+            return (True, None)
+        try:
+            descriptors = await self._agent_registry.get_service_descriptors(
+                provider_address
+            )
+        except Exception:
+            # read failed (RPC error, registry not deployed) — fail-open
+            return (True, None)
+
+        from agirails.protocol.agent_registry import compute_service_type_hash
+
+        wanted_hash = compute_service_type_hash(self._policy.task).lower()
+        descriptor = next(
+            (d for d in descriptors if d.service_type_hash.lower() == wanted_hash),
+            None,
+        )
+        if descriptor is None:
+            # no matching descriptor — fail-open rather than reject against a
+            # band that does not apply to this service
+            return (True, None)
+        try:
+            amount = int(amount_base_units)
+        except (ValueError, TypeError):
+            return (True, None)  # unparseable amount — fail-open
+        if amount < descriptor.min_price or amount > descriptor.max_price:
+            req = amount / 1_000_000
+            lo = descriptor.min_price / 1_000_000
+            hi = descriptor.max_price / 1_000_000
+            return (
+                False,
+                f'Request ${req:.2f} is outside the provider\'s price band '
+                f'${lo:.2f}-${hi:.2f} for "{self._policy.task}"',
+            )
+        return (True, None)
 
     @staticmethod
     def _to_base_units(amount: float) -> str:
