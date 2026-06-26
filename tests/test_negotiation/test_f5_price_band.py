@@ -121,3 +121,33 @@ async def test_f5_unparseable_amount_fails_open(tmp_path):
     allowed, reason = await orch._check_provider_price_band("0xP", "not-a-number")
     assert allowed is True
     assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_f5_commit_recheck_rejects_out_of_band_final(tmp_path):
+    # TS parity: _commit_at_amount re-checks the FINAL negotiated amount before
+    # accept+link (multi-round counters can land out-of-band). Mirrors TS:1015.
+    from unittest.mock import AsyncMock
+
+    orch = _orch(tmp_path, _FakeRegistry([_band(min_usd=0.5, max_usd=2.0)]))
+    orch._transition_state = AsyncMock()
+    orch._accept_quote = AsyncMock()
+    orch._link_escrow = AsyncMock()
+    rounds: list = []
+    done, success, reason = await orch._commit_at_amount(
+        tx_id="0x" + "0" * 64,
+        amount_base_units=_units(5.0),  # above the $0.50-$2.00 band
+        candidate_slug="prov",
+        provider_address="0xP",
+        offer=None,
+        round_idx=0,
+        rounds=rounds,
+        emit=lambda e: None,
+        source_tag="test",
+        counter_round=0,
+    )
+    assert done is True
+    assert success is False
+    assert "price band" in reason
+    orch._accept_quote.assert_not_awaited()  # rejected before accept
+    orch._transition_state.assert_awaited_once()  # rolled back to CANCELLED

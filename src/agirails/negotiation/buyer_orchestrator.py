@@ -1363,6 +1363,32 @@ class BuyerOrchestrator:
         "accept the quote" and "accept the counter" terminal branches. Mirror
         of TS ``_commitAtAmount`` (BuyerOrchestrator.ts:971-1020).
         """
+        # F-5: re-check the (possibly negotiated) final amount against the
+        # provider's band before accepting and locking escrow. Multi-round
+        # counters can land on an amount the initial pre-create check never saw.
+        # Mirrors TS BuyerOrchestrator.ts:1015-1030.
+        band_allowed, band_reason = await self._check_provider_price_band(
+            provider_address, amount_base_units
+        )
+        if not band_allowed:
+            try:
+                await self._transition_state(tx_id, "CANCELLED")
+            except Exception:
+                pass  # best-effort rollback
+            reason = band_reason or "out of price band"
+            rounds.append(
+                RoundResult(
+                    round=round_idx + 1,
+                    provider_slug=candidate_slug,
+                    provider_address=provider_address,
+                    action="rejected",
+                    reason=reason,
+                    tx_id=tx_id,
+                )
+            )
+            emit(RoundEndEvent(round=round_idx + 1, action="rejected", reason=reason))
+            return (True, False, reason)
+
         accept_quote_succeeded = False
         try:
             await self._accept_quote(tx_id, amount_base_units)
