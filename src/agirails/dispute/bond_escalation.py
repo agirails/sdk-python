@@ -170,19 +170,21 @@ class BondEscalationClient:
     @staticmethod
     def quote_initial_bond(escrow_amount: int) -> int:
         """
-        Quote the initial Tier-1 bond: ``max(escrow_amount * 2%, $1)``.
+        Quote the initial Tier-1 bond: ``min(max(escrow_amount * 2%, $1), $500)``.
 
         Mirrors ``BondEscalation._calculateInitialBond`` and the TS
-        ``quoteInitialBond``. AIP-14 §7.13.
+        ``quoteInitialBond``, including the MAX_ESCALATION_BOND ($500) ceiling
+        the contract clamps to (F-5). AIP-14 §7.13.
 
         Args:
             escrow_amount: Disputed escrow remaining (USDC, 6 decimals).
 
         Returns:
-            Initial bond in USDC base units (6 decimals).
+            Initial bond in USDC base units (6 decimals), capped at $500.
         """
         percent_bond = (escrow_amount * ESCALATION_INITIAL_BPS) // BPS_DENOMINATOR
-        return percent_bond if percent_bond > MIN_ESCALATION_BOND else MIN_ESCALATION_BOND
+        bond = percent_bond if percent_bond > MIN_ESCALATION_BOND else MIN_ESCALATION_BOND
+        return bond if bond <= MAX_ESCALATION_BOND else MAX_ESCALATION_BOND
 
     @staticmethod
     def quote_escalation_bond(current_bond: int) -> int:
