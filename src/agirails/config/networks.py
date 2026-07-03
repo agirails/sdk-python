@@ -214,6 +214,11 @@ BASE_SEPOLIA = NetworkConfig(
         identity_registry="0xce9749c768b425fab0daa0331047d1340ec99a88",  # AGIRAILSIdentityRegistry
         x402_relay="0x110b25bb3d45c40dfcf34bb451aa7069b2a1cb3b",  # deprecated since SDK 3.3.0
         erc8004_identity_registry="0x8004A818BFB912233c491871b3d84c89A494BD9e",
+        # AIP-14b dispute system - deployed 2026-07-02 (P4-1) against the F-6 kernel above.
+        # Tier-2 uses a testnet MockOOV3 (canonical UMA OOV3 absent on Sepolia). Mediator
+        # resolver active after the 2-day approveMediator timelock (~2026-07-05).
+        bond_escalation="0x62d5417BFcceDe49047c713362dA1d4D247fffa7",
+        composite_mediator="0xf8095f8df0102d5f9fA36fF0792c89Db6FB814a0",
     ),
     eas=EASConfig(
         # Deployed 2025-11-23 - AIP-4 delivery proof schema
