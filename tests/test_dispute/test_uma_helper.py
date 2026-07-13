@@ -91,25 +91,51 @@ class _DisputeToAssertionFn:
         return _b32(self._assertion_id)
 
 
+class _GetMinimumBondFn:
+    """Read fn: returns the configured minimum bond WITHOUT recording a write."""
+
+    def __init__(self, minimum_bond: int):
+        self._minimum_bond = minimum_bond
+
+    def __call__(self, *_args):
+        return self
+
+    async def call(self):
+        return self._minimum_bond
+
+
 class _MockFunctions:
-    def __init__(self, sink: List, target: str, assertion_id: str = None):
+    def __init__(
+        self, sink: List, target: str, assertion_id: str = None, minimum_bond: int = None
+    ):
         self._sink = sink
         self._target = target
         self._assertion_id = assertion_id
+        self._minimum_bond = minimum_bond
 
     def __getattr__(self, name):
         if name == "disputeToAssertion" and self._assertion_id is not None:
             return _DisputeToAssertionFn(self._sink, self._assertion_id)
+        if name == "getMinimumBond" and self._minimum_bond is not None:
+            return _GetMinimumBondFn(self._minimum_bond)
         return _MockFunction(self._sink, self._target, name)
 
 
 class _MockContract:
     """Records calldata via a reference contract's encode_abi."""
 
-    def __init__(self, sink: List, target: str, ref, address: str, assertion_id: str = None):
+    def __init__(
+        self,
+        sink: List,
+        target: str,
+        ref,
+        address: str,
+        assertion_id: str = None,
+        minimum_bond: int = None,
+    ):
         self._ref = ref
         self.address = address
-        self.functions = _MockFunctions(sink, target, assertion_id)
+        self.functions = _MockFunctions(sink, target, assertion_id, minimum_bond)
 
     def encode_abi(self, *, abi_element_identifier: str, args):
         return self._ref.encode_abi(abi_element_identifier=abi_element_identifier, args=args)
@@ -119,7 +145,7 @@ def _make_helper(assertion_id: str = None):
     assertion_id = assertion_id or _FIXTURE["requesterForceDVM"]["assertionId"]
     sink: List = []
     bond = _MockContract(sink, "bondEscalation", _REF_BOND, BOND_ADDR, assertion_id)
-    oov3 = _MockContract(sink, "oov3", _REF_OOV3, OOV3_ADDR)
+    oov3 = _MockContract(sink, "oov3", _REF_OOV3, OOV3_ADDR, minimum_bond=UMA_BOND)
     usdc = _MockContract(sink, "usdc", _REF_USDC, USDC_ADDR)
     helper = UMAHelper(
         bond,
@@ -175,7 +201,7 @@ async def test_requester_force_dvm_exact_call_sequence():
     helper, sink = _make_helper(fx["assertionId"])
 
     result = await helper.requester_force_dvm(
-        fx["disputeId"], fx["evidenceCID"], fx["disputer"]
+        fx["disputeId"], fx["evidenceCID"], fx["reasoningCID"], fx["disputer"]
     )
 
     # Full ordered sequence INCLUDING the read between escalate and dispute.
@@ -206,12 +232,15 @@ async def test_requester_force_dvm_exact_call_sequence():
     assert _REF_USDC.encode_abi(abi_element_identifier="approve", args=list(a)) == _REF_USDC.encode_abi(
         abi_element_identifier="approve", args=[BOND_ADDR, UMA_BOND]
     )
-    # Step 2: escalateToUMA(disputeId, evidenceCID)
+    # Step 2: escalateToUMA(disputeId, evidenceCID, reasoningCID) — BLOCKER-2.
     t, n, a = writes[1]
     assert (t, n) == ("bondEscalation", "escalateToUMA")
-    assert _REF_BOND.encode_abi(abi_element_identifier="escalateToUMA", args=list(a)) == _REF_BOND.encode_abi(
-        abi_element_identifier="escalateToUMA", args=[_b32(fx["disputeId"]), fx["evidenceCID"]]
+    encoded_escalate = _REF_BOND.encode_abi(abi_element_identifier="escalateToUMA", args=list(a))
+    assert encoded_escalate == _REF_BOND.encode_abi(
+        abi_element_identifier="escalateToUMA",
+        args=[_b32(fx["disputeId"]), fx["evidenceCID"], fx["reasoningCID"]],
     )
+    assert encoded_escalate[:10] == "0xea487f8a"
     # Step 3: approve(oov3, $500)
     t, n, a = writes[2]
     assert (t, n) == ("usdc", "approve")
@@ -229,7 +258,7 @@ async def test_requester_force_dvm_exact_call_sequence():
 async def test_read_happens_after_escalate_before_dispute():
     fx = _FIXTURE["requesterForceDVM"]
     helper, sink = _make_helper(fx["assertionId"])
-    await helper.requester_force_dvm(fx["disputeId"], fx["evidenceCID"], fx["disputer"])
+    await helper.requester_force_dvm(fx["disputeId"], fx["evidenceCID"], fx["reasoningCID"], fx["disputer"])
     names = [n for (_t, n, _a) in sink]
     escalate_idx = names.index("escalateToUMA")
     read_idx = names.index("disputeToAssertion(read)")
@@ -253,6 +282,61 @@ async def test_settle_assertion_calldata():
     assert (t, n) == ("oov3", "settleAssertion")
     assert _REF_OOV3.encode_abi(abi_element_identifier="settleAssertion", args=list(a)) == _REF_OOV3.encode_abi(
         abi_element_identifier="settleAssertion", args=[_b32(fx["assertionId"])]
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2b. Dynamic bond parity (get_effective_bond)
+# ---------------------------------------------------------------------------
+
+
+def _make_helper_with_min_bond(minimum_bond: int):
+    fx_assertion = _FIXTURE["requesterForceDVM"]["assertionId"]
+    sink: List = []
+    bond = _MockContract(sink, "bondEscalation", _REF_BOND, BOND_ADDR, fx_assertion)
+    oov3 = _MockContract(sink, "oov3", _REF_OOV3, OOV3_ADDR, minimum_bond=minimum_bond)
+    usdc = _MockContract(sink, "usdc", _REF_USDC, USDC_ADDR)
+    helper = UMAHelper(
+        bond,
+        oov3,
+        usdc,
+        bond_escalation_address=BOND_ADDR,
+        oov3_address=OOV3_ADDR,
+        usdc_address=USDC_ADDR,
+    )
+    return helper, sink
+
+
+async def test_get_effective_bond_floors_at_500():
+    helper, _ = _make_helper_with_min_bond(100_000_000)  # $100 < $500
+    assert await helper.get_minimum_bond() == 100_000_000
+    assert await helper.get_effective_bond() == UMA_BOND  # max($500, $100)
+
+
+async def test_get_effective_bond_uses_raised_minimum():
+    raised = 800_000_000  # $800 > $500
+    helper, _ = _make_helper_with_min_bond(raised)
+    assert await helper.get_effective_bond() == raised
+
+
+async def test_requester_force_dvm_approves_raised_bond():
+    raised = 800_000_000
+    fx = _FIXTURE["requesterForceDVM"]
+    helper, sink = _make_helper_with_min_bond(raised)
+    await helper.requester_force_dvm(fx["disputeId"], fx["evidenceCID"], fx["reasoningCID"], fx["disputer"])
+    writes = [(t, n, a) for (t, n, a) in sink if n != "disputeToAssertion(read)"]
+    # writes[0] = approve(bondEscalation, raised); writes[2] = approve(oov3, raised)
+    assert writes[0][0:2] == ("usdc", "approve")
+    assert _REF_USDC.encode_abi(
+        abi_element_identifier="approve", args=list(writes[0][2])
+    ) == _REF_USDC.encode_abi(
+        abi_element_identifier="approve", args=[BOND_ADDR, raised]
+    )
+    assert writes[2][0:2] == ("usdc", "approve")
+    assert _REF_USDC.encode_abi(
+        abi_element_identifier="approve", args=list(writes[2][2])
+    ) == _REF_USDC.encode_abi(
+        abi_element_identifier="approve", args=[OOV3_ADDR, raised]
     )
 
 

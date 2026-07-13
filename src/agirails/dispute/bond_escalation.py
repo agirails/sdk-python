@@ -21,7 +21,7 @@ Lifecycle (AIP-14 §3, §7.1)::
     open_dispute(tx_id) -> dispute_id
          |
          v (confident)                 (not confident)
-    submit_ai_ruling(ruling, sigs) -- propose_directly(ruling, split)  -- Tier 1
+    submit_ai_ruling(ruling, sigs, evidence_cid, reasoning_cid) -- propose_directly(ruling, split)  -- Tier 1
          |                                 |
          v challenge(...) (bond doubles, ceiling $500)
          |
@@ -273,20 +273,84 @@ class BondEscalationClient:
         ).hex()
         return {"dispute_id": dispute_id, "eth_tx_hash": receipt}
 
-    async def submit_ai_ruling(self, ruling: AIRuling, signatures: List[Union[str, bytes]]) -> Dict[str, str]:
+    async def submit_ai_ruling(
+        self,
+        ruling: AIRuling,
+        signatures: List[Union[str, bytes]],
+        evidence_cid: str,
+        reasoning_cid: str,
+    ) -> Dict[str, str]:
         """
         Submit an evaluator-signed AIRuling as the Tier-1 proposal.
 
-        AIP-14 §7.7. PARITY: TS ``submitAIRuling``.
+        AIP-14c §7.7 / D7 (AIP14C-BOND-ABI-FREEZE.md). PARITY: TS
+        ``submitAIRuling``. Calls the FINAL 5-arg
+        ``submitAIRuling(disputeId, ruling, evidenceCID, reasoningCID,
+        signatures)`` (selector ``0xca74ab82``); the pre-D7 3-arg form is
+        removed on-chain.
+
+        The evidence/reasoning CIDs travel alongside the ruling so the contract
+        recomputes ``evidenceRefHash`` / ``reasoningRefHash`` from them and
+        requires equality with the SIGNED refs before any bond transfer. The
+        submitted ruling tuple therefore carries refs derived from these SAME
+        CIDs (via :func:`compute_evidence_ref_hash` /
+        :func:`compute_reasoning_ref_hash`) — matching the 9-field ruling the
+        evaluator quorum signed.
 
         Args:
             ruling: The :class:`AIRuling` (its ``dispute_id`` MUST match).
             signatures: Evaluator EIP-712 signatures (``bytes[]``).
+            evidence_cid: IPFS CID of the canonical evidence bundle.
+            reasoning_cid: IPFS CID of the evaluator's reasoning.
         """
+        from agirails.types.dispute import (
+            compute_evidence_ref_hash,
+            compute_reasoning_ref_hash,
+        )
+
+        # P2 HARDENING: the ref-hashes are part of the evaluator-SIGNED 9-field
+        # ruling. Recompute them from the CIDs and VERIFY they equal the signed
+        # refs — do NOT silently overwrite the ruling (that would ship the CIDs'
+        # refs under signatures that never covered them, and the on-chain quorum
+        # check would then reject the tx). Raise fail-closed on any mismatch.
+        expected_evidence_ref = compute_evidence_ref_hash(ruling.bundle_hash, evidence_cid)
+        expected_reasoning_ref = compute_reasoning_ref_hash(
+            ruling.reasoning_hash, reasoning_cid
+        )
+
+        def _norm(v: Optional[Union[str, bytes]]) -> Optional[str]:
+            if v is None:
+                return None
+            if isinstance(v, (bytes, bytearray)):
+                return "0x" + bytes(v).hex()
+            return v.lower()
+
+        if _norm(ruling.evidence_ref_hash) != _norm(expected_evidence_ref):
+            raise ValueError(
+                "submit_ai_ruling: evidenceCID does not match the signed ruling — "
+                f"computed evidenceRefHash {expected_evidence_ref} != signed "
+                f"{ruling.evidence_ref_hash!r}. Refusing to submit "
+                "(signatures would be invalid on-chain)."
+            )
+        if _norm(ruling.reasoning_ref_hash) != _norm(expected_reasoning_ref):
+            raise ValueError(
+                "submit_ai_ruling: reasoningCID does not match the signed ruling — "
+                f"computed reasoningRefHash {expected_reasoning_ref} != signed "
+                f"{ruling.reasoning_ref_hash!r}. Refusing to submit "
+                "(signatures would be invalid on-chain)."
+            )
+        # Submit the ORIGINAL signed ruling unchanged (its refs are now verified).
         tuple_arg = self._ai_ruling_to_tuple(ruling)
         sigs = [_normalize_sig(s) for s in signatures]
         receipt = await self._send(
-            "submitAIRuling", [_to_bytes32(ruling.dispute_id), tuple_arg, sigs]
+            "submitAIRuling",
+            [
+                _to_bytes32(ruling.dispute_id),
+                tuple_arg,
+                evidence_cid,
+                reasoning_cid,
+                sigs,
+            ],
         )
         return {"eth_tx_hash": receipt}
 
@@ -326,15 +390,44 @@ class BondEscalationClient:
         receipt = await self._send("finalize", [_to_bytes32(dispute_id)])
         return {"eth_tx_hash": receipt}
 
-    async def escalate_to_uma(self, dispute_id: str, evidence_cid: str) -> Dict[str, str]:
+    async def escalate_to_uma(
+        self, dispute_id: str, evidence_cid: str, reasoning_cid: str
+    ) -> Dict[str, str]:
         """
         Escalate a ceiling-bond, liveness-active dispute to UMA OOV3 (Tier 2),
-        embedding the IPFS evidence-bundle CID. AIP-14 §7.1, §8.4.
+        embedding the IPFS evidence + reasoning CIDs. AIP-14 §7.1, §8.4.
+
+        BLOCKER-2 (reasoning reaches the DVM): the v2 entrypoint is the 2-CID
+        ``escalateToUMA(disputeId, evidenceCID, reasoningCID)`` (selector
+        ``0xea487f8a``); the 1-CID form (``0xa3c23734``) is REMOVED. Both CIDs
+        are embedded in the UMA/DVM claim + the ``EscalatedToUMA`` event.
 
         PARITY: TS ``escalateToUMA``.
         """
         receipt = await self._send(
-            "escalateToUMA", [_to_bytes32(dispute_id), evidence_cid]
+            "escalateToUMA", [_to_bytes32(dispute_id), evidence_cid, reasoning_cid]
+        )
+        return {"eth_tx_hash": receipt}
+
+    async def settle_uma_assertion(self, dispute_id: str) -> Dict[str, str]:
+        """
+        Settle a Tier-2 UMA assertion back into BondEscalation once the DVM has
+        resolved: reads the OOV3 result and routes the resolved outcome to the
+        CompositeMediator. AIP-14 §8.2 STAGE 3. Callable by anyone
+        post-resolution. PARITY: TS ``settleUMAAssertion``.
+        """
+        receipt = await self._send("settleUMAAssertion", [_to_bytes32(dispute_id)])
+        return {"eth_tx_hash": receipt}
+
+    async def retry_mediator_resolution(self, dispute_id: str) -> Dict[str, str]:
+        """
+        Retry a mediator resolution left pending (e.g. the CompositeMediator call
+        reverted / ran out of gas during settlement). Drives
+        ``mediatorRetryPending[disputeId]`` to completion. AIP-14 §8.2. Not
+        pausable. PARITY: TS ``retryMediatorResolution``.
+        """
+        receipt = await self._send(
+            "retryMediatorResolution", [_to_bytes32(dispute_id)]
         )
         return {"eth_tx_hash": receipt}
 
@@ -371,10 +464,14 @@ class BondEscalationClient:
     @staticmethod
     def _ai_ruling_to_tuple(
         ruling: AIRuling,
-    ) -> Tuple[bytes, int, int, int, int, bytes, bytes]:
+    ) -> Tuple[bytes, int, int, int, int, bytes, bytes, bytes, bytes]:
         """
         Encode :class:`AIRuling` into the positional tuple the contract ABI
         expects (struct field order is load-bearing — mirrors DisputeTypes.sol).
+
+        AIP-14c: the struct is the 9-field type (``evidenceRefHash`` /
+        ``reasoningRefHash`` appended); these carry the D7 CID commitments the
+        on-chain ``submitAIRuling`` recomputes from the passed CIDs.
         """
         return (
             _to_bytes32(ruling.dispute_id),
@@ -384,6 +481,8 @@ class BondEscalationClient:
             int(ruling.timestamp),
             _to_bytes32(ruling.reasoning_hash),
             _to_bytes32(ruling.bundle_hash),
+            _to_bytes32(ruling.evidence_ref_hash),
+            _to_bytes32(ruling.reasoning_ref_hash),
         )
 
     def encode_calldata(self, method: str, args: List[Any]) -> str:

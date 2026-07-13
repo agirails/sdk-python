@@ -287,12 +287,33 @@ class UMAHelper:
         ).call()
         return _hex32(raw) if isinstance(raw, (bytes, bytearray)) else raw
 
+    async def get_minimum_bond(self) -> int:
+        """
+        Read the UMA oracle's minimum bond for USDC
+        (``OOV3.getMinimumBond(usdc)``). A direct read, never a recorded write.
+        PARITY: TS ``getMinimumBond``.
+        """
+        return int(
+            await self._oov3.functions.getMinimumBond(self._usdc_address).call()
+        )
+
+    async def get_effective_bond(self) -> int:
+        """
+        The effective per-side bond the SDK must post to escalate to UMA:
+        ``max($500, get_minimum_bond(USDC))`` (AIP-14b §7.4). BondEscalation.sol
+        posts this exact dynamic value; the SDK matches it so a raised UMA
+        minimum never under-approves and reverts ``escalateToUMA``. PARITY: TS
+        ``getEffectiveBond``.
+        """
+        minimum = await self.get_minimum_bond()
+        return minimum if minimum > UMA_BOND else UMA_BOND
+
     # ------------------------------------------------------------------
     # The §8.6 self-dispute flow
     # ------------------------------------------------------------------
 
     async def requester_force_dvm(
-        self, dispute_id: str, evidence_cid: str, disputer: str
+        self, dispute_id: str, evidence_cid: str, reasoning_cid: str, disputer: str
     ) -> Dict[str, str]:
         """
         Force the dispute to the UMA DVM by self-disputing (AIP-14b §8.6).
@@ -302,8 +323,9 @@ class UMAHelper:
 
             1. ``USDC.approve(bond_escalation, $500)`` — so ``escalate_to_uma``
                can pull the asserter bond.
-            2. ``BondEscalation.escalateToUMA(dispute_id, evidence_cid)`` — posts
-               the $500 asserter bond ("Provider delivered").
+            2. ``BondEscalation.escalateToUMA(dispute_id, evidence_cid,
+               reasoning_cid)`` — posts the $500 asserter bond ("Provider
+               delivered").
             3. read ``assertion_id`` ←
                ``BondEscalation.disputeToAssertion(dispute_id)``.
             4. ``USDC.approve(oov3, $500)`` — so ``disputeAssertion`` can pull the
@@ -322,20 +344,28 @@ class UMAHelper:
             dispute_id: bytes32 dispute id (already at the Tier-1 $500 ceiling,
                 liveness active — ``escalate_to_uma``'s preconditions).
             evidence_cid: IPFS CID of the canonical evidence bundle (§8.4).
+            reasoning_cid: IPFS CID of the evaluator reasoning (BLOCKER-2: both
+                CIDs are forwarded into the UMA/DVM claim).
             disputer: Address that disputes the assertion (the requester themself;
                 receives the $750 if the DVM rules FALSE).
 
         Returns:
             ``{"assertion_id", "escalate_tx_hash", "dispute_tx_hash"}``.
         """
-        # 1. approve BondEscalation for the $500 asserter bond.
-        await self._send(self._usdc, "approve", [self._bond_escalation_address, UMA_BOND])
+        # 0. read the effective per-side bond = max($500, getMinimumBond(USDC)),
+        #    matching BondEscalation.sol's dynamic bond (a pure read, not recorded
+        #    as a write). Under the default regime this is $500 (UMA_BOND).
+        bond = await self.get_effective_bond()
+
+        # 1. approve BondEscalation for the asserter bond.
+        await self._send(self._usdc, "approve", [self._bond_escalation_address, bond])
 
         # 2. escalateToUMA posts the asserter bond ("Provider delivered").
+        #    BLOCKER-2: forward BOTH evidence + reasoning CIDs into the DVM claim.
         escalate = await self._send(
             self._bond_escalation,
             "escalateToUMA",
-            [_to_bytes32(dispute_id), evidence_cid],
+            [_to_bytes32(dispute_id), evidence_cid, reasoning_cid],
         )
 
         # 3. read the assertionId the escalation registered.
@@ -348,8 +378,8 @@ class UMAHelper:
             else raw_assertion
         )
 
-        # 4. approve OOV3 for the $500 disputer bond.
-        await self._send(self._usdc, "approve", [self._oov3_address, UMA_BOND])
+        # 4. approve OOV3 for the disputer bond (same effective amount).
+        await self._send(self._usdc, "approve", [self._oov3_address, bond])
 
         # 5. dispute the requester's own assertion, forcing DVM review.
         dispute = await self._send(

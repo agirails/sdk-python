@@ -99,18 +99,41 @@ class TestNetworkConfigDisputeKeys:
     def test_fixture_lists_canonical_dispute_keys(self):
         assert GOLDEN["contracts"]["keys"] == DISPUTE_KEYS
 
+    # AIP-14b dispute layer deployment state per network (mirrors the TS SDK
+    # config). base-sepolia went live 2026-07-02 (P4-1): the Tier-1 bond engine
+    # + CompositeMediator are deployed; UMA OptimisticOracleV3 is absent on
+    # Sepolia (Tier-2 uses a MockOOV3, G2) so that key stays undeployed.
+    # base-mainnet's dispute layer is not yet live — all three remain None.
+    _DEPLOYED_DISPUTE_KEYS = {
+        "base-sepolia": {"bondEscalation", "compositeMediator"},
+        "base-mainnet": set(),
+    }
+    # camelCase wire key -> snake_case dataclass attribute.
+    _KEY_TO_ATTR = {
+        "bondEscalation": "bond_escalation",
+        "compositeMediator": "composite_mediator",
+        "umaOptimisticOracleV3": "uma_optimistic_oracle_v3",
+    }
+
     @pytest.mark.parametrize("network", ["base-sepolia", "base-mainnet"])
-    def test_dispute_keys_present_and_undeployed(self, network):
+    def test_dispute_keys_present_and_deployment_state(self, network):
         cfg = get_network(network)
         wire = cfg.to_dict()["contracts"]
-        # snake_case attributes on the dataclass …
-        assert cfg.contracts.bond_escalation is None
-        assert cfg.contracts.composite_mediator is None
-        assert cfg.contracts.uma_optimistic_oracle_v3 is None
-        # … and the camelCase wire keys match the TS SDK exactly (parity).
+        deployed = self._DEPLOYED_DISPUTE_KEYS[network]
         for key in DISPUTE_KEYS:
+            # The key must be present in the wire config for BOTH networks
+            # (parity anchor: the shape is identical across networks).
             assert key in wire, f"{key} missing from {network} wire config"
-            assert wire[key] is None
+            attr = self._KEY_TO_ATTR[key]
+            if key in deployed:
+                # Deployed: both the snake_case attribute and the camelCase
+                # wire key resolve to a concrete address.
+                assert getattr(cfg.contracts, attr) is not None
+                assert wire[key] is not None
+            else:
+                # Undeployed on this network — None on both surfaces.
+                assert getattr(cfg.contracts, attr) is None
+                assert wire[key] is None
 
     def test_both_networks_present(self):
         assert sorted(NETWORKS.keys()) == ["base-mainnet", "base-sepolia"]
@@ -132,6 +155,8 @@ class TestGoldenVector:
             timestamp=r["timestamp"],
             reasoning_hash=r["reasoningHash"],
             bundle_hash=r["bundleHash"],
+            evidence_ref_hash=r["evidenceRefHash"],
+            reasoning_ref_hash=r["reasoningRefHash"],
         )
 
     def test_domain_separator_matches_frozen(self):

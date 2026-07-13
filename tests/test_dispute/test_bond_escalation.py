@@ -26,7 +26,12 @@ import pytest
 from web3 import Web3
 
 from agirails.dispute.bond_escalation import BondEscalationClient
-from agirails.types.dispute import AIRuling, Ruling
+from agirails.types.dispute import (
+    AIRuling,
+    Ruling,
+    compute_evidence_ref_hash,
+    compute_reasoning_ref_hash,
+)
 
 # Shared cross-SDK fixture (the SAME file the TS jest suite loads).
 _VECTORS_DIR = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
@@ -216,20 +221,43 @@ async def test_open_dispute_calldata():
 
 
 async def test_submit_ai_ruling_calldata():
+    # AIP-14c D7: the FINAL 5-arg submitAIRuling(disputeId, ruling, evidenceCID,
+    # reasoningCID, signatures) — selector 0xca74ab82. The ruling tuple is the
+    # 9-field type; its evidence/reasoning refs are derived from the SAME CIDs
+    # the call carries (what the contract recomputes + equality-checks on-chain).
+    from agirails.types.dispute import (
+        compute_evidence_ref_hash,
+        compute_reasoning_ref_hash,
+    )
+
     client, contract = _make_client()
+    reasoning_hash = "0x" + "11" * 32
+    bundle_hash = "0x" + "22" * 32
+    evidence_cid = "bafybeigevidenceCID"
+    reasoning_cid = "bafybeigreasoningCID"
+    # P2: the SIGNED ruling already carries the D7 ref-hashes; the SDK VERIFIES
+    # them against the CIDs (raises on mismatch), it does NOT overwrite.
+    evidence_ref = compute_evidence_ref_hash(bundle_hash, evidence_cid)
+    reasoning_ref = compute_reasoning_ref_hash(reasoning_hash, reasoning_cid)
     ruling = AIRuling(
         dispute_id=DISPUTE_ID,
         ruling=Ruling.SPLIT,
         confidence=9500,
         split_bps=6000,
         timestamp=1700000000,
-        reasoning_hash="0x" + "11" * 32,
-        bundle_hash="0x" + "22" * 32,
+        reasoning_hash=reasoning_hash,
+        bundle_hash=bundle_hash,
+        evidence_ref_hash=evidence_ref,
+        reasoning_ref_hash=reasoning_ref,
     )
     sigs = ["0x" + "ab" * 65, "0x" + "cd" * 65]
-    await client.submit_ai_ruling(ruling, sigs)
+    await client.submit_ai_ruling(ruling, sigs, evidence_cid, reasoning_cid)
     name, args = contract.calls[0]
     assert name == "submitAIRuling"
+    # Selector pinned to the final D7 entrypoint.
+    assert contract.encode_abi(
+        abi_element_identifier="submitAIRuling", args=list(args)
+    )[:10] == "0xca74ab82"
     tuple_arg = (
         bytes.fromhex(DISPUTE_ID[2:]),
         2,
@@ -238,12 +266,16 @@ async def test_submit_ai_ruling_calldata():
         1700000000,
         bytes.fromhex("11" * 32),
         bytes.fromhex("22" * 32),
+        compute_evidence_ref_hash(bundle_hash, evidence_cid),
+        compute_reasoning_ref_hash(reasoning_hash, reasoning_cid),
     )
     expected = _ref_calldata(
         "submitAIRuling",
         [
             bytes.fromhex(DISPUTE_ID[2:]),
             tuple_arg,
+            evidence_cid,
+            reasoning_cid,
             [bytes.fromhex("ab" * 65), bytes.fromhex("cd" * 65)],
         ],
     )
@@ -281,14 +313,68 @@ async def test_finalize_calldata():
 
 
 async def test_escalate_to_uma_calldata():
+    # BLOCKER-2: the 2-CID escalateToUMA(disputeId, evidenceCID, reasoningCID),
+    # selector 0xea487f8a. The 1-CID form (0xa3c23734) is removed.
     client, contract = _make_client()
-    cid = "bafybeigdyrztabcdefghijklmnopqrstuvwxyz1234567890"
-    await client.escalate_to_uma(DISPUTE_ID, cid)
+    evidence_cid = "bafybeigdyrztabcdefghijklmnopqrstuvwxyz1234567890"
+    reasoning_cid = "bafybeigreasoningdyrztabcdefghijklmnopqrstuvwxyz00"
+    await client.escalate_to_uma(DISPUTE_ID, evidence_cid, reasoning_cid)
     name, args = contract.calls[0]
     assert name == "escalateToUMA"
-    assert contract.encode_abi(
+    encoded = contract.encode_abi(
         abi_element_identifier="escalateToUMA", args=list(args)
-    ) == _ref_calldata("escalateToUMA", [bytes.fromhex(DISPUTE_ID[2:]), cid])
+    )
+    assert encoded == _ref_calldata(
+        "escalateToUMA",
+        [bytes.fromhex(DISPUTE_ID[2:]), evidence_cid, reasoning_cid],
+    )
+    assert encoded[:10] == "0xea487f8a"
+
+
+async def test_submit_ai_ruling_rejects_mismatched_cid():
+    # P2: submit_ai_ruling must RAISE when a CID does not match the signed ruling
+    # refs (fail-closed — sending would ship invalid signatures on-chain).
+    client, contract = _make_client()
+    reasoning_hash = "0x" + "11" * 32
+    bundle_hash = "0x" + "22" * 32
+    evidence_cid = "bafybeigevidenceCID"
+    reasoning_cid = "bafybeigreasoningCID"
+    ruling = AIRuling(
+        dispute_id=DISPUTE_ID,
+        ruling=Ruling.SPLIT,
+        confidence=9500,
+        split_bps=6000,
+        timestamp=1700000000,
+        reasoning_hash=reasoning_hash,
+        bundle_hash=bundle_hash,
+        evidence_ref_hash=compute_evidence_ref_hash(bundle_hash, evidence_cid),
+        reasoning_ref_hash=compute_reasoning_ref_hash(reasoning_hash, reasoning_cid),
+    )
+    sigs = ["0x" + "ab" * 65]
+    with pytest.raises(ValueError, match="evidenceCID does not match the signed ruling"):
+        await client.submit_ai_ruling(ruling, sigs, "bafybeigTAMPEREDcid", reasoning_cid)
+    # Fail-closed: nothing was sent.
+    assert contract.calls == []
+
+
+async def test_settle_uma_assertion_calldata():
+    client, contract = _make_client()
+    await client.settle_uma_assertion(DISPUTE_ID)
+    name, args = contract.calls[0]
+    assert name == "settleUMAAssertion"
+    assert contract.encode_abi(
+        abi_element_identifier="settleUMAAssertion", args=list(args)
+    ) == _ref_calldata("settleUMAAssertion", [bytes.fromhex(DISPUTE_ID[2:])])
+
+
+async def test_retry_mediator_resolution_calldata():
+    client, contract = _make_client()
+    await client.retry_mediator_resolution(DISPUTE_ID)
+    name, args = contract.calls[0]
+    assert name == "retryMediatorResolution"
+    assert contract.encode_abi(
+        abi_element_identifier="retryMediatorResolution", args=list(args)
+    ) == _ref_calldata("retryMediatorResolution", [bytes.fromhex(DISPUTE_ID[2:])])
 
 
 async def test_claim_escalation_refund_calldata():

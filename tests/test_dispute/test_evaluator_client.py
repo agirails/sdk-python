@@ -56,6 +56,7 @@ SIGS = FIXTURE["signatures"]
 
 def _fixture_ruling() -> AIRuling:
     r = RULING_FX
+    zero = "0x" + "00" * 32
     return AIRuling(
         dispute_id=r["disputeId"],
         ruling=r["ruling"],
@@ -64,6 +65,8 @@ def _fixture_ruling() -> AIRuling:
         timestamp=r["timestamp"],
         reasoning_hash=r["reasoningHash"],
         bundle_hash=r["bundleHash"],
+        evidence_ref_hash=r.get("evidenceRefHash", zero),
+        reasoning_ref_hash=r.get("reasoningRefHash", zero),
     )
 
 

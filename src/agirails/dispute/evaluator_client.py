@@ -573,6 +573,7 @@ class EvaluatorClient:
     @staticmethod
     def _normalize_ruling(r: Dict[str, Any]) -> AIRuling:
         """Normalize a wire ruling object into the FROZEN :class:`AIRuling`."""
+        zero = "0x" + "00" * 32
         return AIRuling(
             dispute_id=r["disputeId"],
             ruling=int(r["ruling"]),
@@ -581,6 +582,10 @@ class EvaluatorClient:
             timestamp=int(r["timestamp"]),
             reasoning_hash=r["reasoningHash"],
             bundle_hash=r["bundleHash"],
+            # AIP-14c D7: carry the CID-commitment ref-hashes when present; a
+            # missing value defaults to bytes32(0) (matching the TS twin).
+            evidence_ref_hash=r.get("evidenceRefHash", zero),
+            reasoning_ref_hash=r.get("reasoningRefHash", zero),
         )
 
     @staticmethod

@@ -18,7 +18,8 @@ so any reorder breaks signature verification across the off-chain evaluator,
 the SDK, and the on-chain `_verifyEvaluatorSignatures`. Field order matches
 AIP-14b §4.4 exactly:
 
-    disputeId, ruling, confidence, splitBps, timestamp, reasoningHash, bundleHash
+    disputeId, ruling, confidence, splitBps, timestamp, reasoningHash, bundleHash,
+    evidenceRefHash, reasoningRefHash   (AIP-14c 9-field type)
 
 Golden vector (cross-language anchor, MUST reproduce GOLDEN_DIGEST exactly):
     domain: name="ACTPDisputeEvaluator", version="1", chainId=8453,
@@ -26,8 +27,10 @@ Golden vector (cross-language anchor, MUST reproduce GOLDEN_DIGEST exactly):
     AIRuling: disputeId=keccak256("ACTP_GOLDEN_VECTOR_DISPUTE"), ruling=1,
               confidence=9500, splitBps=0, timestamp=1700000000,
               reasoningHash=keccak256("golden-reasoning"),
-              bundleHash=keccak256("golden-bundle")
-    => GOLDEN_DIGEST = 0x9b477852dd1ddad0105ca5e2a320c6ca72105215985b53878ae12b49eb34e365
+              bundleHash=keccak256("golden-bundle"),
+              evidenceRefHash=keccak256("golden-evidence-ref"),
+              reasoningRefHash=keccak256("golden-reasoning-ref")
+    => GOLDEN_DIGEST = 0xc14778f377cd385dd4686b798cb2a010c8ff95e8a35a4f170af7e05bc8c2d8a0
 
 Example:
     >>> ruling = AIRuling(
@@ -113,7 +116,8 @@ DOMAIN_TYPEHASH: bytes = _keccak(
     text="EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
 )
 
-# keccak256("AIRuling(bytes32 disputeId,uint8 ruling,uint16 confidence,uint16 splitBps,uint64 timestamp,bytes32 reasoningHash,bytes32 bundleHash)")
+# keccak256("AIRuling(bytes32 disputeId,uint8 ruling,uint16 confidence,uint16 splitBps,uint64 timestamp,bytes32 reasoningHash,bytes32 bundleHash,bytes32 evidenceRefHash,bytes32 reasoningRefHash)")
+# = 0x00e11bf3b34994a6bc6e216b116cbdaddee1227d0c97d46416f8d994ba8420ae (AIP-14c 9-field type)
 #
 # REPRESENTATION NOTE: this is `bytes` in Python; the TS twin (`RULING_TYPEHASH`)
 # exposes the same constant as a 0x-hex `string`. Cross-language VALUE is
@@ -121,8 +125,11 @@ DOMAIN_TYPEHASH: bytes = _keccak(
 # must compare the 32 raw bytes (Py: `RULING_TYPEHASH`,
 # TS: `ethers.getBytes(RULING_TYPEHASH)`), NOT the surface type.
 RULING_TYPEHASH: bytes = _keccak(
-    text="AIRuling(bytes32 disputeId,uint8 ruling,uint16 confidence,uint16 splitBps,uint64 timestamp,bytes32 reasoningHash,bytes32 bundleHash)"
+    text="AIRuling(bytes32 disputeId,uint8 ruling,uint16 confidence,uint16 splitBps,uint64 timestamp,bytes32 reasoningHash,bytes32 bundleHash,bytes32 evidenceRefHash,bytes32 reasoningRefHash)"
 )
+
+# bytes32(0) — the default for an unset evidence_ref_hash / reasoning_ref_hash.
+_ZERO_BYTES32: bytes = b"\x00" * 32
 
 # EIP-712 domain identity for the dispute evaluator (AIP-14b §4.5).
 # Names mirror the TS twin's `DISPUTE_EVALUATOR_DOMAIN_NAME` / `_VERSION` exactly.
@@ -141,6 +148,8 @@ AIRULING_TYPES: Dict[str, List[Dict[str, str]]] = {
         {"name": "timestamp", "type": "uint64"},
         {"name": "reasoningHash", "type": "bytes32"},
         {"name": "bundleHash", "type": "bytes32"},
+        {"name": "evidenceRefHash", "type": "bytes32"},
+        {"name": "reasoningRefHash", "type": "bytes32"},
     ]
 }
 
@@ -240,6 +249,12 @@ class AIRuling:
         timestamp:      uint64 — unix epoch seconds
         reasoning_hash: bytes32 — hash of the evaluator's reasoning
         bundle_hash:    bytes32 — hash of the canonical evidence bundle
+        evidence_ref_hash:  bytes32 (AIP-14c D7) — evidence CID commitment
+            ``keccak256(abi.encode(bundle_hash, keccak256(bytes(evidence_cid))))``.
+            Optional; a missing value defaults to bytes32(0), exactly like on-chain.
+        reasoning_ref_hash: bytes32 (AIP-14c D7) — reasoning CID commitment
+            ``keccak256(abi.encode(reasoning_hash, keccak256(bytes(reasoning_cid))))``.
+            Optional; defaults to bytes32(0).
     """
 
     dispute_id: Union[str, bytes]
@@ -249,6 +264,11 @@ class AIRuling:
     timestamp: int
     reasoning_hash: Union[str, bytes]
     bundle_hash: Union[str, bytes]
+    # AIP-14c D7 CID-commitment ref-hashes. Defaulted so a pre-D7 / direct-proposal
+    # caller may omit them; they hash as bytes32(0) (matching the TS twin's
+    # withRefDefaults + the on-chain default).
+    evidence_ref_hash: Union[str, bytes] = _ZERO_BYTES32
+    reasoning_ref_hash: Union[str, bytes] = _ZERO_BYTES32
 
     # EIP-712 type constants — MUST match DisputeTypes.sol field order exactly.
     TYPE_NAME = "AIRuling"
@@ -260,6 +280,8 @@ class AIRuling:
         {"name": "timestamp", "type": "uint64"},
         {"name": "reasoningHash", "type": "bytes32"},
         {"name": "bundleHash", "type": "bytes32"},
+        {"name": "evidenceRefHash", "type": "bytes32"},
+        {"name": "reasoningRefHash", "type": "bytes32"},
     ]
 
     def to_dict(self) -> Dict[str, Any]:
@@ -278,6 +300,8 @@ class AIRuling:
             "bundleHash": self.bundle_hash
             if isinstance(self.bundle_hash, str)
             else "0x" + self.bundle_hash.hex(),
+            "evidenceRefHash": "0x" + _to_bytes32(self.evidence_ref_hash).hex(),
+            "reasoningRefHash": "0x" + _to_bytes32(self.reasoning_ref_hash).hex(),
         }
 
     def struct_hash(self) -> bytes:
@@ -285,7 +309,8 @@ class AIRuling:
         Compute the EIP-712 struct hash (32 bytes):
 
             keccak256(abi.encode(RULING_TYPEHASH, disputeId, ruling, confidence,
-                                 splitBps, timestamp, reasoningHash, bundleHash))
+                                 splitBps, timestamp, reasoningHash, bundleHash,
+                                 evidenceRefHash, reasoningRefHash))
 
         Each field is ABI-encoded (padded to 32 bytes). Field order is load-bearing.
         """
@@ -300,6 +325,8 @@ class AIRuling:
                     "uint64",  # timestamp
                     "bytes32",  # reasoningHash
                     "bytes32",  # bundleHash
+                    "bytes32",  # evidenceRefHash (AIP-14c D7)
+                    "bytes32",  # reasoningRefHash (AIP-14c D7)
                 ],
                 [
                     RULING_TYPEHASH,
@@ -310,6 +337,8 @@ class AIRuling:
                     int(self.timestamp),
                     _to_bytes32(self.reasoning_hash),
                     _to_bytes32(self.bundle_hash),
+                    _to_bytes32(self.evidence_ref_hash),
+                    _to_bytes32(self.reasoning_ref_hash),
                 ],
             )
         )
@@ -454,6 +483,53 @@ def sign_ruling(
     return signed.signature.hex() if signed.signature.hex().startswith("0x") else "0x" + signed.signature.hex()
 
 
+def compute_evidence_ref_hash(
+    bundle_hash: Union[str, bytes],
+    evidence_cid: str,
+) -> bytes:
+    """
+    Compute the AIP-14c D7 evidence CID commitment:
+
+        keccak256(abi.encode(bundleHash, keccak256(bytes(evidenceCID))))
+
+    This is the SAME formula ``BondEscalation.submitAIRuling`` recomputes
+    on-chain and requires to equal the SIGNED ``ruling.evidenceRefHash`` before
+    any bond transfer (AIP14C-BOND-ABI-FREEZE.md). Mirrors the TS twin.
+
+    Returns:
+        32-byte evidence ref hash.
+    """
+    return _keccak(
+        _abi_encode(
+            ["bytes32", "bytes32"],
+            [_to_bytes32(bundle_hash), _keccak(text=evidence_cid)],
+        )
+    )
+
+
+def compute_reasoning_ref_hash(
+    reasoning_hash: Union[str, bytes],
+    reasoning_cid: str,
+) -> bytes:
+    """
+    Compute the AIP-14c D7 reasoning CID commitment:
+
+        keccak256(abi.encode(reasoningHash, keccak256(bytes(reasoningCID))))
+
+    Recomputed + equality-checked on-chain against the SIGNED
+    ``ruling.reasoningRefHash`` (AIP14C-BOND-ABI-FREEZE.md). Mirrors the TS twin.
+
+    Returns:
+        32-byte reasoning ref hash.
+    """
+    return _keccak(
+        _abi_encode(
+            ["bytes32", "bytes32"],
+            [_to_bytes32(reasoning_hash), _keccak(text=reasoning_cid)],
+        )
+    )
+
+
 def recover_ruling_signer(
     ruling: AIRuling,
     signature: Union[str, bytes],
@@ -496,6 +572,9 @@ __all__ = [
     "dispute_evaluator_domain",
     "compute_ruling_struct_hash",
     "compute_ruling_domain_separator",
+    # D7 CID-commitment ref-hash builders (1:1 with TS)
+    "compute_evidence_ref_hash",
+    "compute_reasoning_ref_hash",
     # Signing API
     "compute_ruling_digest",
     "sign_ruling",

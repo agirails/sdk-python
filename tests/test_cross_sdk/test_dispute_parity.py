@@ -230,6 +230,8 @@ class TestGoldenAIRulingDigest:
             timestamp=r["timestamp"],
             reasoning_hash=r["reasoningHash"],
             bundle_hash=r["bundleHash"],
+            evidence_ref_hash=r["evidenceRefHash"],
+            reasoning_ref_hash=r["reasoningRefHash"],
         )
 
     def test_domain_identity_matches_frozen(self):
@@ -332,9 +334,26 @@ class TestGoldenBondEscalationCalldata:
         assert cd == g["challenge"]["calldata"]
 
     def test_submit_ai_ruling_calldata_matches_frozen(self):
+        # AIP-14c D7: the FINAL 5-arg submitAIRuling (selector 0xca74ab82). The
+        # shared golden's stored calldata predates D7 (3-arg 7-field), so the
+        # ruling VALUES are still read from the frozen vector while the expected
+        # calldata is recomputed INDEPENDENTLY of the SDK ABI JSON — raw eth_abi
+        # packing + the pinned selector — so this stays a genuine cross-SDK anchor
+        # (ethers packs the identical bytes on the TS side).
+        from eth_abi import encode as abi_encode
+
+        from agirails.types.dispute import (
+            compute_evidence_ref_hash,
+            compute_reasoning_ref_hash,
+        )
+
         g = GOLDEN["bondEscalationCalldata"]
         client = self._client()
         r = g["submitAIRuling"]["args"]["ruling"]
+        evidence_cid = "bafybeigevidenceCID"
+        reasoning_cid = "bafybeigreasoningCID"
+        evidence_ref = compute_evidence_ref_hash(r["bundleHash"], evidence_cid)
+        reasoning_ref = compute_reasoning_ref_hash(r["reasoningHash"], reasoning_cid)
         tuple_arg = (
             bytes.fromhex(r["disputeId"][2:]),
             r["ruling"],
@@ -343,19 +362,41 @@ class TestGoldenBondEscalationCalldata:
             r["timestamp"],
             bytes.fromhex(r["reasoningHash"][2:]),
             bytes.fromhex(r["bundleHash"][2:]),
+            evidence_ref,
+            reasoning_ref,
         )
         sigs = [bytes.fromhex(s[2:]) for s in g["submitAIRuling"]["args"]["signatures"]]
-        cd = client.encode_calldata("submitAIRuling", [bytes.fromhex(r["disputeId"][2:]), tuple_arg, sigs])
-        assert cd == g["submitAIRuling"]["calldata"]
+        dispute_id = bytes.fromhex(r["disputeId"][2:])
+        cd = client.encode_calldata(
+            "submitAIRuling", [dispute_id, tuple_arg, evidence_cid, reasoning_cid, sigs]
+        )
+        # Independent reference: selector 0xca74ab82 + raw ABI-encoded head.
+        expected = "0xca74ab82" + abi_encode(
+            [
+                "bytes32",
+                "(bytes32,uint8,uint16,uint16,uint64,bytes32,bytes32,bytes32,bytes32)",
+                "string",
+                "string",
+                "bytes[]",
+            ],
+            [dispute_id, tuple_arg, evidence_cid, reasoning_cid, sigs],
+        ).hex()
+        assert cd == expected
+        assert cd[:10] == "0xca74ab82"
 
     def test_escalate_to_uma_calldata_matches_frozen(self):
         g = GOLDEN["bondEscalationCalldata"]
         client = self._client()
         cd = client.encode_calldata(
             "escalateToUMA",
-            [bytes.fromhex(g["disputeId"][2:]), g["escalateToUMA"]["args"]["evidenceCID"]],
+            [
+                bytes.fromhex(g["disputeId"][2:]),
+                g["escalateToUMA"]["args"]["evidenceCID"],
+                g["escalateToUMA"]["args"]["reasoningCID"],
+            ],
         )
         assert cd == g["escalateToUMA"]["calldata"]
+        assert cd[:10] == g["escalateToUMA"]["selector"] == "0xea487f8a"
 
 
 # ===========================================================================

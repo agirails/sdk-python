@@ -38,16 +38,18 @@ GOLDEN_SPLIT_BPS = 0
 GOLDEN_TIMESTAMP = 1_700_000_000
 GOLDEN_REASONING_HASH = "0x" + keccak(text="golden-reasoning").hex()
 GOLDEN_BUNDLE_HASH = "0x" + keccak(text="golden-bundle").hex()
+GOLDEN_EVIDENCE_REF_HASH = "0x" + keccak(text="golden-evidence-ref").hex()
+GOLDEN_REASONING_REF_HASH = "0x" + keccak(text="golden-reasoning-ref").hex()
 
-# ---- FROZEN EXPECTED VALUES (the canonical anchor) ----
+# ---- FROZEN EXPECTED VALUES (the canonical anchor, AIP-14c 9-field type) ----
 GOLDEN_DOMAIN_SEPARATOR = (
     "0x49c919619319169442e048297d8b8dc2f0c6a78b8601c78a39656bc2b3b25db8"
 )
 GOLDEN_STRUCT_HASH = (
-    "0x819e81f3ec882e0f9c6dc718e9cd9bcbc857c2c59f3074164ee219c2b25c12a9"
+    "0x2b30b25ad0258f200a315a68b1a7ebffc4040679fca1a4bbdf1cae0b57c589b4"
 )
 GOLDEN_DIGEST = (
-    "0x9b477852dd1ddad0105ca5e2a320c6ca72105215985b53878ae12b49eb34e365"
+    "0xc14778f377cd385dd4686b798cb2a010c8ff95e8a35a4f170af7e05bc8c2d8a0"
 )
 
 
@@ -60,6 +62,8 @@ def _golden_ruling() -> AIRuling:
         timestamp=GOLDEN_TIMESTAMP,
         reasoning_hash=GOLDEN_REASONING_HASH,
         bundle_hash=GOLDEN_BUNDLE_HASH,
+        evidence_ref_hash=GOLDEN_EVIDENCE_REF_HASH,
+        reasoning_ref_hash=GOLDEN_REASONING_REF_HASH,
     )
 
 
@@ -166,8 +170,41 @@ def test_bytes32_inputs_accepted():
         timestamp=GOLDEN_TIMESTAMP,
         reasoning_hash=keccak(text="golden-reasoning"),
         bundle_hash=keccak(text="golden-bundle"),
+        evidence_ref_hash=keccak(text="golden-evidence-ref"),
+        reasoning_ref_hash=keccak(text="golden-reasoning-ref"),
     )
     digest = compute_ruling_digest(
         ruling, GOLDEN_CHAIN_ID, GOLDEN_VERIFYING_CONTRACT
     )
     assert "0x" + digest.hex() == GOLDEN_DIGEST
+
+
+def test_ref_hashes_load_bearing_default_zero():
+    """
+    AIP-14c: evidence_ref_hash / reasoning_ref_hash default to bytes32(0) when
+    omitted (pre-D7 / direct-proposal path), and are load-bearing — supplying
+    the golden refs yields the golden digest, omitting them does NOT.
+    """
+    zero_ref = AIRuling(
+        dispute_id=GOLDEN_DISPUTE_ID,
+        ruling=GOLDEN_RULING,
+        confidence=GOLDEN_CONFIDENCE,
+        split_bps=GOLDEN_SPLIT_BPS,
+        timestamp=GOLDEN_TIMESTAMP,
+        reasoning_hash=GOLDEN_REASONING_HASH,
+        bundle_hash=GOLDEN_BUNDLE_HASH,
+    )
+    digest_zero = compute_ruling_digest(
+        zero_ref, GOLDEN_CHAIN_ID, GOLDEN_VERIFYING_CONTRACT
+    )
+    assert "0x" + digest_zero.hex() != GOLDEN_DIGEST
+
+
+def test_typehash_frozen_literal():
+    """RULING_TYPEHASH equals the frozen AIP-14c literal (byte-for-byte)."""
+    from agirails.types.dispute import RULING_TYPEHASH
+
+    assert (
+        "0x" + RULING_TYPEHASH.hex()
+        == "0x00e11bf3b34994a6bc6e216b116cbdaddee1227d0c97d46416f8d994ba8420ae"
+    )

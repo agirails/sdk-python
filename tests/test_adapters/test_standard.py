@@ -506,7 +506,7 @@ class TestStandardLifecycleMethods:
         )
         await client.standard.link_escrow(tx_id)
         await client.standard.start_work(tx_id)
-        await client.standard.deliver(tx_id)
+        await client.standard.deliver(tx_id, result_hash="0x" + "11" * 32)
 
         status = await client.standard.get_status(tx_id)
         assert status.state == "DELIVERED"
@@ -546,7 +546,7 @@ class TestStandardLifecycleMethods:
         )
         await client.standard.link_escrow(tx_id)
         await client.standard.start_work(tx_id)
-        await client.standard.deliver(tx_id)
+        await client.standard.deliver(tx_id, result_hash="0x" + "11" * 32)
 
         tx = await client.standard.get_transaction(tx_id)
         assert tx.state == "DELIVERED"
@@ -559,7 +559,7 @@ class TestStandardLifecycleMethods:
         )
         await client.standard.link_escrow(tx_id)
         await client.standard.start_work(tx_id)
-        await client.standard.deliver(tx_id)
+        await client.standard.deliver(tx_id, result_hash="0x" + "11" * 32)
         await client.runtime.time.advance_time(3601)
 
         await client.standard.release(tx_id)

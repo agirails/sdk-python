@@ -56,6 +56,18 @@ from agirails.builders.counter_accept import (
     CounterAcceptMessage,
     CounterAcceptParams,
 )
+from agirails.builders.agreement import (
+    AGREEMENT_SCHEMA_VERSION,
+    SUPPORTED_AGREEMENT_MAJOR,
+    ZERO_AGREEMENT_HASH,
+    InvalidAgreementError,
+    UnsupportedAgreementVersionError,
+    assert_supported_agreement_version,
+    validate_agreement,
+    serialize_agreement,
+    compute_agreement_hash,
+    agreement_hash,
+)
 
 __all__ = [
     # Quote (AIP-2 signed — TS parity)
@@ -86,4 +98,15 @@ __all__ = [
     "CounterAcceptBuilder",
     "CounterAcceptMessage",
     "CounterAcceptParams",
+    # Agreement serializer (AIP-14c D3 — agreementHash preimage)
+    "AGREEMENT_SCHEMA_VERSION",
+    "SUPPORTED_AGREEMENT_MAJOR",
+    "ZERO_AGREEMENT_HASH",
+    "InvalidAgreementError",
+    "UnsupportedAgreementVersionError",
+    "assert_supported_agreement_version",
+    "validate_agreement",
+    "serialize_agreement",
+    "compute_agreement_hash",
+    "agreement_hash",
 ]

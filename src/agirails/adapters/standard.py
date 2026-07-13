@@ -792,28 +792,42 @@ class StandardAdapter(BaseAdapter):
             return
         await self._runtime.transition_state(tx_id, State.IN_PROGRESS)
 
-    async def deliver(self, tx_id: str, proof: Optional[str] = None) -> None:
+    async def deliver(
+        self,
+        tx_id: str,
+        proof: Optional[str] = None,
+        result_hash: Optional[Union[str, bytes]] = None,
+    ) -> None:
         """
         Transition to DELIVERED (provider completes work). IAdapter compliance.
 
-        When no proof is provided, fetches the transaction's actual
-        disputeWindow and encodes it as proof. Mirrors TS
-        ``StandardAdapter.deliver`` (StandardAdapter.ts:654-672).
+        When no ``proof`` is provided, fetches the transaction's actual
+        disputeWindow and encodes the 64-byte ``(window, resultHash)`` proof.
+        ``result_hash`` MUST commit to a REAL deliverable
+        (``compute_result_hash(result)`` public / AIP-16 envelope hash
+        encrypted) — there is NO synthetic fallback, so a bare ``deliver(tx_id)``
+        with neither a pre-encoded ``proof`` nor a ``result_hash`` fails closed.
+        Mirrors TS ``StandardAdapter.deliver`` (StandardAdapter.ts:658-677).
 
         Args:
             tx_id: Transaction ID.
-            proof: Optional ABI-encoded dispute-window proof. Defaults to the
-                transaction's own disputeWindow.
+            proof: Optional pre-encoded 64-byte delivery proof. When supplied it
+                is sent verbatim (the caller already committed the resultHash).
+            result_hash: bytes32 commitment to the delivered result, used when
+                ``proof`` is not supplied. REQUIRED in that case.
 
         Raises:
             RuntimeError: If transaction not found.
+            ValueError: If neither ``proof`` nor a real ``result_hash`` is given.
         """
         delivery_proof = proof
         if not delivery_proof:
             tx = await self._runtime.get_transaction(tx_id)
             if tx is None:
                 raise RuntimeError(f"Transaction {tx_id} not found")
-            delivery_proof = self.encode_dispute_window_proof(tx.dispute_window)
+            # AIP-14c 64-byte (window, resultHash) proof — fails closed without a
+            # real resultHash (no synthetic fallback).
+            delivery_proof = self.encode_delivery_proof(tx.dispute_window, result_hash)
 
         router = self._smart_wallet_router
         if router is not None and router.should_route():
