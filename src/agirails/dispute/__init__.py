@@ -46,6 +46,17 @@ from agirails.dispute.evidence_bundle import (
     set_bundle_tokenizer,
     pin_evidence_bundle,
 )
+from agirails.dispute.evidence_artifact_v2 import (
+    EVIDENCE_ARTIFACT_V2_SCHEMA_VERSION,
+    assert_artifact_v2_version,
+    validate_evidence_artifact_v2,
+    serialize_artifact_v2,
+    serialize_artifact_v2_to_string,
+    compute_artifact_v2_hash,
+    count_artifact_v2_tokens,
+    UnsupportedArtifactVersionError,
+    InvalidArtifactError,
+)
 from agirails.dispute.composite_mediator import (
     # Types
     DisputeSplitRecorded,
@@ -164,4 +175,14 @@ __all__ = [
     "enforce_token_cap",
     "set_bundle_tokenizer",
     "pin_evidence_bundle",
+    # Schema-2.0.0 evidence artifact (AIP-14c D5/D6)
+    "EVIDENCE_ARTIFACT_V2_SCHEMA_VERSION",
+    "assert_artifact_v2_version",
+    "validate_evidence_artifact_v2",
+    "serialize_artifact_v2",
+    "serialize_artifact_v2_to_string",
+    "compute_artifact_v2_hash",
+    "count_artifact_v2_tokens",
+    "UnsupportedArtifactVersionError",
+    "InvalidArtifactError",
 ]
