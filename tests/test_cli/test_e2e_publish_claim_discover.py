@@ -86,11 +86,17 @@ class TestPublishStage:
         md_path = tmp_path / "AGIRAILS.md"
         md_path.write_text(SAMPLE_AGIRAILS_MD)
 
-        result = runner.invoke(app, [
-            "publish",
-            "--network", "mock",
-            "--dry-run",
-        ])
+        with patch(
+            "agirails.api.agirails_app.check_slug",
+            new_callable=AsyncMock,
+            return_value={"available": True},
+        ) as check_slug:
+            result = runner.invoke(app, [
+                "publish",
+                "--network", "mock",
+                "--dry-run",
+            ])
+        check_slug.assert_awaited_once_with("e2e-test-agent")
         assert result.exit_code == 0, f"Dry-run failed: {result.output}"
 
 
