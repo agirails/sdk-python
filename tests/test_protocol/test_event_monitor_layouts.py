@@ -167,9 +167,10 @@ def add_logs(provider, legacy):
     return created
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("config,legacy", [(BASE_MAINNET, True), (BASE_SEPOLIA, False)])
 @pytest.mark.parametrize("factory", ["config", "direct", "wrapped"])
-def test_factory_selects_descriptor_event_topic_without_mutating_packaged_abi(
+async def test_factory_selects_descriptor_event_topic_without_mutating_packaged_abi(
     config, legacy, factory
 ):
     monitor, _, _ = setup_monitor(config, factory)
