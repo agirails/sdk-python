@@ -697,3 +697,20 @@ def create_output_hash(output_data: Any) -> str:
         Hex-encoded keccak256 hash (bytes32, 0x prefixed)
     """
     return create_input_hash(output_data)
+
+
+def _verification_type_definition(message_type: str, message: dict[str, Any]) -> list[dict[str, str]]:
+    if not isinstance(message, dict):
+        return []
+    if message_type != DeliveryProof.TYPE_NAME:
+        return {
+            ServiceRequest.TYPE_NAME: ServiceRequest.TYPE_DEFINITION,
+            ServiceResponse.TYPE_NAME: ServiceResponse.TYPE_DEFINITION,
+        }.get(message_type, [])
+
+    matching = [
+        proof.TYPE_DEFINITION
+        for proof in (DeliveryProof, DeliveryProofMessage)
+        if all(member["name"] in message for member in proof.TYPE_DEFINITION)
+    ]
+    return matching[0] if len(matching) == 1 else []

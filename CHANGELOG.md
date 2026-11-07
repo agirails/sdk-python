@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Verify both legacy and AIP-4 delivery signatures without their shared type name
+  selecting the wrong schema; reject ambiguous or incomplete delivery payloads.
 - Require patched `cryptography` 50.x while retaining Python 3.9 support.
 - Preserve successful `actp watch` exit codes instead of reporting them as errors.
 - Forward the `actp tx transition --proof` value to the runtime.
