@@ -283,6 +283,62 @@ class ReputationReporter:
             tx_id=tx_id,
         )
 
+    async def report_dispute_split(
+        self,
+        agent_id: str,
+        tx_id: str,
+        capability: str = "",
+        split_bps: Optional[int] = None,
+    ) -> Optional[ReportResult]:
+        """
+        Report an ACTP dispute SPLIT outcome (AIP-14b §3.4, §3.5, INV-22).
+
+        Call this after a dispute resolves to a SPLIT — either a
+        CompositeMediator ruling-2 (``DisputeSplitRecorded``) or a kernel
+        ``DISPUTED → CANCELLED`` transition (admin-CANCELLED). Submits:
+
+        - value: **0** (NEUTRAL — no penalty for either party; INV-4)
+        - valueDecimals: 0 (binary)
+        - tag1: 'actp_dispute_split' (identical string in both SDKs)
+        - tag2: capability
+        - endpoint: '' (always empty for splits)
+        - feedbackURI: ``splitBps:<n>`` when known (transparency only)
+        - feedbackHash: keccak256(txId)
+
+        The neutral value makes the split rate INDEXABLE without punishing
+        legitimately ambiguous one-off cases. NEVER raises — failures are logged
+        and None returned. PARITY: TS ``reportDisputeSplit``.
+
+        Args:
+            agent_id: The provider agent's token ID.
+            tx_id: The ACTP transaction ID.
+            capability: Agent capability (tag2, optional).
+            split_bps: Provider share in basis points from the
+                ``DisputeSplitRecorded`` event, if known (optional).
+
+        Returns:
+            ReportResult on success, None on any failure.
+        """
+        if self.is_reported(tx_id):
+            logger.info("Dispute split already reported for tx %s", tx_id)
+            return None
+
+        tag1 = ACTP_FEEDBACK_TAGS["DISPUTE_SPLIT"]
+        feedback_hash = self._compute_feedback_hash(tx_id)
+        feedback_uri = f"splitBps:{split_bps}" if split_bps is not None else ""
+
+        return await self._submit_feedback(
+            agent_id=agent_id,
+            value=0,  # NEUTRAL split trace (no penalty — AIP-14b §3.4/INV-4)
+            value_decimals=0,
+            tag1=tag1,
+            tag2=capability,
+            endpoint="",
+            feedback_uri=feedback_uri,
+            feedback_hash=feedback_hash,
+            tx_id=tx_id,
+        )
+
     async def get_agent_reputation(
         self,
         agent_id: str,

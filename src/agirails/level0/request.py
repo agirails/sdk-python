@@ -165,6 +165,7 @@ class TransactionInfo:
     fee: float
     duration: int  # ms
     proof: str
+    escrow_id: Optional[str] = None  # SDK-2: requester-side escrow visibility
 
 
 @dataclass
@@ -191,6 +192,7 @@ class RequestResult:
         budget: float,
         duration: int,
         proof: str,
+        escrow_id: Optional[str] = None,
     ) -> RequestResult:
         """Create result from delivery."""
         return cls(
@@ -202,6 +204,7 @@ class RequestResult:
                 fee=budget * 0.01,  # 1% ACTP fee
                 duration=duration,
                 proof=proof,
+                escrow_id=escrow_id,
             ),
         )
 
@@ -437,6 +440,7 @@ class RequestHandle:
                         budget=self._options.budget,
                         duration=duration,
                         proof=self._get_tx_field(tx, "deliveryProof") or self._get_tx_field(tx, "delivery_proof") or "",
+                        escrow_id=self._get_tx_field(tx, "escrowId") or self._get_tx_field(tx, "escrow_id"),
                     )
                     return self._result
                 except Exception as e:

@@ -236,6 +236,7 @@ def transition(
             await client.standard.transition_state(
                 tx_id=tx_id,
                 new_state=new_state,
+                proof=proof,
             )
 
             if opts.output_format == OutputFormat.JSON:

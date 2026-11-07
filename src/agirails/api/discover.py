@@ -260,10 +260,10 @@ async def discover_agents(params: Optional[DiscoverParams] = None) -> DiscoverRe
 
     # Fallback: synchronous urllib (works everywhere)
     import json
-    from urllib.request import Request, urlopen
 
-    req = Request(url, headers={"Accept": "application/json"})
-    with urlopen(req, timeout=15) as resp:
+    from agirails.utils.http import request_http
+
+    with request_http(url, headers={"Accept": "application/json"}, timeout=15) as resp:
         if resp.status != 200:
             raise RuntimeError(f"discover API failed: {resp.status}")
         data = json.loads(resp.read().decode("utf-8"))

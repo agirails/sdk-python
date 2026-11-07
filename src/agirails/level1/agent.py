@@ -554,10 +554,10 @@ class Agent:
         # Find provider if not specified
         if provider is None:
             # Import here to avoid circular import
-            from agirails.level0.directory import service_directory
+            from agirails.level0.directory import get_global_directory
 
-            entry = service_directory.find_one(service)
-            if entry is None:
+            entry = get_global_directory().get(service)
+            if entry is None or not entry.provider_address:
                 raise NoProviderFoundError(service)
             provider = entry.provider_address
 
@@ -1409,12 +1409,26 @@ class Agent:
                 # Get dispute window from metadata, fallback to 2 days (172800s) per Options.ts default
                 dispute_window_seconds = job.metadata.get("disputeWindow", 172800)
 
-                # ABI encode dispute window as uint256
-                if abi_encode is not None:
-                    dispute_window_proof = "0x" + abi_encode(["uint256"], [dispute_window_seconds]).hex()
-                else:
-                    # Fallback: manual encoding for uint256 (32 bytes, big-endian)
-                    dispute_window_proof = "0x" + dispute_window_seconds.to_bytes(32, "big").hex()
+                # AIP-14c: the DELIVERED proof is the 64-byte (window, resultHash) tuple. Reuse the
+                # resultHash the AIP-4 delivery proof commits to (parity with TS Agent.ts, which passes
+                # computeResultHash(result)); if the structured proof lacks it, hash the REAL deliverable
+                # (``output``) via compute_result_hash — NEVER a synthetic fallback. The v2 kernel
+                # REJECTS the legacy 32-byte window-only proof AND resultHash == 0.
+                _pj = delivery_proof_json
+                if isinstance(_pj, str):
+                    import json as _json
+
+                    try:
+                        _pj = _json.loads(_pj)
+                    except (TypeError, ValueError):
+                        _pj = None
+                _result_hash = _pj.get("resultHash") or _pj.get("result_hash") if isinstance(_pj, dict) else None
+                _std = self._client.standard
+                if not _result_hash:
+                    from agirails.types.message import compute_result_hash
+
+                    _result_hash = compute_result_hash(output)
+                dispute_window_proof = _std.encode_delivery_proof(dispute_window_seconds, _result_hash)
 
                 _logger.debug(
                     "Encoding dispute window proof",

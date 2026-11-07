@@ -108,6 +108,12 @@ class ContractAddresses:
     identity_registry: Optional[str] = None  # AIP-7 (Sepolia only; ERC-1056 DID registry)
     x402_relay: Optional[str] = None  # deprecated since SDK 3.3.0 (zero on mainnet V3)
     erc8004_identity_registry: Optional[str] = None  # ERC-8004 canonical CREATE2 (same on all chains)
+    # AIP-14b three-tier dispute system (P2-2). None until the dispute stack is
+    # deployed: testnet lands in Phase 6, mainnet later. Keys mirror the TS SDK
+    # NetworkConfig.contracts (parity).
+    bond_escalation: Optional[str] = None  # BondEscalation (Tier-1 bonded escalation + AIRuling verifier)
+    composite_mediator: Optional[str] = None  # CompositeMediator (canonical 0/1/2 ruling → fund routing)
+    uma_optimistic_oracle_v3: Optional[str] = None  # UMA OptimisticOracleV3 (Tier-2 optimistic oracle)
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,9 @@ class NetworkConfig:
                 "identityRegistry": self.contracts.identity_registry,
                 "x402Relay": self.contracts.x402_relay,
                 "erc8004IdentityRegistry": self.contracts.erc8004_identity_registry,
+                "bondEscalation": self.contracts.bond_escalation,
+                "compositeMediator": self.contracts.composite_mediator,
+                "umaOptimisticOracleV3": self.contracts.uma_optimistic_oracle_v3,
             },
             "eas": {
                 "deliverySchemaUID": self.eas.delivery_schema_uid,
@@ -195,16 +204,27 @@ BASE_SEPOLIA = NetworkConfig(
     rpc_url=BASE_SEPOLIA_RPC_URL,
     block_explorer="https://sepolia.basescan.org",
     contracts=ContractAddresses(
-        actp_kernel="0x9d25A874f046185d9237Cd4954C88D2B74B0021b",
-        escrow_vault="0x7dF07327090efcA73DCBa70414aA3131Fc6d2efB",
-        usdc="0x444b4e1A65949AB2ac75979D5d0166Eb7A248Ccb",  # MockUSDC
+        # AIP-14c kernel-v2 redeploy - 2026-07-13 (block 44093538). kernelVersion
+        # 0x6237ef5c... (ACTP_KERNEL_V2_AIP14C_REV2); runtime codehash 0xf42003e6...
+        # (== audited candidate). Supersedes the F-6 kernel 0xD8f7829c... (pre-v2).
+        actp_kernel="0xE8ba4133CC43bAb48c9c71bF82243e0b15915389",
+        escrow_vault="0x9d3CbD2c630E390F9179DAfE02Dd5dAd80B3A05B",
+        usdc="0x444b4e1A65949AB2ac75979D5d0166Eb7A248Ccb",  # MockUSDC (unchanged)
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        agent_registry="0xD91F9aBfBf60b4a2Fd5317ab0cDF3F44faB5D656",
-        archive_treasury="0x2eE4f7bE289fc9EFC2F9f2D6E53e50abDF23A3eb",
+        # NEW AgentRegistry bound to kernel-v2 (active on-chain after the 2-day
+        # executeAgentRegistryUpdate timelock, ~2026-07-15).
+        agent_registry="0x1bb1D4B0b84801FF8597d3e7988E00802252d962",
+        archive_treasury="0x415Ca522e1DfF9933ab5Eb7a8569B1879093324D",  # v2, bound to kernel-v2
         identity_registry="0xce9749c768b425fab0daa0331047d1340ec99a88",  # AGIRAILSIdentityRegistry
         x402_relay="0x110b25bb3d45c40dfcf34bb451aa7069b2a1cb3b",  # deprecated since SDK 3.3.0
         erc8004_identity_registry="0x8004A818BFB912233c491871b3d84c89A494BD9e",
+        # AIP-14c dispute system (D7) - deployed 2026-07-13 against kernel-v2 (block 44093572).
+        # BondEscalation runtime codehash 0x9389b155... (Sepolia pin). Tier-2 uses a testnet
+        # MockOOV3 0x64C81e2F... Mediator resolver active after the 2-day timelock (~2026-07-15).
+        # Supersedes the pre-D7 stack (bond 0x62d5417B..., mediator 0xf8095f8d...).
+        bond_escalation="0x84CB23F1bCebC286270EE5E62A19a64686D3Ca0A",
+        composite_mediator="0x45a440a34303AEe597672C1D47d1ce83BEC8aD1C",
     ),
     eas=EASConfig(
         # Deployed 2025-11-23 - AIP-4 delivery proof schema
@@ -214,7 +234,7 @@ BASE_SEPOLIA = NetworkConfig(
         max_fee_per_gas=2_000_000_000,  # 2 gwei
         max_priority_fee_per_gas=1_000_000_000,  # 1 gwei
     ),
-    actp_kernel_deployment_block=41_725_686,  # V4 deploy on 2026-05-19
+    actp_kernel_deployment_block=43_262_304,  # 2026-06-24 F-6 redeploy
     aa=AAConfig(
         entry_point=ENTRYPOINT_V06,
         smart_wallet_factory=SMART_WALLET_FACTORY,

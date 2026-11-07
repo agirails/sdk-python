@@ -153,6 +153,7 @@ class ACTPClient:
         network_id: Optional[str] = None,
         erc8004_identity_registry_address: Optional[str] = None,
         pending_is_stale: bool = False,
+        dispute_client: Optional[object] = None,
     ) -> None:
         """
         Initialize ACTPClient.
@@ -195,6 +196,16 @@ class ACTPClient:
         self._wallet_provider = wallet_provider
         self._contract_addresses = contract_addresses
         self._reputation_reporter = reputation_reporter
+
+        # AIP-14b dispute facade (PRD P2-9). Present (non-None) only when the
+        # dispute contract addresses are configured for the network (Phase 6+);
+        # None on mock mode and pre-deployment networks, so existing flows are
+        # unaffected. Composes BondEscalation + CompositeMediator +
+        # EvaluatorClient + UMAHelper + DisputeSplitIndexer behind one object.
+        # PARITY: TS ``client.dispute`` (ACTPClient.ts). For the legacy
+        # single-shot kernel path see ``ACTPKernel.raise_dispute`` /
+        # ``resolve_dispute`` (their docstrings steer here).
+        self.dispute = dispute_client
 
         # Lazy-publish state (consumed by get_activation_calls()).
         self._lazy_scenario = lazy_scenario
@@ -525,6 +536,38 @@ class ACTPClient:
             except Exception as exc:  # pragma: no cover - best-effort
                 _logger.warn(f"ReputationReporter wiring skipped: {exc}")
 
+        # AIP-14b DISPUTE FACADE (PRD P2-9): wire client.dispute ONLY when the
+        # dispute contracts are configured for this network. Addresses are None
+        # until Phase 6 (testnet) / later (mainnet), so on undeployed networks
+        # this stays None and existing flows are unchanged. Best-effort — a
+        # wiring failure must never block create(). Mirrors TS ACTPClient.create
+        # (present iff the dispute addresses are configured).
+        dispute_client: Optional[object] = None
+        if config.mode in ("testnet", "mainnet"):
+            try:
+                from agirails.config.networks import get_network as _get_network
+
+                _net = _get_network(
+                    network_id
+                    or ("base-sepolia" if config.mode == "testnet" else "base-mainnet")
+                )
+                _contracts = _net.contracts
+                if getattr(_contracts, "bond_escalation", None) and getattr(
+                    _contracts, "composite_mediator", None
+                ):
+                    from agirails.dispute.dispute_client import DisputeClient
+
+                    # runtime is a BlockchainRuntime on real networks; it exposes
+                    # `.w3` and `.account` (blockchain_runtime.py:179-180).
+                    _w3 = getattr(runtime, "w3", None)
+                    _account = getattr(runtime, "account", None)
+                    if _w3 is not None:
+                        dispute_client = DisputeClient.from_config(
+                            _w3, _account, _net
+                        )
+            except Exception as exc:  # pragma: no cover - best-effort
+                _logger.warn(f"DisputeClient wiring skipped: {exc}")
+
         # Staleness check (TS ACTPClient.ts:1088-1108): recompute the local
         # AGIRAILS.md hash; if it differs from the pending publish's configHash
         # the cached publish is stale, so lazy activation is skipped. Best-effort
@@ -571,6 +614,7 @@ class ACTPClient:
             network_id=network_id,
             erc8004_identity_registry_address=erc8004_identity_registry_address,
             pending_is_stale=pending_is_stale,
+            dispute_client=dispute_client,
         )
 
         # Drift detection: non-blocking AGIRAILS.md sync check on startup
@@ -1246,8 +1290,93 @@ class ACTPClient:
             return
         await self._runtime.transition_state(tx_id, "IN_PROGRESS")
 
+    @staticmethod
+    def _resolve_result_hash(
+        tx_id: str,
+        tx: Any,
+        *,
+        result: Any = None,
+        result_hash: Optional[Union[str, bytes]] = None,
+    ) -> bytes:
+        """
+        Resolve the ``bytes32`` resultHash for the AIP-14c DELIVERED proof.
+
+        Uses the SAME source as the AIP-4 delivery proof so the on-chain proof
+        binds to the exact deliverable (never a random hash). Resolution order:
+
+        1. An explicit ``result_hash`` (e.g. the AIP-16 ``envelopeHash``).
+        2. A ``result`` payload, hashed via :func:`compute_result_hash`
+           (identical canonicalization to the delivery proof).
+        3. The ``resultHash`` already recorded on the transaction's delivery
+           proof (when the provider wrote the AIP-4 proof before transitioning).
+
+        There is NO synthetic fallback: a caller with NEITHER a ``result`` NOR
+        an explicit ``result_hash`` NOR a stored delivery proof fails closed
+        (raises) BEFORE any transition is sent. Parity with TS
+        ``assertRealResultHash`` — the delivery path never fabricates a hash.
+
+        Returns:
+            Exactly 32 bytes.
+
+        Raises:
+            ValueError: If no real result commitment can be resolved.
+        """
+
+        def _to_bytes32(value: Union[str, bytes]) -> bytes:
+            raw = (
+                value
+                if isinstance(value, (bytes, bytearray))
+                else bytes.fromhex(value[2:] if value.startswith(("0x", "0X")) else value)
+            )
+            raw = bytes(raw)
+            if len(raw) != 32:
+                raise ValueError(
+                    f"resultHash must be 32 bytes, got {len(raw)}"
+                )
+            return raw
+
+        if result_hash is not None:
+            return _to_bytes32(result_hash)
+
+        if result is not None:
+            from agirails.types.message import compute_result_hash
+
+            return _to_bytes32(compute_result_hash(result))
+
+        # Reuse the resultHash the provider already committed in the AIP-4
+        # delivery proof, if present on the transaction.
+        stored_proof = getattr(tx, "delivery_proof", None)
+        if stored_proof:
+            import json as _json
+
+            try:
+                parsed = _json.loads(stored_proof)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict):
+                rh = parsed.get("resultHash") or parsed.get("result_hash")
+                if rh:
+                    try:
+                        return _to_bytes32(rh)
+                    except ValueError:
+                        pass
+
+        # AIP-14c: fail closed — a delivery path MUST commit to a REAL
+        # deliverable. There is NO synthetic txId-bound fallback.
+        raise ValueError(
+            "deliver() requires a real deliverable or an explicit resultHash: "
+            "pass result=<payload> (hashed via compute_result_hash) or "
+            "result_hash=<bytes32> (compute_result_hash(result) or the AIP-16 "
+            "envelope hash). Refusing to send DELIVERED without a result commitment."
+        )
+
     async def deliver(
-        self, tx_id: str, dispute_window_seconds: Optional[int] = None
+        self,
+        tx_id: str,
+        dispute_window_seconds: Optional[int] = None,
+        *,
+        result: Any = None,
+        result_hash: Optional[Union[str, bytes]] = None,
     ) -> None:
         """
         Transition to DELIVERED (provider completes work).
@@ -1257,9 +1386,22 @@ class ACTPClient:
         the tx is still COMMITTED, batches startWork + deliver in one UserOp.
         Mirrors TS ``ACTPClient.deliver`` (ACTPClient.ts:1507-1551).
 
+        AIP-14c (kernel v2): the DELIVERED proof MUST be the 64-byte
+        ``abi.encode(uint256 window, bytes32 resultHash)`` — a v2 kernel rejects
+        the legacy 32-byte window-only proof (``"Delivery proof must be
+        (window,resultHash)"``). ``resultHash`` comes from the SAME source as the
+        AIP-4 delivery proof (public: ``keccak256`` of the canonical plaintext
+        result; encrypted AIP-16: the envelope hash), so the on-chain proof binds
+        to the exact deliverable.
+
         Args:
             tx_id: Transaction ID.
             dispute_window_seconds: Optional dispute-window override (seconds).
+            result: Optional deliverable payload — hashed via
+                :func:`compute_result_hash` (same canonicalization as the AIP-4
+                delivery proof) to derive ``resultHash``.
+            result_hash: Optional pre-computed ``bytes32`` result hash (e.g. the
+                AIP-16 ``envelopeHash``). Takes precedence over ``result``.
 
         Raises:
             RuntimeError: If transaction not found, or DELIVERED step fails.
@@ -1279,7 +1421,14 @@ class ACTPClient:
             if dispute_window_seconds is not None
             else tx.dispute_window
         )
-        proof = "0x" + abi_encode(["uint256"], [int(effective_dispute_window)]).hex()
+        result_hash_bytes = self._resolve_result_hash(
+            tx_id, tx, result=result, result_hash=result_hash
+        )
+        # AIP-14c 64-byte proof: abi.encode(uint256 window, bytes32 resultHash).
+        proof = "0x" + abi_encode(
+            ["uint256", "bytes32"],
+            [int(effective_dispute_window), result_hash_bytes],
+        ).hex()
 
         state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
 

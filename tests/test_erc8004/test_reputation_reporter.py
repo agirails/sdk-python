@@ -359,6 +359,56 @@ class TestReportDispute:
 
 
 # ---------------------------------------------------------------------------
+# Tests: report_dispute_split (P2-8 — neutral split trace)
+# PARITY: sdk-js/tests/dispute-split-indexer.test.ts "reportDisputeSplit".
+# ---------------------------------------------------------------------------
+
+
+class TestReportDisputeSplit:
+    async def test_writes_value_zero_neutral_and_split_tag(self):
+        reporter = _make_reporter()
+        result = await reporter.report_dispute_split(
+            agent_id="42",
+            tx_id="0xsplit1",
+            capability="code_generation",
+            split_bps=5000,
+        )
+        assert result is not None
+        assert result.tag == ACTP_FEEDBACK_TAGS["DISPUTE_SPLIT"]
+        last = reporter._contract.functions.last_feedback_call
+        assert last["value"] == 0  # NEUTRAL — no penalty (INV-4)
+        assert last["value_decimals"] == 0
+        assert last["tag1"] == "actp_dispute_split"
+        assert last["tag2"] == "code_generation"
+        assert last["endpoint"] == ""
+        assert last["feedback_uri"] == "splitBps:5000"
+
+    async def test_tag_string_is_cross_sdk_canonical(self):
+        # PARITY: identical literal to TS ACTP_FEEDBACK_TAGS.DISPUTE_SPLIT.
+        assert ACTP_FEEDBACK_TAGS["DISPUTE_SPLIT"] == "actp_dispute_split"
+
+    async def test_never_throws_returns_none_on_failure(self):
+        reporter = _make_reporter(give_feedback_raises=RuntimeError("boom"))
+        result = await reporter.report_dispute_split(
+            agent_id="42", tx_id="0xsplitfail"
+        )
+        assert result is None  # logged, never raised
+
+    async def test_split_dedup(self):
+        reporter = _make_reporter()
+        r1 = await reporter.report_dispute_split(agent_id="42", tx_id="0xsplit2")
+        assert r1 is not None
+        r2 = await reporter.report_dispute_split(agent_id="42", tx_id="0xsplit2")
+        assert r2 is None
+
+    async def test_no_split_bps_yields_empty_feedback_uri(self):
+        reporter = _make_reporter()
+        await reporter.report_dispute_split(agent_id="7", tx_id="0xsplit3")
+        last = reporter._contract.functions.last_feedback_call
+        assert last["feedback_uri"] == ""
+
+
+# ---------------------------------------------------------------------------
 # Tests: get_agent_reputation
 # ---------------------------------------------------------------------------
 

@@ -236,10 +236,24 @@ def negotiate(
             ),
         )
 
+        # F-5: best-effort read-only AgentRegistry so the orchestrator runs the
+        # pre-escrow price-band check before locking escrow. Fail-open — any
+        # failure (mock mode, no registry, RPC error) leaves it None and the
+        # guard is skipped, exactly as before.
+        agent_registry = None
+        if opts.mode in ("testnet", "mainnet"):
+            try:
+                from agirails.protocol.agent_registry import AgentRegistry
+
+                agent_registry = await AgentRegistry.connect(network=opts.mode)
+            except Exception:
+                agent_registry = None
+
         orchestrator = BuyerOrchestrator(
             policy=buyer_policy,
             runtime=client.runtime,
             requester_address=client.address,
+            agent_registry=agent_registry,
         )
 
         # Progress callback for human mode

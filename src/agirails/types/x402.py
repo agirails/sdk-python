@@ -289,6 +289,14 @@ class X402NetworkNotAllowedError(X402V2Error):
         self.name = "X402NetworkNotAllowedError"
 
 
+class X402QuoteMismatchError(X402V2Error):
+    """Accepted quote and actual payment request/requirements do not agree."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, "X402_QUOTE_MISMATCH")
+        self.name = "X402QuoteMismatchError"
+
+
 class X402AmountExceededError(X402V2Error):
     """Required amount exceeds maxAmountPerTx cap (code X402_AMOUNT_EXCEEDED)."""
 

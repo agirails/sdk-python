@@ -544,7 +544,7 @@ class TestClientLifecycleMethods:
         tx = await client.runtime.get_transaction(tx_id)
         assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "IN_PROGRESS"
 
-        await client.deliver(tx_id)
+        await client.deliver(tx_id, result_hash="0x" + "11" * 32)
         tx = await client.runtime.get_transaction(tx_id)
         assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "DELIVERED"
 
@@ -561,7 +561,7 @@ class TestClientLifecycleMethods:
         """deliver() from COMMITTED auto-runs IN_PROGRESS then DELIVERED (mock)."""
         result = await client.pay({"to": provider_address, "amount": 100})
         tx_id = _tx_id_of(result)
-        await client.deliver(tx_id)
+        await client.deliver(tx_id, result_hash="0x" + "11" * 32)
         tx = await client.runtime.get_transaction(tx_id)
         assert (tx.state.value if hasattr(tx.state, "value") else tx.state) == "DELIVERED"
 
@@ -776,7 +776,7 @@ class TestClientSmartWalletDeliverBatch:
         assert client._smart_wallet_router is not None
         assert client._smart_wallet_router.should_route() is True
 
-        await client.deliver(tx_id)
+        await client.deliver(tx_id, result_hash="0x" + "11" * 32)
         # One batch of exactly 2 calls (startWork + deliver).
         assert len(wp.batches) == 1
         assert len(wp.batches[0]) == 2

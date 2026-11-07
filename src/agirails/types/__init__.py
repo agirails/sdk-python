@@ -37,6 +37,24 @@ from agirails.types.transaction import (
     is_valid_transition,
     VALID_TRANSITIONS,
 )
+from agirails.types.dispute import (
+    Ruling,
+    Tier,
+    AIRuling,
+    DisputeState,
+    DisputeEIP712Domain,
+    DOMAIN_TYPEHASH,
+    RULING_TYPEHASH,
+    AIRULING_TYPES,
+    DISPUTE_EVALUATOR_DOMAIN_NAME,
+    DISPUTE_EVALUATOR_DOMAIN_VERSION,
+    dispute_evaluator_domain,
+    compute_ruling_struct_hash,
+    compute_ruling_domain_separator,
+    compute_ruling_digest,
+    sign_ruling,
+    recover_ruling_signer,
+)
 
 __all__ = [
     # DID types
@@ -66,4 +84,21 @@ __all__ = [
     "TransactionFilter",
     "is_valid_transition",
     "VALID_TRANSITIONS",
+    # Dispute types (AIP-14b AIRuling EIP-712)
+    "Ruling",
+    "Tier",
+    "AIRuling",
+    "DisputeState",
+    "DisputeEIP712Domain",
+    "DOMAIN_TYPEHASH",
+    "RULING_TYPEHASH",
+    "AIRULING_TYPES",
+    "DISPUTE_EVALUATOR_DOMAIN_NAME",
+    "DISPUTE_EVALUATOR_DOMAIN_VERSION",
+    "dispute_evaluator_domain",
+    "compute_ruling_struct_hash",
+    "compute_ruling_domain_separator",
+    "compute_ruling_digest",
+    "sign_ruling",
+    "recover_ruling_signer",
 ]

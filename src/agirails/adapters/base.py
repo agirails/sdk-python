@@ -336,3 +336,45 @@ class BaseAdapter:
         from eth_abi import encode as abi_encode
 
         return "0x" + abi_encode(["uint256"], [int(dispute_window_seconds)]).hex()
+
+    @staticmethod
+    def assert_real_result_hash(result_hash: Optional[Union[str, bytes]]) -> bytes:
+        """
+        Fail-closed guard for the DELIVERED transition. A delivery path MUST
+        commit to a REAL deliverable: ``result_hash`` is either
+        ``compute_result_hash(result)`` (public) or the AIP-16 envelope hash
+        (encrypted). There is NO synthetic fallback — a missing/invalid/zero
+        hash raises. Byte-parity with TS ``assertRealResultHash``
+        (utils/deliveryProof.ts).
+        """
+        if result_hash is None:
+            raise ValueError(
+                "deliver() requires a real deliverable or an explicit resultHash: "
+                "pass compute_result_hash(result) (public) or the AIP-16 envelope "
+                "hash (encrypted). Refusing to send DELIVERED without a result commitment."
+            )
+        rh = result_hash
+        if isinstance(rh, str):
+            try:
+                rh = bytes.fromhex(rh[2:] if rh.startswith(("0x", "0X")) else rh)
+            except ValueError as e:
+                raise ValueError(f"resultHash must be a 32-byte hex string: {e}")
+        rh = bytes(rh)
+        if len(rh) != 32:
+            raise ValueError(f"resultHash must be 32 bytes, got {len(rh)}")
+        if rh == b"\x00" * 32:
+            raise ValueError("resultHash must be non-zero (the v2 kernel rejects bytes32(0)).")
+        return rh
+
+    def encode_delivery_proof(self, dispute_window_seconds: int, result_hash: Union[str, bytes]) -> str:
+        """
+        Encode the AIP-14c 64-byte DELIVERED transition proof
+        ``abi.encode(uint256 window, bytes32 resultHash)``. The v2 kernel REJECTS the
+        legacy 32-byte window-only proof ("Delivery proof must be (window,resultHash)").
+        ``result_hash`` MUST be a real, non-zero 32-byte commitment (there is no
+        synthetic fallback). Mirrors TS ``encodeDeliveryProof`` (utils/deliveryProof.ts).
+        """
+        from eth_abi import encode as abi_encode
+
+        rh = self.assert_real_result_hash(result_hash)
+        return "0x" + abi_encode(["uint256", "bytes32"], [int(dispute_window_seconds), rh]).hex()

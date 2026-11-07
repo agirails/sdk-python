@@ -156,8 +156,10 @@ class TestCreateACTPTransaction:
 
         calls, _ = submit.await_args.args
         data = bytes.fromhex(calls[0].data[2:])[4:]  # strip 0x + 4-byte selector
+        # Canonical AIP-14c v2: 9-input createTransaction (agreementHash 7th, between serviceHash
+        # and agentId). agreementHash defaults to bytes32(0); agentId shifts to position 7.
         decoded = abi_decode(
-            ["address", "address", "uint256", "uint256", "uint256", "bytes32", "uint256", "uint256"],
+            ["address", "address", "uint256", "uint256", "uint256", "bytes32", "bytes32", "uint256", "uint256"],
             data,
         )
         assert Web3.to_checksum_address(decoded[0]) == Web3.to_checksum_address(PROVIDER_ADDR)
@@ -166,7 +168,8 @@ class TestCreateACTPTransaction:
         assert decoded[3] == 1_900_000_000
         assert decoded[4] == 172800
         assert "0x" + decoded[5].hex() == service_hash
-        assert decoded[6] == 42
+        assert decoded[6] == b"\x00" * 32  # agreementHash default (no auto AI ruling)
+        assert decoded[7] == 42  # agentId
 
     @pytest.mark.asyncio
     async def test_returns_failure_receipt_without_throwing(self) -> None:

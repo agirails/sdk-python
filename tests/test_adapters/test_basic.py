@@ -249,7 +249,7 @@ class TestBasicLifecycleMethods:
         assert status_ip.state == "IN_PROGRESS"
         assert status_ip.can_deliver is True
 
-        await client.basic.deliver(tx_id)
+        await client.basic.deliver(tx_id, result_hash="0x" + "11" * 32)
         status_d = await client.basic.get_status(tx_id)
         assert status_d.state == "DELIVERED"
 

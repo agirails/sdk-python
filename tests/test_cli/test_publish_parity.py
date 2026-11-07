@@ -243,6 +243,16 @@ class TestNonBlockingSync:
 class TestEnhancedMessaging:
     """Test context-aware next steps messaging."""
 
+    @pytest.fixture(autouse=True)
+    def available_slug(self):
+        with patch(
+            "agirails.api.agirails_app.check_slug",
+            new_callable=AsyncMock,
+            return_value={"available": True},
+        ) as check_slug:
+            yield
+        check_slug.assert_awaited_once_with("test-agent")
+
     @patch("agirails.cli.commands.publish.publish_config")
     def test_messaging_includes_health(
         self,

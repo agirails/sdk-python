@@ -100,6 +100,7 @@ from agirails.types.message import (
     ServiceRequest,
     ServiceResponse,
     SignedMessage,
+    _verification_type_definition,
     TypedData,
 )
 
@@ -939,14 +940,9 @@ class MessageSigner:
             return False
 
         # Get the type definition based on message type
-        type_definitions = {
-            ServiceRequest.TYPE_NAME: ServiceRequest.TYPE_DEFINITION,
-            ServiceResponse.TYPE_NAME: ServiceResponse.TYPE_DEFINITION,
-            DeliveryProof.TYPE_NAME: DeliveryProof.TYPE_DEFINITION,
-            DeliveryProofMessage.TYPE_NAME: DeliveryProofMessage.TYPE_DEFINITION,
-        }
-
-        type_def = type_definitions.get(signed_message.message_type)
+        type_def = _verification_type_definition(
+            signed_message.message_type, signed_message.message
+        )
         if not type_def:
             return False
 
