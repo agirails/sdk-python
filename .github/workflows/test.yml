@@ -299,6 +299,8 @@ jobs:
   # =============================================================================
   test-benchmarks:
     name: Performance Benchmarks
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
