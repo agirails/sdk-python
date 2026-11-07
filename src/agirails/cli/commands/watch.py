@@ -248,7 +248,6 @@ def watch(
                 mode=global_opts.mode,
             )
         )
-        raise typer.Exit(code=exit_code)
     except KeyboardInterrupt:
         if not global_opts.quiet:
             print_info("\nWatch stopped by user.")
@@ -259,6 +258,8 @@ def watch(
         else:
             print_error(str(e))
         raise typer.Exit(code=1)
+    else:
+        raise typer.Exit(code=exit_code)
 
 
 __all__ = ["watch", "run_watch"]

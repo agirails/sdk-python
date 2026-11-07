@@ -5,6 +5,16 @@ All notable changes to AGIRAILS Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Preserve successful `actp watch` exit codes instead of reporting them as errors.
+- Forward the `actp tx transition --proof` value to the runtime.
+- Await asynchronous AgentRegistry transaction construction before signing.
+- Restrict the standard-library HTTP fallback to HTTP(S), including redirects,
+  while preserving fractional request timeouts.
+
 ## [4.8.0] — 2026-06-19
 
 > **Full 1:1 parity with `@agirails/sdk` (TypeScript) 4.8.0.** The Python SDK

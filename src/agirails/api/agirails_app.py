@@ -109,10 +109,9 @@ async def _get(url: str, timeout: float = 15.0) -> Dict[str, Any]:
                     raise AgirailsAppError(f"GET {url} failed: {resp.status}", resp.status)
                 return await resp.json()
 
-    from urllib.request import Request, urlopen
+    from agirails.utils.http import request_http
 
-    req = Request(url, headers={"Accept": "application/json"})
-    with urlopen(req, timeout=int(timeout)) as resp:
+    with request_http(url, headers={"Accept": "application/json"}, timeout=timeout) as resp:
         if resp.status >= 400:
             raise AgirailsAppError(f"GET {url} failed: {resp.status}", resp.status)
         return _json.loads(resp.read().decode("utf-8"))
@@ -144,16 +143,16 @@ async def _post(url: str, body: Dict[str, Any], timeout: float = 15.0) -> Dict[s
                     raise AgirailsAppError(f"POST {url} failed: {resp.status}", resp.status)
                 return await resp.json()
 
-    from urllib.request import Request, urlopen
+    from agirails.utils.http import request_http
 
     data = _json.dumps(body).encode("utf-8")
-    req = Request(
+    with request_http(
         url,
         data=data,
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
-    )
-    with urlopen(req, timeout=int(timeout)) as resp:
+        timeout=timeout,
+    ) as resp:
         if resp.status >= 400:
             raise AgirailsAppError(f"POST {url} failed: {resp.status}", resp.status)
         return _json.loads(resp.read().decode("utf-8"))

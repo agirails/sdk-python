@@ -54,11 +54,10 @@ def _probe_endpoint(url: str, timeout_s: float) -> Dict[str, Any]:
                         "response_time_ms": elapsed_ms,
                     }
             except ImportError:
-                from urllib.request import Request, urlopen
+                from agirails.utils.http import request_http
 
-                req = Request(url, method=method)
                 start = time.monotonic()
-                with urlopen(req, timeout=int(timeout_s)) as resp:
+                with request_http(url, method=method, timeout=timeout_s) as resp:
                     elapsed_ms = int((time.monotonic() - start) * 1000)
                     return {
                         "reachable": True,
