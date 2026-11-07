@@ -22,6 +22,9 @@ on:
     # `if: github.event_name == ...` guards on each job.
     - cron: '0 3 * * 1'
 
+permissions:
+  contents: read
+
 env:
   PYTHON_VERSION: '3.11'
   COVERAGE_THRESHOLD: 85
