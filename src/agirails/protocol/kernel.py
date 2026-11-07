@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from eth_abi import decode as decode_abi
 from eth_account.signers.local import LocalAccount
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
@@ -45,6 +46,7 @@ from agirails.errors import (
     TransactionNotFoundError,
     ValidationError,
 )
+from agirails.protocol.kernel_creation import kernel_creation_arguments, kernel_creation_abi, is_legacy_creation_kernel
 from agirails.protocol.base import ContractBase
 from agirails.protocol.nonce import NonceManager
 from agirails.types.transaction import Transaction, TransactionReceipt, TransactionState
@@ -168,6 +170,10 @@ class CreateTransactionParams:
         deadline: Transaction deadline (Unix timestamp)
         dispute_window: Dispute window in seconds (default: 48 hours)
         service_hash: Hash of service description (bytes32)
+        agreement_hash: keccak(request + input + SLA) binding the agreed terms
+            (bytes32). Defaults to bytes32(0) meaning "no auto AI ruling".
+            Optional and backward-compatible (AIP-14c v2, canonical
+            createTransaction 7th arg between serviceHash and agentId).
         agent_id: ERC-8004 agent ID for provider (0 if not applicable)
     """
 
@@ -179,6 +185,9 @@ class CreateTransactionParams:
     service_hash: str = ZERO_BYTES32
     agent_id: int = 0
     requester_agent_id: int = 0  # AIP-14: Requester's ERC-8004 agent ID
+    # AIP-14c v2: keccak(request+input+SLA); bytes32(0) = no auto AI ruling.
+    # Optional / non-breaking — defaults to the zero hash for existing callers.
+    agreement_hash: str = ZERO_BYTES32
 
     @staticmethod
     def _is_valid_address(addr: str) -> bool:
@@ -277,7 +286,7 @@ class TransactionView:
     def from_tuple(cls, data: Tuple) -> "TransactionView":
         """Create from contract return tuple.
 
-        Expects the V3+ 21-field shape that ships with the bundled ABI:
+        Reads the V3 21-field prefix; the current ABI appends two hash words:
         [0]  transaction_id          [11] attestation_uid
         [1]  requester               [12] dispute_window
         [2]  provider                [13] metadata
@@ -290,11 +299,9 @@ class TransactionView:
         [9]  escrow_contract         [20] dispute_bond                  (AIP-14)
         [10] escrow_id
 
-        web3.py decodes against the bundled ABI, so tuples reaching this
-        method are already 21-field. Reading a pre-V3 (19-field) contract
-        with this SDK version will error at decode time before reaching
-        from_tuple — loud failure is the intended behavior so callers know
-        they're against the wrong contract generation.
+        The canonical decoder and exact-length historical fallback keep this
+        prefix aligned. The optional v2 hash suffix is not exposed by this view.
+        Unknown historical layouts are rejected rather than decoded as legacy.
         """
         return cls(
             transaction_id="0x" + data[0].hex() if isinstance(data[0], bytes) else data[0],
@@ -413,6 +420,8 @@ class ACTPKernel(ContractBase):
             chain_id: The chain ID of the network
             nonce_manager: Optional shared NonceManager for nonce tracking
         """
+        if is_legacy_creation_kernel(contract.address):
+            contract = w3.eth.contract(address=contract.address, abi=kernel_creation_abi(contract.address, contract.abi))
         super().__init__(contract, account, w3, chain_id, nonce_manager=nonce_manager)
 
     @classmethod
@@ -501,20 +510,20 @@ class ACTPKernel(ContractBase):
         provider_checksum = self.w3.to_checksum_address(params.provider)
         requester_checksum = self.w3.to_checksum_address(requester)
 
-        # Convert service_hash to bytes32
         service_hash = self._to_bytes32(params.service_hash)
+        agreement_hash = self._to_bytes32(params.agreement_hash)
 
-        # Build transaction
-        contract_fn = self.contract.functions.createTransaction(
+        contract_fn = self.contract.functions.createTransaction(*kernel_creation_arguments(self.contract.address, [
             provider_checksum,
             requester_checksum,
             params.amount,
             params.deadline,
             params.dispute_window,
             service_hash,
+            agreement_hash,
             params.agent_id,
             params.requester_agent_id,
-        )
+        ], agreement_hash))
         # P-2 fix: dynamic gas estimation with hardcoded floor fallback
         effective_gas = gas_limit or await self._estimate_gas(
             contract_fn, GAS_LIMITS["create_transaction"]
@@ -1112,6 +1121,28 @@ class ACTPKernel(ContractBase):
     # Read Operations
     # =========================================================================
 
+    async def get_escrow_principal(self, transaction_id: str) -> int:
+        """Distributable principal, excluding reserved fees and dispute bonds.
+
+        Requires the fee-accounting kernel ABI. Read failures propagate.
+        """
+        return int(await self.contract.functions.escrowPrincipal(
+            self._to_bytes32(transaction_id)
+        ).call())
+
+    async def retry_platform_fee(
+        self, transaction_id: str, gas_limit: Optional[int] = None
+    ) -> TransactionReceipt:
+        """Retry fees permissionlessly; a receipt does not prove funds moved.
+
+        Zero debt is a no-op. A blocked fee recipient can leave debt pending.
+        Unknown transactions and revoked vaults propagate errors.
+        """
+        fn = self.contract.functions.retryPlatformFee(self._to_bytes32(transaction_id))
+        effective_gas = gas_limit if gas_limit is not None else await self._estimate_gas_strict(fn, 300_000)
+        tx = await fn.build_transaction(await self._build_tx_params(gas_limit=effective_gas))
+        return self._to_receipt(await self._sign_and_send(tx))
+
     async def get_transaction(self, transaction_id: str) -> TransactionView:
         """
         Get transaction details from the contract.
@@ -1167,11 +1198,18 @@ class ACTPKernel(ContractBase):
                 raise
 
             try:
-                legacy = self.w3.eth.contract(
-                    address=self.contract.address,
-                    abi=_LEGACY_GET_TRANSACTION_ABI,
-                )
-                result = await legacy.functions.getTransaction(tx_id_bytes).call()
+                # All supported tuples are static. eth_abi allows trailing words,
+                # so trying the 16-field decoder first silently corrupts V3 reads.
+                data = AsyncWeb3.keccak(text="getTransaction(bytes32)")[:4] + tx_id_bytes
+                raw = bytes(await self.w3.eth.call({"to": self.contract.address, "data": data}))
+                words = len(raw) // 32
+                if len(raw) not in (16 * 32, 21 * 32, 23 * 32):
+                    raise ValueError(f"Unsupported getTransaction return size: {len(raw)} bytes")
+                legacy_types = [c["type"] for c in _LEGACY_GET_TRANSACTION_ABI[0]["outputs"][0]["components"]]
+                v3_types = ("bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,address,"
+                            "bytes32,bytes32,uint256,bytes32,uint16,uint16,uint16,uint256,uint256,address,uint256").split(",")
+                types = legacy_types if words == 16 else v3_types + (["bytes32", "bytes32"] if words == 23 else [])
+                result = decode_abi(["(" + ",".join(types) + ")"], raw)[0]
             except Exception as legacy_error:
                 legacy_reason = str(legacy_error).lower()
                 if "tx missing" in legacy_reason:
@@ -1182,7 +1220,7 @@ class ACTPKernel(ContractBase):
                     tx_id=transaction_id,
                 ) from legacy_error
 
-            return TransactionView.from_legacy_tuple(result)
+            return TransactionView.from_legacy_tuple(result) if words == 16 else TransactionView.from_tuple(result)
 
         return TransactionView.from_tuple(result)
 
@@ -1242,17 +1280,19 @@ class ACTPKernel(ContractBase):
         provider_checksum = self.w3.to_checksum_address(params.provider)
         requester_checksum = self.w3.to_checksum_address(requester)
         service_hash = self._to_bytes32(params.service_hash)
+        agreement_hash = self._to_bytes32(params.agreement_hash)
 
-        contract_fn = self.contract.functions.createTransaction(
+        contract_fn = self.contract.functions.createTransaction(*kernel_creation_arguments(self.contract.address, [
             provider_checksum,
             requester_checksum,
             params.amount,
             params.deadline,
             params.dispute_window,
             service_hash,
+            agreement_hash,
             params.agent_id,
             params.requester_agent_id,
-        )
+        ], agreement_hash))
         return await contract_fn.estimate_gas({"from": self.account.address})
 
     async def get_min_transaction_amount(self) -> int:
@@ -1291,4 +1331,3 @@ class ACTPKernel(ContractBase):
             "Could not extract transaction ID from receipt",
             tx_id=receipt.get("transactionHash", "unknown"),
         )
-

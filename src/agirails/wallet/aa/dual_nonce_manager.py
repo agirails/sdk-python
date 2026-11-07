@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Generic, List, Optional, TypeVar
 
 from web3 import Web3
+from web3.exceptions import BadFunctionCallOutput, ContractLogicError
 
 from agirails.wallet.aa.constants import ENTRYPOINT_V06
 
@@ -56,14 +57,13 @@ ACTP_KERNEL_NONCE_ABI = [
     }
 ]
 
-# TransactionCreated(bytes32,address,address,uint256,bytes32,uint256,uint256,uint256)
-# topic0 — used to derive the ACTP nonce from logs when requesterNonces is absent.
-# Mirrors TS DualNonceManager.ts:32-34.
-TX_CREATED_EVENT_TOPIC = Web3.keccak(
-    text="TransactionCreated(bytes32,address,address,uint256,bytes32,uint256,uint256,uint256)"
-).hex()
-if not TX_CREATED_EVENT_TOPIC.startswith("0x"):
-    TX_CREATED_EVENT_TOPIC = "0x" + TX_CREATED_EVENT_TOPIC
+TX_CREATED_EVENT_TOPICS = [
+    Web3.to_hex(Web3.keccak(text=signature))
+    for signature in (
+        "TransactionCreated(bytes32,address,address,uint256,bytes32,uint256,uint256,uint256)",
+        "TransactionCreated(bytes32,address,address,uint256,bytes32,uint256,uint256,uint256,bytes32)",
+    )
+]
 
 # Adaptive getLogs chunking bounds (TS DualNonceManager.ts:35-36).
 INITIAL_LOG_CHUNK_SIZE = 10_000
@@ -216,10 +216,17 @@ class DualNonceManager:
     async def _read_actp_nonce(self) -> int:
         """Read current ACTP nonce for the requester.
 
-        requesterNonces is public on ACTPKernel (added in v2). Older
+        requesterNonces is public on ACTPKernel (canonical v2). Older
         deployments may not expose this -- derive the nonce from on-chain
         ``TransactionCreated`` logs (deployment-block binary search +
-        adaptive chunked getLogs), falling back to 0 only as a last resort.
+        adaptive chunked getLogs).
+
+        FAIL CLOSED (F38 / HARD INVARIANT): a dependency/RPC/scan failure must
+        surface an explicit error and NEVER silently infer nonce = 0. Inferring
+        0 on failure enables txId/batch replay (the deterministic txId is bound
+        to this nonce). A *verified* empty scan (deployment block found, full
+        range covered without error, zero matching logs) is a PROVEN 0 for a
+        first-time requester and is returned as such; a failed scan is not.
 
         Mirrors TS ``readActpNonce`` (DualNonceManager.ts:164-210).
         """
@@ -233,7 +240,13 @@ class DualNonceManager:
             )
             self._cached_actp_nonce = nonce
             return nonce
-        except Exception:
+        except Exception as nonce_error:
+            if not isinstance(nonce_error, (BadFunctionCallOutput, ContractLogicError)):
+                self._cached_actp_nonce = None
+                raise RuntimeError(
+                    "Failed to read requesterNonces; refusing to infer the ACTP nonce "
+                    f"from a transport or RPC failure: {nonce_error}"
+                ) from nonce_error
             # Older ACTPKernel deployments don't expose requesterNonces.
             # Derive nonce from TransactionCreated events for this requester.
             # Uses deployment-block binary search + chunked logs (avoids block-0 scans).
@@ -266,14 +279,18 @@ class DualNonceManager:
                 self._cached_actp_nonce = derived_nonce
                 return derived_nonce
             except Exception as derive_error:
-                # Last-resort fallback for very old/limited RPCs.
-                logger.warning(
-                    "Could not derive ACTP nonce from events -- using 0 as last "
-                    "resort: %s",
-                    str(derive_error),
-                )
-                self._cached_actp_nonce = 0
-                return 0
+                # FAIL CLOSED: we could neither read requesterNonces nor prove the
+                # nonce from events. Returning 0 here would silently reset the
+                # replay-protection counter, so we raise and leave the cache
+                # unset (forcing a fresh chain read on the next attempt) instead.
+                self._cached_actp_nonce = None
+                raise RuntimeError(
+                    "Could not determine ACTP nonce for requester "
+                    f"{self._sender_address}: requesterNonces call failed "
+                    f"({nonce_error}) and event derivation failed "
+                    f"({derive_error}). Refusing to infer nonce = 0 (replay "
+                    "risk)."
+                ) from derive_error
 
     def set_cached_actp_nonce(self, nonce: int) -> None:
         """Override cached ACTP nonce.
@@ -379,7 +396,7 @@ class DualNonceManager:
                     self._w3.eth.get_logs,
                     {
                         "address": self._actp_kernel_address,
-                        "topics": [TX_CREATED_EVENT_TOPIC, None, requester_topic],
+                        "topics": [TX_CREATED_EVENT_TOPICS, None, requester_topic],
                         "fromBlock": cursor,
                         "toBlock": chunk_end,
                     },

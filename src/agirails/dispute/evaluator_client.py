@@ -50,12 +50,15 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Dict, List, Optional, Protocol, Sequence, Union
 
 from eth_abi import encode as _abi_encode
 from eth_utils import keccak as _keccak
 
+from agirails.adapters.x402_adapter import X402PayParams
+from agirails.dispute.payment_quote import accepted_quote_terms
 from agirails.dispute.evidence_bundle import (
     EvidenceBundle,
     bundle_hash as compute_bundle_hash,
@@ -374,6 +377,10 @@ class EvaluatorClient:
 
         # ---- STEP 0 DECLARE → STEP 1 QUOTE (no money, no LLM) ----------------
         quote = await self._declare(params, bundle_hash_hex, declared_token_count)
+        try:
+            accepted_quote = accepted_quote_terms(quote, params.chain_id)
+        except ValueError as error:
+            raise EvaluateResponseError(str(error)) from error
 
         # ---- STEP 2 PAY (delegated to the existing x402 buyer stack) ---------
         # ---- STEP 3 VERIFY + STEP 4 RUN + STEP 5 RETURN (server-side) --------
@@ -386,7 +393,7 @@ class EvaluatorClient:
             "chainId": params.chain_id,
             "verifyingContract": params.verifying_contract,
         }
-        response = await self._pay_and_evaluate(evaluate_body)
+        response = await self._pay_and_evaluate(evaluate_body, accepted_quote)
 
         # ---- Parse the §4.3 200 body -----------------------------------------
         body = await self._parse_evaluate_response(response, bundle_hash_hex)
@@ -504,17 +511,20 @@ class EvaluatorClient:
             raise QuoteRejectedError(402, None, "quote body missing disputeNonce")
         return quote
 
-    async def _pay_and_evaluate(self, evaluate_body: Dict[str, Any]) -> Any:
+    async def _pay_and_evaluate(self, evaluate_body: Dict[str, Any], accepted_quote: Mapping[str, str]) -> Any:
         """STEP 2: pay the quote and POST ``/evaluate`` via the existing x402 buyer stack.
 
         The :class:`EvaluatorPaymentClient` ``pay()`` posts the body, transparently
         consumes the server 402, signs, retries, and returns the settled 200
         ``response``.
         """
+        body = json.dumps(evaluate_body)
         params = _EvaluatePayParams(
+            method="POST", body=body, headers={"content-type": "application/json", "accept": "application/json"},
+            accepted_quote=accepted_quote,
             to=f"{self._base_url}/evaluate",
             http_method="POST",
-            http_body=json.dumps(evaluate_body),
+            http_body=body,
             http_headers={
                 "content-type": "application/json",
                 "accept": "application/json",
@@ -610,7 +620,7 @@ class EvaluatorClient:
 
 
 @dataclass
-class _EvaluatePayParams:
+class _EvaluatePayParams(X402PayParams):
     """The pay() params shape the x402 buyer stack consumes (mirrors X402PayParams).
 
     Carries both the generic ``http_*`` fields and an x402 ``metadata`` opt-in.
@@ -618,11 +628,6 @@ class _EvaluatePayParams:
     tests records them.
     """
 
-    to: str
-    http_method: str = "POST"
-    http_body: Optional[str] = None
-    http_headers: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
 
 
 def _to_bytes32(value: Union[str, bytes]) -> bytes:

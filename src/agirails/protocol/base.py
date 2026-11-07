@@ -70,6 +70,10 @@ class ContractBase:
         except Exception:
             return default_limit
 
+    async def _estimate_gas_strict(self, contract_fn: Any, default_limit: int) -> int:
+        estimated = await contract_fn.estimate_gas({"from": self.account.address})
+        return max((int(estimated) * 115 + 99) // 100, default_limit)
+
     async def _build_tx_params(
         self,
         gas_limit: int,

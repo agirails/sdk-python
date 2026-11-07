@@ -35,6 +35,8 @@ import base64
 import json
 import re
 import time
+from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import (
@@ -61,10 +63,16 @@ from agirails.adapters.x402.eip3009 import (
     encode_x_payment_header,
     network_name_for_caip2,
 )
+from agirails.adapters.x402.http_options import extract_http_options as _extract_http_options
 from agirails.adapters.x402.permit2 import (
     PaymentRequirementsPermit2,
     build_permit2_payload,
     create_permit2_approval_tx,
+)
+from agirails.adapters.x402.quote_binding import (
+    matches_quote,
+    snapshot_quote,
+    validate_wallet_network,
 )
 from agirails.types.x402 import (
     DEFAULT_EVM_NETWORKS,
@@ -82,6 +90,7 @@ from agirails.types.x402 import (
     X402PaymentFailedError,
     X402PaymentHeaders,
     X402PublishRequiredError,
+    X402QuoteMismatchError,
     X402SettlementProofMissingError,
     is_paymaster_gate_error,
     is_valid_x402_network,
@@ -489,11 +498,15 @@ class X402Adapter:
         """
         self.validate(params)
 
-        method, request_headers, request_body, content_type = _extract_http_options(params)
+        method, request_headers, request_body, content_type = _extract_http_options(params, isinstance(params, X402PayParams))
+        wire_body = None if method in ("GET", "DELETE") else request_body
+        accepted_quote = snapshot_quote(getattr(params, "accepted_quote", None), wire_body)
+        validate_wallet_network(self._config.wallet_provider, accepted_quote)
+        endpoint = params.to
 
         # Step 1: initial request
         initial = await self._make_request(
-            params.to, method, request_headers, request_body, content_type
+            endpoint, method, request_headers, request_body, content_type
         )
 
         # Free service: 200 on initial request, no payment.
@@ -506,9 +519,10 @@ class X402Adapter:
 
         # Step 2: parse + select requirements.
         requirements = self._parse_payment_requirements(initial)
-        chosen = self._select_requirements(requirements)
+        chosen = self._select_requirements(requirements, accepted_quote)
 
         # Step 3 + 4: build a signed payment payload.
+        validate_wallet_network(self._config.wallet_provider, accepted_quote)
         scheme_payload, network_name = await self._build_payment_payload(chosen)
         x_payment = encode_x_payment_header(scheme_payload, network_name)
 
@@ -517,7 +531,7 @@ class X402Adapter:
         retry_headers["X-PAYMENT"] = x_payment
         try:
             res = await self._make_request(
-                params.to, method, retry_headers, request_body, content_type
+                endpoint, method, retry_headers, request_body, content_type
             )
         except Exception as exc:
             raise X402PaymentFailedError(
@@ -593,7 +607,7 @@ class X402Adapter:
         return accepts
 
     def _select_requirements(
-        self, requirements: Sequence[Dict[str, Any]]
+        self, requirements: Sequence[Dict[str, Any]], accepted_quote: Optional[Mapping[str, str]] = None
     ) -> Dict[str, Any]:
         """Pick the best requirement (TS selectRequirements).
 
@@ -633,6 +647,11 @@ class X402Adapter:
                 f"allowed networks: [{', '.join(allowed)}]{asset_info}."
             )
 
+        if accepted_quote is not None:
+            candidates = [r for r in candidates if matches_quote(r, accepted_quote)]
+            if not candidates:
+                raise X402QuoteMismatchError('No payment requirement matches the accepted quote')
+
         def _is_permit2(r: Dict[str, Any]) -> bool:
             extra = r.get("extra")
             return isinstance(extra, dict) and extra.get("assetTransferMethod") == "permit2"
@@ -643,7 +662,7 @@ class X402Adapter:
         else:
             prioritized = sorted(candidates, key=lambda r: 1 if _is_permit2(r) else 0)
 
-        chosen = dict(prioritized[0])
+        chosen = deepcopy(prioritized[0])
         amount_big = int(chosen["amount"])
         if amount_big > self._max_amount_per_tx:
             raise X402AmountExceededError(
@@ -966,34 +985,6 @@ def _decode_payment_response_header(header: str) -> Dict[str, Any]:
 # ============================================================================
 
 
-def _extract_http_options(
-    params: Union[UnifiedPayParams, X402PayParams]
-) -> "tuple[X402HttpMethod, Dict[str, str], Optional[str], Optional[str]]":
-    method: X402HttpMethod = "GET"
-    request_headers: Dict[str, str] = {}
-    request_body: Optional[str] = None
-    content_type: Optional[str] = None
-    if isinstance(params, X402PayParams):
-        method = params.method or "GET"
-        request_headers = dict(params.headers or {})
-        request_body = _serialize_body(params.body, params.content_type)
-        content_type = params.content_type
-        if content_type is None and params.body and method != "GET":
-            content_type = "application/json"
-    return method, request_headers, request_body, content_type
-
-
-def _serialize_body(
-    body: Optional[Union[str, Dict[str, Any]]],
-    content_type: Optional[str] = None,
-) -> Optional[str]:
-    if body is None:
-        return None
-    if isinstance(body, str):
-        return body
-    return json.dumps(body)
-
-
 def _looks_like_legacy_config(config: Any) -> bool:
     """True if ``config`` is (or carries) the legacy transfer_fn-based shape.
 
@@ -1091,6 +1082,8 @@ class LegacyX402Adapter:
     async def pay(
         self, params: Union[UnifiedPayParams, X402PayParams]
     ) -> X402PayResult:
+        if getattr(params, "accepted_quote", None) is not None:
+            raise X402QuoteMismatchError('Legacy x402 transport cannot enforce accepted quote terms')
         self.validate(params)
         endpoint = params.to
 

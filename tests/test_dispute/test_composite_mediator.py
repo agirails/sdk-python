@@ -204,7 +204,7 @@ class _MockEvents:
 
         class _EventObj:
             @staticmethod
-            def create_filter(*_a, **_k):
+            async def create_filter(*_a, **_k):
                 class _Filter:
                     async def get_all_entries():  # type: ignore[no-untyped-def]
                         return logs

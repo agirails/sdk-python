@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from web3 import Web3
 
+from agirails.protocol.kernel_creation import encode_kernel_creation
 from agirails.wallet.aa.constants import SmartWalletCall, UserOperationV06
 from agirails.wallet.aa.user_op_builder import (
     build_create_account_factory_data,
@@ -680,12 +681,7 @@ class AutoWalletProvider:
             else params.contracts["actp_kernel"]
         )
 
-        create_tx_selector = Web3.keccak(
-            text=(
-                "createTransaction(address,address,uint256,uint256,uint256,"
-                "bytes32,uint256,uint256)"
-            )
-        )[:4].hex()
+        agreement_hash_hex = (getattr(params, "agreement_hash", None) or "0x" + "00" * 32)
 
         async def _execute(nonces: Any) -> EnqueueResult[CreateACTPTransactionResult]:
             tx_id = compute_transaction_id(
@@ -696,17 +692,8 @@ class AutoWalletProvider:
                 nonces.actp_nonce,
             )
 
-            create_tx_data = "0x" + create_tx_selector + abi_encode(
-                [
-                    "address",
-                    "address",
-                    "uint256",
-                    "uint256",
-                    "uint256",
-                    "bytes32",
-                    "uint256",
-                    "uint256",
-                ],
+            create_tx_data = encode_kernel_creation(
+                kernel_address,
                 [
                     Web3.to_checksum_address(params.provider),
                     Web3.to_checksum_address(params.requester),
@@ -714,10 +701,12 @@ class AutoWalletProvider:
                     params.deadline,
                     params.dispute_window,
                     bytes.fromhex(params.service_hash.replace("0x", "")),
+                    bytes.fromhex(agreement_hash_hex.replace("0x", "")),
                     int(params.agent_id or "0"),
                     int(getattr(params, "requester_agent_id", "0") or "0"),
                 ],
-            ).hex()
+                bytes.fromhex(agreement_hash_hex.replace("0x", "")),
+            )
 
             calls = [
                 SmartWalletCall(target=kernel_address, value=0, data=create_tx_data),

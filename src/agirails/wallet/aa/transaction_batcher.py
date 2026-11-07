@@ -19,6 +19,7 @@ from typing import Dict, List, Literal, Optional
 
 from eth_abi import encode as abi_encode
 from web3 import Web3
+from agirails.protocol.kernel_creation import encode_kernel_creation
 
 from agirails.wallet.aa.constants import SmartWalletCall
 
@@ -72,6 +73,7 @@ class ACTPBatchParams:
     service_hash: str  # bytes32
     agent_id: str  # ERC-8004 agent ID ("0" if none)
     requester_agent_id: str = "0"  # AIP-14: Requester's ERC-8004 agent ID
+    agreement_hash: str = "0x" + "00" * 32  # AIP-14c v2: bytes32(0) = no auto AI ruling
     actp_nonce: int = 0  # Current ACTP nonce for the requester
     contracts: ContractAddresses = None  # type: ignore[assignment]
 
@@ -104,9 +106,10 @@ class ActivationBatchParams:
 # ERC20.approve(address,uint256)
 _APPROVE_SELECTOR = Web3.keccak(text="approve(address,uint256)")[:4].hex()
 
-# ACTPKernel.createTransaction(address,address,uint256,uint256,uint256,bytes32,uint256,uint256)
+# [F26 FIX] Canonical AIP-14c v2 createTransaction — 9-input, agreementHash (bytes32) is the 7th
+# arg (between serviceHash and agentId). The pre-v2 8-arg selector (0x432815a2) reverts on v2.
 _CREATE_TX_SELECTOR = Web3.keccak(
-    text="createTransaction(address,address,uint256,uint256,uint256,bytes32,uint256,uint256)"
+    text="createTransaction(address,address,uint256,uint256,uint256,bytes32,bytes32,uint256,uint256)"
 )[:4].hex()
 
 # ACTPKernel.linkEscrow(bytes32,address,bytes32)
@@ -209,8 +212,8 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
     ).hex()
 
     # Call 2: ACTPKernel.createTransaction(...)
-    create_tx_data = "0x" + _CREATE_TX_SELECTOR + abi_encode(
-        ["address", "address", "uint256", "uint256", "uint256", "bytes32", "uint256", "uint256"],
+    create_tx_data = encode_kernel_creation(
+        params.contracts.actp_kernel,
         [
             Web3.to_checksum_address(params.provider),
             Web3.to_checksum_address(params.requester),
@@ -218,10 +221,12 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
             params.deadline,
             params.dispute_window,
             bytes.fromhex(params.service_hash.replace("0x", "")),
+            bytes.fromhex((params.agreement_hash or "0x" + "00" * 32).replace("0x", "")),
             int(params.agent_id or "0"),
             int(params.requester_agent_id or "0"),
         ],
-    ).hex()
+        bytes.fromhex((params.agreement_hash or "0x" + "00" * 32).replace("0x", "")),
+    )
 
     # Call 3: ACTPKernel.linkEscrow(txId, escrowVault, escrowId)
     # escrowId = txId (ACTP standard)

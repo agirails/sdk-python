@@ -13,14 +13,15 @@ contract. There is therefore **no legitimate SDK action** that calls
 
 Accordingly this client exposes exactly two read surfaces:
     1. ``get_split_recorded_events()`` — pull ``DisputeSplitRecorded`` (every
-       ruling-2 resolution the mediator executed: finalize, force_resolve_stale,
-       UMA no-winner fallback — AIP-14b §3.4).
+       ruling-2 resolution the mediator executed: finalize, force_resolve_stale — AIP-14b §3.4).
     2. ``decode_dispute_split_recorded(log)`` — pure decode of one such event.
 
 ``resolve()`` is **deliberately ABSENT** from the public surface. See
 :class:`CompositeMediator` docstring and the parity test
 ``tests/test_dispute/test_composite_mediator.py`` ("resolve is not a public
 client method") for the normative assertion + rationale.
+
+UMA no-winner refunds preserve ruling 0/1 and are not split outcomes.
 
 ZERO-REMAINING CONSUMER RULE (AIP-14b §6, normative)
 ----------------------------------------------------
@@ -174,6 +175,7 @@ def decode_dispute_split_recorded(log: Any) -> DisputeSplitRecorded:
 def decode_resolution_proof(
     proof: Union[bytes, str],
     remaining: int,
+    *, escrow_principal: Optional[int] = None,
 ) -> DecodedResolutionProof:
     """
     Decode a kernel resolution proof under the ZERO-REMAINING CONSUMER RULE
@@ -188,15 +190,22 @@ def decode_resolution_proof(
     When ``remaining == 0`` the prevailing party's amount field holds an **inert
     1-wei sentinel** placed solely to pass the kernel's
     ``require(requesterAmount > 0 || providerAmount > 0)`` existence check. It is
-    never transferred (the kernel gates every move behind ``if (remaining > 0)``).
+    never transferred (the kernel gates every move behind escrowPrincipal > 0).
     This decoder therefore ZEROS both payouts when ``remaining == 0`` and sets
     ``phantom_sentinel``. No 1-wei payout is ever surfaced.
     PARITY: TS ``decodeResolutionProof``.
 
     Args:
         proof: the raw proof bytes (0x-hex or bytes) passed to ``transitionState``.
-        remaining: the on-chain escrow ``remaining`` at resolution time.
+        remaining: legacy principal alias; fee-bearing raw balance requires explicit escrow_principal.
+        escrow_principal: kernel principal snapshot immediately before resolution.
+
+    Raises:
+        ValueError: if neither principal snapshot nor legacy remaining is known.
     """
+    principal = remaining if escrow_principal is None else escrow_principal
+    if principal is None:
+        raise ValueError("Escrow principal is required to decode economic payouts")
     raw = _proof_to_bytes(proof)
     byte_len = len(raw)
 
@@ -212,7 +221,7 @@ def decode_resolution_proof(
         provider_at_fault = None
 
     # ZERO-REMAINING CONSUMER RULE: proof amounts are a phantom sentinel — ignore.
-    if remaining == 0:
+    if principal == 0:
         return DecodedResolutionProof(
             is_split=is_split,
             requester_amount=0,
@@ -342,9 +351,9 @@ class CompositeMediator:
         if provider is not None:
             argument_filters["provider"] = provider
 
-        log_filter = self.contract.events.DisputeSplitRecorded.create_filter(
-            fromBlock=from_block,
-            toBlock=to_block,
+        log_filter = await self.contract.events.DisputeSplitRecorded.create_filter(
+            from_block=from_block,
+            to_block=to_block,
             argument_filters=argument_filters or None,
         )
         logs = await log_filter.get_all_entries()
@@ -377,9 +386,9 @@ class CompositeMediator:
                 try:
                     current_block = await w3.eth.block_number
                     if current_block > last_block:
-                        log_filter = contract.events.DisputeSplitRecorded.create_filter(
-                            fromBlock=last_block + 1,
-                            toBlock=current_block,
+                        log_filter = await contract.events.DisputeSplitRecorded.create_filter(
+                            from_block=last_block + 1,
+                            to_block=current_block,
                         )
                         logs = await log_filter.get_all_entries()
                         for log in logs:

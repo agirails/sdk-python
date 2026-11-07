@@ -51,6 +51,8 @@ except Exception:  # pragma: no cover - defensive for ABI-error import drift
     _ABI_EVENT_MISSING_ERRORS = (AttributeError,)
 
 from agirails.config.networks import NetworkConfig
+from agirails.protocol.event_queries import EventLogQueries
+from agirails.protocol.kernel_creation import is_legacy_creation_kernel, kernel_creation_abi
 from agirails.types.transaction import TransactionState
 
 
@@ -319,7 +321,7 @@ class EventFilter:
 # ============================================================================
 
 
-class EventMonitor:
+class EventMonitor(EventLogQueries):
     """
     Monitor for ACTP protocol events.
 
@@ -350,6 +352,11 @@ class EventMonitor:
             mediator_contract: Optional CompositeMediator (for DisputeSplitRecorded)
             bond_escalation_contract: Optional BondEscalation (for UMADisputeEscalated)
         """
+        if is_legacy_creation_kernel(getattr(kernel_contract, "address", None)):
+            kernel_contract = w3.eth.contract(
+                address=kernel_contract.address,
+                abi=kernel_creation_abi(kernel_contract.address, kernel_contract.abi),
+            )
         self.kernel_contract = kernel_contract
         self.escrow_contract = escrow_contract
         self.w3 = w3
@@ -849,80 +856,6 @@ class EventMonitor:
     # =========================================================================
     # Internal Methods
     # =========================================================================
-
-    # Heuristic substrings that mean the eth_getLogs block range was too large.
-    # PARITY: EventMonitor.ts:198-207 (isBlockRangeError).
-    _BLOCK_RANGE_ERROR_MARKERS = (
-        "block range",
-        "range is too",
-        "range too",
-        "up to a",
-        "more than",
-        "response size",
-        "query timeout",
-        "limit exceeded",
-        "-32600",
-        "-32005",
-    )
-
-    @classmethod
-    def _is_block_range_error(cls, err: BaseException) -> bool:
-        """Heuristic: does this error mean the eth_getLogs block range was too large?
-
-        PARITY: EventMonitor.ts:198-207.
-        """
-        message = str(err).lower()
-        return any(marker in message for marker in cls._BLOCK_RANGE_ERROR_MARKERS)
-
-    async def _query_logs_chunked(
-        self,
-        event_obj: Any,
-        from_block: int,
-        to_block: int,
-    ) -> List[LogReceipt]:
-        """Adaptive eth_getLogs over ``[from_block, to_block]``.
-
-        Tries the full window first; on a block-range error, splits the window
-        in half and retries each half — adapting to ANY RPC's eth_getLogs cap
-        (10, 1000, 10000, …) with no hardcoded chunk size. In practice a 10000
-        block window halves toward ~1000 on a standard-tier RPC. A single-block
-        window that still fails is a genuine error and is re-raised (NOT
-        swallowed). PARITY: EventMonitor.ts:182-196 (queryFilterChunked).
-        """
-        try:
-            log_filter = event_obj.create_filter(
-                fromBlock=from_block,
-                toBlock=to_block,
-            )
-            return await log_filter.get_all_entries()
-        except Exception as err:
-            # Single-block window or a non-range error → genuine. Re-raise so the
-            # caller's ABI-existence guard handles "event not in ABI" but real
-            # RPC failures are never silently dropped.
-            if from_block >= to_block or not self._is_block_range_error(err):
-                raise
-            mid = (from_block + to_block) // 2
-            lower = await self._query_logs_chunked(event_obj, from_block, mid)
-            upper = await self._query_logs_chunked(event_obj, mid + 1, to_block)
-            return [*lower, *upper]
-
-    async def _query_event_logs(
-        self,
-        event_obj: Any,
-        from_block: Union[int, str],
-        to_block: Union[int, str],
-    ) -> List[LogReceipt]:
-        """Query logs for one event, chunking adaptively when bounds are numeric.
-
-        Non-numeric bounds (e.g. ``"earliest"`` / ``"latest"``) fall through to a
-        single ``get_all_entries`` call — there's nothing to halve without
-        concrete block numbers. PARITY: EventMonitor.ts:131-136.
-        """
-        if isinstance(from_block, int) and isinstance(to_block, int):
-            return await self._query_logs_chunked(event_obj, from_block, to_block)
-
-        log_filter = event_obj.create_filter(fromBlock=from_block, toBlock=to_block)
-        return await log_filter.get_all_entries()
 
     async def _get_kernel_events(
         self,

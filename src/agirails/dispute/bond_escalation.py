@@ -29,7 +29,7 @@ Lifecycle (AIP-14 §3, §7.1)::
          +--> escalate_to_uma(cid) (at ceiling + active)    -> Tier 2 (UMA)
                                                                   |
     sync_external_resolution() / force_resolve_stale() -------> RESOLVED
-    claim_escalation_refund()    (split refunds, post-resolve)
+    claim_escalation_refund()    (split or no-winner UMA refunds, post-resolve)
 
 Reference: AIP-14 §7 (BondEscalation), §7.1 (IBondEscalation), §7.4 (constants),
 §7.13 (bond formulas).
@@ -211,7 +211,7 @@ class BondEscalationClient:
         """
         Read + decode a dispute's on-chain state from ``disputes(bytes32)``.
 
-        The raw getter returns the 13-field ``DisputeState`` storage struct
+        The raw getter returns the 14-field ``DisputeState`` storage struct
         (AIP-14 §7.3); ``tier`` is decoded 0-based onto :class:`Tier`. PARITY:
         TS ``getDisputeState``.
 
@@ -433,12 +433,24 @@ class BondEscalationClient:
 
     async def claim_escalation_refund(self, dispute_id: str) -> Dict[str, str]:
         """
-        Claim a proportional split refund after a split (ruling-2) resolution.
+        Claim after a split or a UMA verdict with no Tier-1 winning proposer.
+        The latter preserves ruling 0/1; get_tier1_refundable exposes its flag.
+        The caller still needs an unclaimed deposit.
 
         AIP-14 §7.10. Not pausable. PARITY: TS ``claimEscalationRefund``.
         """
         receipt = await self._send("claimEscalationRefund", [_to_bytes32(dispute_id)])
         return {"eth_tx_hash": receipt}
+
+    async def get_tier1_refundable(self, dispute_id: str) -> bool:
+        """Additional no-winner UMA refund flag; splits do not need this flag.
+
+        Unsupported legacy contracts and read failures propagate.
+        PARITY: TS getTier1Refundable.
+        """
+        return bool(await self._contract.functions.tier1Refundable(
+            _to_bytes32(dispute_id)
+        ).call())
 
     async def sync_external_resolution(self, dispute_id: str) -> Dict[str, str]:
         """

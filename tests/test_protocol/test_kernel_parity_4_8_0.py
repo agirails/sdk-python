@@ -213,12 +213,10 @@ class TestGetTransactionLegacyFallback:
         primary_fn.call = AsyncMock(side_effect=Exception("Could not decode contract function call"))
         kernel.contract.functions.getTransaction.return_value = primary_fn
 
-        # Legacy contract returns the 16-field tuple.
-        legacy_contract = MagicMock()
-        legacy_fn = MagicMock()
-        legacy_fn.call = AsyncMock(return_value=_legacy_tuple())
-        legacy_contract.functions.getTransaction.return_value = legacy_fn
-        kernel.w3.eth.contract = MagicMock(return_value=legacy_contract)
+        # Feed actual ABI bytes through the exact-length fallback decoder.
+        from eth_abi import encode
+        types = '(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,address,bytes32,bytes32,uint256,bytes32,uint16,uint256)'
+        kernel.w3.eth.call = AsyncMock(return_value=encode([types], [_legacy_tuple()]))
 
         view = await kernel.get_transaction("0x" + "9" * 64)
 

@@ -63,12 +63,12 @@ class _ChunkingEvent:
         self.logs_at = logs_at  # from_block -> logs for single-block windows
         self.calls: list[tuple[int, int]] = []
 
-    def create_filter(self, *, fromBlock: int, toBlock: int):
-        self.calls.append((fromBlock, toBlock))
-        span = toBlock - fromBlock + 1
+    async def create_filter(self, *, from_block: int, to_block: int):
+        self.calls.append((from_block, to_block))
+        span = to_block - from_block + 1
         entries = []
         if span <= self.cap:
-            for b in range(fromBlock, toBlock + 1):
+            for b in range(from_block, to_block + 1):
                 entries.extend(self.logs_at.get(b, []))
 
         async def get_all_entries():
@@ -96,9 +96,9 @@ class TestQueryLogsChunked:
         monitor = _make_monitor()
 
         event = MagicMock()
-        event.create_filter.return_value = MagicMock(
+        event.create_filter = AsyncMock(return_value=MagicMock(
             get_all_entries=AsyncMock(side_effect=Exception("block range too large"))
-        )
+        ))
 
         # from_block == to_block → cannot split → genuine error re-raised.
         with pytest.raises(Exception) as exc_info:
@@ -109,9 +109,9 @@ class TestQueryLogsChunked:
         monitor = _make_monitor()
 
         event = MagicMock()
-        event.create_filter.return_value = MagicMock(
+        event.create_filter = AsyncMock(return_value=MagicMock(
             get_all_entries=AsyncMock(side_effect=Exception("connection refused"))
-        )
+        ))
 
         with pytest.raises(Exception) as exc_info:
             await monitor._query_logs_chunked(event, 0, 1000)
@@ -129,13 +129,13 @@ class TestQueryEventLogs:
     async def test_string_bounds_skip_chunking(self):
         monitor = _make_monitor()
         event = MagicMock()
-        event.create_filter.return_value = MagicMock(
+        event.create_filter = AsyncMock(return_value=MagicMock(
             get_all_entries=AsyncMock(return_value=["x"])
-        )
+        ))
 
         logs = await monitor._query_event_logs(event, "earliest", "latest")
         assert logs == ["x"]
-        event.create_filter.assert_called_once_with(fromBlock="earliest", toBlock="latest")
+        event.create_filter.assert_awaited_once_with(from_block="earliest", to_block="latest")
 
     async def test_numeric_bounds_use_chunked_path(self):
         monitor = _make_monitor()

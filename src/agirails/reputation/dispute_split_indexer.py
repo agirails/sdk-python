@@ -17,7 +17,7 @@ OQ-11 (normative default — PRD §9, P2-8)
 ----------------------------------------
 A dispute counts as a SPLIT for the HEADLINE rate when it resolved via EITHER:
     1. ``DisputeSplitRecorded`` — CompositeMediator ruling-2 (finalize /
-       force_resolve_stale / UMA no-winner fallback), OR
+       force_resolve_stale), OR
     2. kernel ``DISPUTED → CANCELLED`` — the kernel-level split path, which
        includes **admin-CANCELLED** disputes that bypass CompositeMediator.
 BOTH are counted at **IDENTICAL weight**. Counting only (1) would miss
@@ -79,7 +79,7 @@ class DisputeOutcome:
     Assembled from ``DisputeSplitRecorded`` events + kernel
     ``StateTransitioned(DISPUTED->CANCELLED / DISPUTED->SETTLED)`` events, joined
     with the kernel transaction's ``provider``/``requester``. ``remaining`` is
-    the on-chain escrow ``remaining`` at resolution time and is the ONLY thing
+    the kernel escrowPrincipal at resolution time and is the ONLY thing
     (with ``kind``) that drives classification — proof amounts are never trusted
     (ZERO-REMAINING RULE).
 
@@ -93,6 +93,7 @@ class DisputeOutcome:
     split_bps: Optional[int] = None
     proof: Optional[str] = None
     tx_id: Optional[str] = None
+    escrow_principal: Optional[int] = None
 
 
 @dataclass
@@ -249,7 +250,8 @@ class DisputeSplitIndexer:
         """
         if outcome.proof is None:
             return None
-        return decode_resolution_proof(outcome.proof, outcome.remaining or 0)
+        principal = outcome.escrow_principal if outcome.escrow_principal is not None else outcome.remaining
+        return decode_resolution_proof(outcome.proof, principal)
 
 
 def outcome_from_split_recorded(
@@ -259,8 +261,8 @@ def outcome_from_split_recorded(
 ) -> DisputeOutcome:
     """
     Build a :class:`DisputeOutcome` from a decoded ``DisputeSplitRecorded`` event.
-    The ``remaining`` MUST be supplied separately (read from the escrow at
-    resolution time) — it is NOT in the event. PARITY: TS
+    The ``remaining`` MUST be supplied separately (read via ACTPKernel.get_escrow_principal immediately before
+    resolution) — it is NOT in the event. PARITY: TS
     ``outcomeFromSplitRecorded``.
     """
     return DisputeOutcome(
@@ -268,6 +270,7 @@ def outcome_from_split_recorded(
         requester=event.requester,
         kind="disputeSplitRecorded",
         remaining=remaining,
+        escrow_principal=remaining,
         split_bps=event.split_bps,
         proof=proof,
         tx_id=event.tx_id,

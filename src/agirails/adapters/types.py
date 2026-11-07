@@ -15,6 +15,7 @@ This module defines types for:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
@@ -133,6 +134,9 @@ class PaymentMetadata(TypedDict, total=False):
 # ============================================================================
 
 
+AcceptedX402Quote = Optional[Mapping[str, str]]
+
+
 @dataclass
 class UnifiedPayParams:
     """
@@ -156,6 +160,8 @@ class UnifiedPayParams:
             DELETE). Ignored by ACTP adapters. TS parity, types/adapter.ts:168.
         http_body: HTTP body for x402 paid requests (POST/PUT/PATCH). Ignored
             by ACTP adapters. TS parity, types/adapter.ts:171.
+        accepted_quote: Accepted x402 base-unit amount, asset, pay_to, network
+            and opaque evaluator nonce. Copied immutably per pay invocation.
         http_headers: Extra HTTP headers for x402 paid requests. Ignored by
             ACTP adapters. TS parity, types/adapter.ts:174.
     """
@@ -172,6 +178,8 @@ class UnifiedPayParams:
     http_method: Optional[str] = None  # 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'
     http_body: Optional[Union[str, bytes, bytearray]] = None
     http_headers: Optional[Dict[str, str]] = None
+
+    accepted_quote: AcceptedX402Quote = None
 
     def __post_init__(self) -> None:
         """Validate dispute_window bounds (mirrors TS Zod schema,
