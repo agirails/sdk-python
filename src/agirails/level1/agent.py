@@ -554,10 +554,10 @@ class Agent:
         # Find provider if not specified
         if provider is None:
             # Import here to avoid circular import
-            from agirails.level0.directory import service_directory
+            from agirails.level0.directory import get_global_directory
 
-            entry = service_directory.find_one(service)
-            if entry is None:
+            entry = get_global_directory().get(service)
+            if entry is None or not entry.provider_address:
                 raise NoProviderFoundError(service)
             provider = entry.provider_address
 

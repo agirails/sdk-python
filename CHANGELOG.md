@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Resolve omitted providers through the actual local service-directory API,
+  rejecting missing provider addresses before funding a request.
 - Verify both legacy and AIP-4 delivery signatures without their shared type name
   selecting the wrong schema; reject ambiguous or incomplete delivery payloads.
 - Require patched `cryptography` 50.x while retaining Python 3.9 support.
