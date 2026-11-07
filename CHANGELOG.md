@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Require patched `cryptography` 50.x while retaining Python 3.9 support.
 - Preserve successful `actp watch` exit codes instead of reporting them as errors.
 - Forward the `actp tx transition --proof` value to the runtime.
 - Await asynchronous AgentRegistry transaction construction before signing.

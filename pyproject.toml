@@ -48,7 +48,7 @@ dependencies = [
     "eth-hash[pycryptodome]>=0.7.0,<1.0.0",
     # AIP-16 delivery channel crypto: X25519 ECDH, HKDF-SHA256, AES-256-GCM
     # (byte-exact parity with the TS delivery surface). pyca/cryptography.
-    "cryptography>=46.0.7,<49.0.0",
+    "cryptography>=50.0.0,<51.0.0",
     "pydantic>=2.6.0,<3.0.0",
     "python-dateutil>=2.8.0,<3.0.0",
     "httpx>=0.27.0,<1.0.0",
