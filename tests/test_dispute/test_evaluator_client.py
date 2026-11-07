@@ -44,7 +44,7 @@ from agirails.dispute.evidence_bundle import compute_bundle_hash
 from agirails.types.dispute import AIRuling, recover_ruling_signer, sign_ruling
 
 # Shared cross-SDK fixtures (the SAME files the TS jest suite loads).
-_VECTORS_DIR = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
+_VECTORS_DIR = Path(__file__).resolve().parents[2] / "test-vectors"
 FIXTURE = json.loads((_VECTORS_DIR / "evaluator-client-vectors.json").read_text())
 BUNDLE_VECTORS = json.loads((_VECTORS_DIR / "bundle-vectors.json").read_text())
 

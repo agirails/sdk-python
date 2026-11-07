@@ -33,7 +33,7 @@ from agirails.reputation.dispute_split_indexer import (
 )
 
 # Shared cross-SDK fixture (the SAME file the TS jest suite loads).
-_VECTORS_DIR = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
+_VECTORS_DIR = Path(__file__).resolve().parents[2] / "test-vectors"
 _FIXTURE = json.loads(
     (_VECTORS_DIR / "dispute-client-status-vectors.json").read_text()
 )

@@ -60,7 +60,7 @@ from agirails.types.dispute import (
 )
 
 # Shared fixtures (the SAME files the TS jest suite loads).
-_VECTORS = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors" / "dispute"
+_VECTORS = Path(__file__).resolve().parents[2] / "test-vectors" / "dispute"
 SURFACE = json.loads((_VECTORS / "parity-surface.json").read_text())
 GOLDEN = json.loads((_VECTORS / "golden-vectors.json").read_text())
 

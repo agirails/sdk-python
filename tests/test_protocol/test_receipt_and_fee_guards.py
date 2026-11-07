@@ -58,7 +58,7 @@ async def test_authorize_paid_receipt_has_recoverable_domain_bound_signature():
     import json
     from pathlib import Path
     from web3 import Web3
-    vector = json.loads((Path(__file__).resolve().parents[4] / 'DISPUTE SYSTEM/test-vectors/dispute/receipt-authorization-v1.json').read_text())
+    vector = json.loads((Path(__file__).resolve().parents[2] / 'test-vectors/dispute/receipt-authorization-v1.json').read_text())
     signed = account.sign_message(encode_typed_data(full_message=receipt_authorization_typed_data(value)))
     assert Web3.to_hex(signed.message_hash) == vector['digest']
     assert receipt['authorization']['signature'] == vector['signature']

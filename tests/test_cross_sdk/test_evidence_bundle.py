@@ -44,7 +44,7 @@ from agirails.dispute.evidence_bundle import (
 # ---------------------------------------------------------------------------
 
 _VECTORS_DIR = (
-    Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
+    Path(__file__).resolve().parents[2] / "test-vectors"
 )
 _FIXTURE = _VECTORS_DIR / "bundle-vectors.json"
 FIXTURE = json.loads(_FIXTURE.read_text(encoding="utf-8"))

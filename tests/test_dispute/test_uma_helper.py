@@ -35,7 +35,7 @@ from agirails.dispute.uma_helper import (
 )
 
 # Shared cross-SDK fixture (the SAME file the TS jest suite loads).
-_VECTORS_DIR = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
+_VECTORS_DIR = Path(__file__).resolve().parents[2] / "test-vectors"
 _FIXTURE = json.loads((_VECTORS_DIR / "uma-self-dispute-vectors.json").read_text())
 
 _ABI_DIR = Path(__file__).resolve().parents[2] / "src" / "agirails" / "abis"

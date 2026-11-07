@@ -34,7 +34,7 @@ from agirails.reputation import (
 from agirails.dispute.composite_mediator import DisputeSplitRecorded
 
 # PARITY: dispute-split-indexer.test.ts — same fixture, same assertions.
-_VECTORS_DIR = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
+_VECTORS_DIR = Path(__file__).resolve().parents[2] / "test-vectors"
 _FIXTURE: Dict[str, Any] = json.loads(
     (_VECTORS_DIR / "dispute-split-indexer-vectors.json").read_text()
 )

@@ -38,7 +38,7 @@ from agirails.protocol.events import EventMonitor
 from agirails.types.transaction import TransactionState
 
 # Shared cross-SDK fixture (the SAME file the TS jest suite loads).
-_VECTORS_DIR = Path(__file__).resolve().parents[4] / "DISPUTE SYSTEM" / "test-vectors"
+_VECTORS_DIR = Path(__file__).resolve().parents[2] / "test-vectors"
 _FIXTURE = json.loads((_VECTORS_DIR / "composite-mediator-vectors.json").read_text())
 
 _ABI_DIR = Path(__file__).resolve().parents[2] / "src" / "agirails" / "abis"
