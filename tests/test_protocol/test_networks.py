@@ -82,6 +82,17 @@ class TestNetworkConfig:
         assert BASE_SEPOLIA.contracts.actp_kernel != "0x0000000000000000000000000000000000000000"
         assert BASE_SEPOLIA.contracts.escrow_vault != "0x0000000000000000000000000000000000000000"
 
+    def test_base_sepolia_points_at_b08c0c6_stack(self) -> None:
+        """Base Sepolia uses the b08c0c6 kernel stack deployed 2026-11-23."""
+        contracts = BASE_SEPOLIA.contracts
+        assert contracts.actp_kernel == "0xAfDd8D972b2d95eEb044b4C8010E33EA60eBA1a8"
+        assert contracts.escrow_vault == "0x1d7d1dEfAb80dA75116D0fF8C493C8EBb7dA2542"
+        assert contracts.agent_registry == "0x102263e9668B79769900b08788cea5D9bfCc2D46"
+        assert contracts.archive_treasury == "0x1C97490B58fC63B7Bc945755C2cd1EA22132902e"
+        assert contracts.bond_escalation == "0x1F89966780a09daE562d17D0aDd45E7E8BC7E992"
+        assert contracts.composite_mediator == "0xB2C6317752B7CB5Aff56114f6D4183Ba3B9c088A"
+        assert BASE_SEPOLIA.actp_kernel_deployment_block == 62_589_379
+
     def test_base_mainnet_config(self) -> None:
         """Test Base Mainnet network configuration."""
         assert BASE_MAINNET.name == "Base Mainnet"
