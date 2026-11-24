@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Base Sepolia now points at the `b08c0c6` kernel stack deployed 2026-11-23:
+  ACTPKernel `0xAfDd8D97…A1a8`, EscrowVault `0x1d7d1dEf…2542`, AgentRegistry,
+  ArchiveTreasury, CompositeMediator and BondEscalation, replacing the July
+  kernel-v2 addresses. `actp_kernel_deployment_block` is 62_589_379 (it still
+  pointed at the June F-6 kernel). The new kernel requires the delivery dispute
+  window to be at least the transaction's `dispute_window`; the default delivery
+  paths already pass that value. The mediator and AgentRegistry timelocks expire
+  on 2026-11-25 13:16 UTC. Identify Sepolia kernels by address and runtime
+  codehash: `kernelVersion()` is the same constant on every build.
+
 ### Fixed
 
 - Resolve omitted providers through the actual local service-directory API,

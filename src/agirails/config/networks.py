@@ -191,11 +191,8 @@ class NetworkConfig:
 # ============================================================================
 # Base Sepolia Testnet Configuration
 # ============================================================================
-# Redeployed 2026-05-19 (V4): solc 0.8.34, INV-30 disputeBondBpsLocked,
-# AIP-14 dispute bonds, M-2 mediator timelock fix. Aligns Sepolia ABI shape
-# with mainnet V3. All 4 contracts Sourcify EXACT_MATCH verified.
-# See actp-kernel deployments/base-sepolia.json for deploy block, tx hashes,
-# Sourcify match IDs.
+# b08c0c6 kernel stack, deployed 2026-11-23. Deploy record, block, tx hashes
+# and runtime codehashes: actp-kernel deployments/SEPOLIA-B08C0C6-2026-11-23.md.
 # ============================================================================
 
 BASE_SEPOLIA = NetworkConfig(
@@ -204,27 +201,18 @@ BASE_SEPOLIA = NetworkConfig(
     rpc_url=BASE_SEPOLIA_RPC_URL,
     block_explorer="https://sepolia.basescan.org",
     contracts=ContractAddresses(
-        # AIP-14c kernel-v2 redeploy - 2026-07-13 (block 44093538). kernelVersion
-        # 0x6237ef5c... (ACTP_KERNEL_V2_AIP14C_REV2); runtime codehash 0xf42003e6...
-        # (== audited candidate). Supersedes the F-6 kernel 0xD8f7829c... (pre-v2).
-        actp_kernel="0xE8ba4133CC43bAb48c9c71bF82243e0b15915389",
-        escrow_vault="0x9d3CbD2c630E390F9179DAfE02Dd5dAd80B3A05B",
+        actp_kernel="0xAfDd8D972b2d95eEb044b4C8010E33EA60eBA1a8",
+        escrow_vault="0x1d7d1dEfAb80dA75116D0fF8C493C8EBb7dA2542",
         usdc="0x444b4e1A65949AB2ac75979D5d0166Eb7A248Ccb",  # MockUSDC (unchanged)
         eas="0x4200000000000000000000000000000000000021",  # Base native EAS
         eas_schema_registry="0x4200000000000000000000000000000000000020",
-        # NEW AgentRegistry bound to kernel-v2 (active on-chain after the 2-day
-        # executeAgentRegistryUpdate timelock, ~2026-07-15).
-        agent_registry="0x1bb1D4B0b84801FF8597d3e7988E00802252d962",
-        archive_treasury="0x415Ca522e1DfF9933ab5Eb7a8569B1879093324D",  # v2, bound to kernel-v2
+        agent_registry="0x102263e9668B79769900b08788cea5D9bfCc2D46",
+        archive_treasury="0x1C97490B58fC63B7Bc945755C2cd1EA22132902e",
         identity_registry="0xce9749c768b425fab0daa0331047d1340ec99a88",  # AGIRAILSIdentityRegistry
         x402_relay="0x110b25bb3d45c40dfcf34bb451aa7069b2a1cb3b",  # deprecated since SDK 3.3.0
         erc8004_identity_registry="0x8004A818BFB912233c491871b3d84c89A494BD9e",
-        # AIP-14c dispute system (D7) - deployed 2026-07-13 against kernel-v2 (block 44093572).
-        # BondEscalation runtime codehash 0x9389b155... (Sepolia pin). Tier-2 uses a testnet
-        # MockOOV3 0x64C81e2F... Mediator resolver active after the 2-day timelock (~2026-07-15).
-        # Supersedes the pre-D7 stack (bond 0x62d5417B..., mediator 0xf8095f8d...).
-        bond_escalation="0x84CB23F1bCebC286270EE5E62A19a64686D3Ca0A",
-        composite_mediator="0x45a440a34303AEe597672C1D47d1ce83BEC8aD1C",
+        bond_escalation="0x1F89966780a09daE562d17D0aDd45E7E8BC7E992",
+        composite_mediator="0xB2C6317752B7CB5Aff56114f6D4183Ba3B9c088A",
     ),
     eas=EASConfig(
         # Deployed 2025-11-23 - AIP-4 delivery proof schema
@@ -234,7 +222,7 @@ BASE_SEPOLIA = NetworkConfig(
         max_fee_per_gas=2_000_000_000,  # 2 gwei
         max_priority_fee_per_gas=1_000_000_000,  # 1 gwei
     ),
-    actp_kernel_deployment_block=43_262_304,  # 2026-06-24 F-6 redeploy
+    actp_kernel_deployment_block=62_589_379,
     aa=AAConfig(
         entry_point=ENTRYPOINT_V06,
         smart_wallet_factory=SMART_WALLET_FACTORY,
