@@ -464,7 +464,6 @@ def publish(
                 )
                 if testnet_result:
                     wallet_address = testnet_result.get("wallet_address")
-                    activation_agent_id = testnet_result.get("agent_id")
                     tx_hash = testnet_result.get("tx_hash")
                     if tx_hash:
                         print_success(f"Testnet activation: {tx_hash}")

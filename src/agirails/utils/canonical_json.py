@@ -82,7 +82,7 @@ def _js_number_to_string(x: float) -> Optional[str]:
     Returns ``None`` for non-finite values (``JSON.stringify`` renders NaN and
     Infinity as ``null``).
     """
-    if x != x or x in (float("inf"), float("-inf")):
+    if x != x or x in (float("inf"), float("-inf")):  # noqa: PLR0124
         return None
     if x == 0:
         return "0"  # also collapses -0.0

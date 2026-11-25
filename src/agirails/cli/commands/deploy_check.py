@@ -24,7 +24,7 @@ except ImportError:
 
 
 # Status constants
-PASS = "PASS"
+PASS = "PASS"  # noqa: S105
 WARN = "WARN"
 FAIL = "FAIL"
 

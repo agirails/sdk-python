@@ -35,7 +35,7 @@ from agirails.runtime.base import CreateTransactionParams
 from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
 
 if TYPE_CHECKING:
-    pass
+    from agirails.adapters.standard import TransactionStatus
 
 
 class CheckStatusResult(TypedDict):

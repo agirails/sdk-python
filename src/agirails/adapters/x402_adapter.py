@@ -1284,7 +1284,7 @@ class LegacyX402Adapter:
             payment_address=validated_address,
             amount=amount,
             network=network,
-            token="USDC",
+            token="USDC",  # noqa: S106
             deadline=deadline_num,
             service_id=h.get(X402_HEADERS["SERVICE_ID"]) or None,
         )

@@ -244,7 +244,11 @@ ignore = [
     "S110",   # best-effort cleanup paths swallow errors on purpose
     "S112",   # same as S110 inside loops
     "PLC0414", # `import X as X` is the explicit re-export idiom (PEP 484)
+    "PLW0108", # wrapper lambdas defer attribute lookup and hide coroutine functions on purpose
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # package __init__ modules re-export (some via a dynamic __all__.extend)
 
 [tool.bandit]
 exclude_dirs = ["tests", "test"]

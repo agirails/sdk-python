@@ -55,7 +55,7 @@ def serve(
         8787, "--port", min=1, max=65535, help="HTTP port to listen on."
     ),
     host: str = typer.Option(
-        "0.0.0.0", "--host", help="Bind address (default: 0.0.0.0)."
+        "0.0.0.0", "--host", help="Bind address (default: 0.0.0.0)."  # noqa: S104  # nosec B104
     ),
     network: str = typer.Option(
         "base-sepolia",

@@ -167,7 +167,7 @@ class _JSCompatEncoder(json.JSONEncoder):
 def _convert_whole_floats(value: Any) -> Any:
     """Recursively convert whole-number floats to ints to match JS JSON output."""
     if isinstance(value, float):
-        if value.is_integer() and not (value != value):  # not NaN
+        if value.is_integer() and not (value != value):  # noqa: PLR0124, SIM202
             return int(value)
         return value
     if isinstance(value, dict):
@@ -267,7 +267,7 @@ def parse_agirails_md(content: str) -> AgirailsMdConfig:
 
     # Parse YAML with a tightened alias-count cap (mirror TS maxAliasCount:10).
     try:
-        frontmatter = yaml.load(yaml_content, Loader=_AliasCappedSafeLoader)
+        frontmatter = yaml.load(yaml_content, Loader=_AliasCappedSafeLoader)  # noqa: S506  # nosec B506
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse YAML frontmatter: {e}") from e
 
@@ -674,7 +674,7 @@ def _v4_get_number(obj: Optional[Dict[str, Any]], key: str) -> Optional[float]:
         val = float(obj[key])
     except (TypeError, ValueError):
         return None
-    if val != val:  # NaN
+    if val != val:  # noqa: PLR0124
         return None
     return val
 
@@ -750,7 +750,7 @@ def _v4_parse_services(fm: Dict[str, Any]) -> List[AgirailsMdV4ServiceEntry]:
             if entry.get("min_price") is not None:
                 try:
                     candidate = float(entry["min_price"])
-                    if candidate == candidate and candidate not in (
+                    if candidate == candidate and candidate not in (  # noqa: PLR0124
                         float("inf"),
                         float("-inf"),
                     ):
@@ -761,7 +761,7 @@ def _v4_parse_services(fm: Dict[str, Any]) -> List[AgirailsMdV4ServiceEntry]:
             if entry.get("max_price") is not None:
                 try:
                     candidate = float(entry["max_price"])
-                    if candidate == candidate and candidate not in (
+                    if candidate == candidate and candidate not in (  # noqa: PLR0124
                         float("inf"),
                         float("-inf"),
                     ):

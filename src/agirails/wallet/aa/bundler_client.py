@@ -323,6 +323,4 @@ def _is_non_transient(error: Exception) -> bool:
         if -32521 <= code <= -32500:
             return True
     # AA validation errors by message pattern.
-    if "aa" in msg and ("invalid" in msg or "rejected" in msg):
-        return True
-    return False
+    return bool("aa" in msg and ("invalid" in msg or "rejected" in msg))

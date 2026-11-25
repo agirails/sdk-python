@@ -15,9 +15,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 try:
-    from rich import print as rich_print
     from rich.console import Console
-    from rich.panel import Panel
     from rich.table import Table
 
     HAS_RICH = True

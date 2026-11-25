@@ -622,7 +622,7 @@ class MessageSigner:
         if nonce_value < _LOW_ENTROPY_NONCE_MAX:
             _logger.warn(
                 "Nonce appears sequential - use SecureNonce.generate_secure_nonce()",
-                {"nonce": nonce},
+                meta={"nonce": nonce},
             )
 
         hex_digits = nonce[2:]
@@ -630,7 +630,7 @@ class MessageSigner:
         if all(d == first_digit for d in hex_digits):
             _logger.warn(
                 "Nonce has low entropy - use SecureNonce.generate_secure_nonce()",
-                {"nonce": nonce, "repeatedDigit": first_digit},
+                meta={"nonce": nonce, "repeatedDigit": first_digit},
             )
 
     def sign_message(self, message: Dict[str, Any]) -> str:

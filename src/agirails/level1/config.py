@@ -222,9 +222,7 @@ class ServiceFilter:
             return False
         if self.max_budget is not None and job.budget > self.max_budget:
             return False
-        if self.custom is not None and not self.custom(job):
-            return False
-        return True
+        return not (self.custom is not None and not self.custom(job))
 
 
 @dataclass

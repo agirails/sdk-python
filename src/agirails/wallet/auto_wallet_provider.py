@@ -299,7 +299,7 @@ class AutoWalletProvider:
         code = await asyncio.to_thread(
             config.w3.eth.get_code, Web3.to_checksum_address(smart_wallet_address)
         )
-        is_deployed = code != b"" and code != b"\x00"
+        is_deployed = code not in (b"", b"\x00")
 
         logger.info(
             "AutoWalletProvider initialized: signer=%s smartWallet=%s deployed=%s",

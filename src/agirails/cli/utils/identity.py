@@ -92,10 +92,7 @@ def resolve_identity_path(project_root: Optional[str] = None) -> Optional[str]:
                 # and any pay/both agent. Requiring services > 0 used to skip
                 # buyer {slug}.md (AIP-18 §1).
                 is_identity = bool(v4.name) and (
-                    len(v4.services) > 0
-                    or len(v4.services_needed) > 0
-                    or v4.intent == "pay"
-                    or v4.intent == "both"
+                    len(v4.services) > 0 or len(v4.services_needed) > 0 or v4.intent in ("pay", "both")
                 )
                 if is_identity:
                     return md_path

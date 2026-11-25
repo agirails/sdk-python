@@ -68,12 +68,12 @@ _DEFAULT_BLOCKED_HOSTS: Tuple[str, ...] = (
     "metadata.aws.internal",
     "localhost",
     "127.0.0.1",
-    "0.0.0.0",
+    "0.0.0.0",  # noqa: S104  # nosec B104
     "[::1]",
 )
 # Localhost-class hosts removed from the blocklist when allow_localhost=True
 # (ProofGenerator.ts:76-80).
-_LOCALHOST_HOSTS: frozenset = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]"})
+_LOCALHOST_HOSTS: frozenset = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]"})  # noqa: S104  # nosec B104
 
 
 @dataclass

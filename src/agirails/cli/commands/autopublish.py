@@ -130,11 +130,12 @@ def autopublish(
             print_info("Change detected — publishing...")
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603
                 [sys.executable, "-m", "agirails.cli.main", "publish",
                  "--path", str(md_path), "--network", network, "--quiet"],
                 capture_output=True,
                 text=True,
+                check=False,
                 timeout=60,
             )
             if result.returncode == 0:

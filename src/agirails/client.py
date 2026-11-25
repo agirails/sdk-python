@@ -1501,7 +1501,7 @@ class ACTPClient:
         # SETTLED->SETTLED) but still fire the reputation report below.
         _st = getattr(tx, "state", None) if tx is not None else None
         _st_val = getattr(_st, "value", _st)
-        already_settled = _st_val == "SETTLED" or _st_val == 5
+        already_settled = _st_val in ("SETTLED", 5)
 
         # Release escrow (the critical operation).
         router = self._smart_wallet_router

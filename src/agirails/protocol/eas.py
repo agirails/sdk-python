@@ -224,9 +224,7 @@ class Attestation:
         if self.revocation_time > 0:
             return False
         # Not expired
-        if self.expiration_time > 0 and now > self.expiration_time:
-            return False
-        return True
+        return not (self.expiration_time > 0 and now > self.expiration_time)
 
     @property
     def is_revoked(self) -> bool:

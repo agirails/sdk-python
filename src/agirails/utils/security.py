@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Generic, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, Generic, List, Optional, Tuple, TypeVar, Union
 
 # ============================================================================
 # L-2: Security Event Logging
@@ -614,7 +614,7 @@ def safe_json_parse(
             }
             mapped_type = type_map.get(actual_type, actual_type)
 
-            if mapped_type != expected_type and expected_type != "any":
+            if expected_type not in (mapped_type, "any"):
                 # Type mismatch - skip this field
                 continue
 

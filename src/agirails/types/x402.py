@@ -24,15 +24,9 @@ Use ACTP for: Complex services, dispute protection, high-value transactions
 from __future__ import annotations
 
 import re
-import sys
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
-
-if sys.version_info >= (3, 8):
-    from typing import Literal
-else:
-    from typing_extensions import Literal
+from typing import Literal, Optional
 
 try:
     import httpx

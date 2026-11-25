@@ -152,11 +152,12 @@ def execute_command(command: str) -> Tuple[bool, str, int]:
         full_args = ["actp"] + args
 
         # SECURITY: Use shell=False and pass arguments as array
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             full_args,
             capture_output=True,
             text=True,
             shell=False,
+            check=False,
             timeout=120,  # 2 minute timeout per command
         )
 

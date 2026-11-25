@@ -488,14 +488,11 @@ class SignedMessage:
         if not self.is_signed:
             return False
 
-        if expected_signer and self.signer.lower() != expected_signer.lower():
-            return False
-
         # Note: This checks presence of signature and signer match only.
         # Cryptographic ecrecover verification requires reconstructing
         # the EIP-712 typed data hash, which is context-dependent.
         # For on-chain verification, the smart contract performs ecrecover.
-        return True
+        return not (expected_signer and self.signer.lower() != expected_signer.lower())
 
 
 @dataclass
