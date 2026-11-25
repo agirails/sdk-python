@@ -163,8 +163,8 @@ jobs:
 
       - name: Run pip-audit for dependency vulnerabilities
         run: |
-          pip-audit --format json --output pip-audit-report.json || true
-          pip-audit
+          pip-audit . --format json --output pip-audit-report.json || true
+          pip-audit .
 
       - name: Upload security reports
         uses: actions/upload-artifact@v4
