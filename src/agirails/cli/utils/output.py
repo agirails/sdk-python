@@ -11,16 +11,12 @@ Provides formatted output for CLI commands with support for:
 from __future__ import annotations
 
 import json
-import sys
-from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 try:
     from rich.console import Console
     from rich.table import Table
-    from rich.panel import Panel
-    from rich import print as rich_print
 
     HAS_RICH = True
 except ImportError:

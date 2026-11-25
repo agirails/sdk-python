@@ -14,7 +14,6 @@ from typing import Any, Dict, Optional, cast
 
 from agirails.client import ACTPClient, ACTPClientConfig, ACTPClientMode
 
-
 # Default config file name
 CONFIG_FILE = "config.json"
 
@@ -97,9 +96,9 @@ def load_config(directory: Optional[Path] = None) -> Dict[str, Any]:
         return {}
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 

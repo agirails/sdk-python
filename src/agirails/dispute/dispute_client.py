@@ -214,7 +214,7 @@ class DisputeClient:
         config: Any,
         *,
         confirmations: int = 2,
-    ) -> "DisputeClient":
+    ) -> DisputeClient:
         """Build a facade from a network config, wiring whichever on-chain
         clients have a configured address. Mirrors the TS facade's address-path
         constructor + the per-primitive ``from_config`` classmethods. Pieces with

@@ -18,11 +18,8 @@ Example:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 try:
@@ -38,11 +35,11 @@ except ImportError:
 from agirails.types.did import (
     AgentDID,
     DIDDocument,
-    DIDMethod,
-    DIDNetwork,
-    is_valid_did,
     parse_did,
 )
+from agirails.types.did import DIDMethod as DIDMethod
+from agirails.types.did import DIDNetwork as DIDNetwork
+from agirails.types.did import is_valid_did as is_valid_did
 
 
 @dataclass

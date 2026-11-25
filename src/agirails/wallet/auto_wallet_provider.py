@@ -17,12 +17,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, List, Optional, Protocol, runtime_checkable
 
 from web3 import Web3
 
 from agirails.protocol.kernel_creation import encode_kernel_creation
-from agirails.wallet.aa.constants import SmartWalletCall, UserOperationV06
+from agirails.wallet.aa.bundler_client import BundlerClient, BundlerConfig
+from agirails.wallet.aa.constants import SMART_WALLET_FACTORY, SmartWalletCall
+from agirails.wallet.aa.constants import UserOperationV06 as UserOperationV06
+from agirails.wallet.aa.dual_nonce_manager import DualNonceManager, EnqueueResult
+from agirails.wallet.aa.paymaster_client import PaymasterClient, PaymasterConfig
+from agirails.wallet.aa.transaction_batcher import (
+    build_actp_pay_batch,
+    compute_transaction_id,
+)
 from agirails.wallet.aa.user_op_builder import (
     build_create_account_factory_data,
     build_replay_safe_typed_data,
@@ -32,14 +40,6 @@ from agirails.wallet.aa.user_op_builder import (
     serialize_erc6492_signature,
     sign_user_op,
     wrap_signature,
-)
-from agirails.wallet.aa.constants import SMART_WALLET_FACTORY
-from agirails.wallet.aa.bundler_client import BundlerClient, BundlerConfig
-from agirails.wallet.aa.paymaster_client import PaymasterClient, PaymasterConfig
-from agirails.wallet.aa.dual_nonce_manager import DualNonceManager, EnqueueResult
-from agirails.wallet.aa.transaction_batcher import (
-    build_actp_pay_batch,
-    compute_transaction_id,
 )
 
 # Max ACTP-nonce bumps when retrying past "Escrow ID already used" collisions.
@@ -278,7 +278,7 @@ class AutoWalletProvider:
         )
 
     @classmethod
-    async def create(cls, config: AutoWalletConfig) -> "AutoWalletProvider":
+    async def create(cls, config: AutoWalletConfig) -> AutoWalletProvider:
         """Factory method -- computes counterfactual address and checks deployment.
 
         Args:
@@ -299,7 +299,7 @@ class AutoWalletProvider:
         code = await asyncio.to_thread(
             config.w3.eth.get_code, Web3.to_checksum_address(smart_wallet_address)
         )
-        is_deployed = code != b"" and code != b"\x00"
+        is_deployed = code not in (b"", b"\x00")
 
         logger.info(
             "AutoWalletProvider initialized: signer=%s smartWallet=%s deployed=%s",
@@ -444,8 +444,8 @@ class AutoWalletProvider:
         if w3 is None:
             return  # cannot derive on-chain; skip (signature still correct shape)
 
-        from eth_account import Account
         from eth_abi import encode as abi_encode
+        from eth_account import Account
 
         try:
             owner_address = Account.from_key(self._private_key).address
@@ -673,7 +673,6 @@ class AutoWalletProvider:
         Returns:
             CreateACTPTransactionResult with the pre-computed txId and receipt.
         """
-        from eth_abi import encode as abi_encode
 
         kernel_address = (
             params.contracts.actp_kernel

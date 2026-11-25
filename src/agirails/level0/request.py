@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
@@ -290,7 +290,7 @@ class RequestHandle:
         transaction_id: str,
         service: str,
         options: RequestOptions,
-        client: "Optional[ACTPClient]" = None,
+        client: Optional[ACTPClient] = None,
         start_time: Optional[int] = None,
     ) -> None:
         """
@@ -558,10 +558,10 @@ class RequestHandle:
 
 
 # Global client for request function
-_global_client: "Optional[ACTPClient]" = None
+_global_client: Optional[ACTPClient] = None
 
 
-def set_request_client(client: "ACTPClient") -> None:
+def set_request_client(client: ACTPClient) -> None:
     """
     Set the global client for request operations.
 
@@ -572,7 +572,7 @@ def set_request_client(client: "ACTPClient") -> None:
     _global_client = client
 
 
-def get_request_client() -> "Optional[ACTPClient]":
+def get_request_client() -> Optional[ACTPClient]:
     """
     Get the global client for request operations.
 
@@ -601,7 +601,7 @@ def _find_provider(service: str, provider_option: Optional[str] = None) -> Optio
 
     # Try to find from service directory
     try:
-        from agirails.level0.directory import get_global_directory, ServiceQuery
+        from agirails.level0.directory import ServiceQuery, get_global_directory
         directory = get_global_directory()
         entries = directory.find(ServiceQuery(name=service))
         if entries and entries[0].provider_address:
@@ -611,7 +611,7 @@ def _find_provider(service: str, provider_option: Optional[str] = None) -> Optio
 
     # Default mock provider for testing
     if not provider_option or provider_option == "any":
-        return "0x" + "provider".encode().hex().ljust(40, "0")[:40]
+        return "0x" + b"provider".hex().ljust(40, "0")[:40]
 
     return None
 
@@ -631,7 +631,7 @@ async def request(
     rpc_url: Optional[str] = None,
     dispute_window: int = 172800,
     on_progress: Optional[OnProgressCallback] = None,
-    client: "Optional[ACTPClient]" = None,
+    client: Optional[ACTPClient] = None,
 ) -> Union[RequestResult, RequestHandle]:
     """
     Request a service from a provider.
@@ -849,7 +849,7 @@ def _get_requester_address(
     """
     if not wallet:
         # Mock mode default
-        return "0x" + "requester".encode().hex().ljust(40, "0")[:40]
+        return "0x" + b"requester".hex().ljust(40, "0")[:40]
 
     if isinstance(wallet, str):
         # Check if it's an address or private key
@@ -877,7 +877,7 @@ def _get_requester_address(
                 "Install with: pip install eth-account"
             )
 
-    return "0x" + "requester".encode().hex().ljust(40, "0")[:40]
+    return "0x" + b"requester".hex().ljust(40, "0")[:40]
 
 
 def _get_private_key(
@@ -912,7 +912,7 @@ def _get_private_key(
 async def request_batch(
     requests: List[Dict[str, Any]],
     *,
-    client: "Optional[ACTPClient]" = None,
+    client: Optional[ACTPClient] = None,
 ) -> List[RequestResult]:
     """
     Request multiple services in parallel.

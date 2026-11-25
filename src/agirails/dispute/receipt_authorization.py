@@ -1,9 +1,10 @@
 """Explicit quote-bound paid-receipt authorization and unverified HTTP transport."""
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol
 import asyncio
 import re
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Protocol
 from urllib.parse import urlparse
+
 import httpx
 from web3 import Web3
 

@@ -19,20 +19,19 @@ from typing import Optional
 
 import typer
 
-from agirails.cli.main import get_global_options
-from agirails.cli.utils.client import get_client, ensure_initialized
-from agirails.cli.utils.output import (
-    print_success,
-    print_error,
-    print_json,
-    print_info,
-    format_usdc,
-    format_address,
-    OutputFormat,
-)
 from agirails.adapters.types import UnifiedPayParams
+from agirails.cli.main import get_global_options
+from agirails.cli.utils.client import ensure_initialized, get_client
+from agirails.cli.utils.output import (
+    OutputFormat,
+    format_address,
+    format_usdc,
+    print_error,
+    print_info,
+    print_json,
+    print_success,
+)
 from agirails.cli.utils.validation import validate_amount
-
 
 # ============================================================================
 # --service rejection (PRD §5.9)
@@ -136,7 +135,7 @@ def pay(
         if slug_match:
             slug = slug_match.group(1).lower()
             try:
-                from agirails.api.discover import discover_agents, DiscoverParams
+                from agirails.api.discover import DiscoverParams, discover_agents
 
                 result = await discover_agents(DiscoverParams(search=slug, limit=10))
                 agent = next(
@@ -193,7 +192,7 @@ def pay(
             # older adapters ignore it. Keeps the CLI surface at parity with TS
             # `basic.pay({ disputeWindow })` without touching the adapters layer.
             try:
-                setattr(params, "dispute_window", parsed_dispute_window)
+                params.dispute_window = parsed_dispute_window
             except Exception:
                 pass
 

@@ -12,7 +12,7 @@ Use this adapter when you want a "just works" experience.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, Optional, Union
 
 try:
@@ -20,10 +20,10 @@ try:
 except ImportError:
     from typing_extensions import TypedDict
 
+from agirails.adapters.base import DEFAULT_DEADLINE_SECONDS as DEFAULT_DEADLINE_SECONDS
+from agirails.adapters.base import DEFAULT_DISPUTE_WINDOW_SECONDS as DEFAULT_DISPUTE_WINDOW_SECONDS
 from agirails.adapters.base import (
     BaseAdapter,
-    DEFAULT_DEADLINE_SECONDS,
-    DEFAULT_DISPUTE_WINDOW_SECONDS,
 )
 from agirails.adapters.types import (
     AdapterMetadata,
@@ -35,7 +35,7 @@ from agirails.runtime.base import CreateTransactionParams
 from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
 
 if TYPE_CHECKING:
-    from agirails.runtime.base import IACTPRuntime
+    from agirails.adapters.standard import TransactionStatus
 
 
 class CheckStatusResult(TypedDict):
@@ -492,7 +492,7 @@ class BasicAdapter(BaseAdapter):
     # IAdapter lifecycle methods
     # ==========================================================================
 
-    async def get_status(self, tx_id: str) -> "TransactionStatus":
+    async def get_status(self, tx_id: str) -> TransactionStatus:
         """
         Get transaction status with action hints (IAdapter compliance).
 

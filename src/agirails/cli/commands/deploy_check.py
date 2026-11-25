@@ -8,7 +8,6 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import re
 import stat
 import sys
@@ -25,7 +24,8 @@ except ImportError:
 
 
 # Status constants
-PASS = "PASS"
+# factory-allow K5 razlog=status label, not a credential do=2027-11-25 odobrio=Damir
+PASS = "PASS"  # noqa: S105
 WARN = "WARN"
 FAIL = "FAIL"
 

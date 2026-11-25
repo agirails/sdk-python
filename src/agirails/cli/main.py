@@ -20,7 +20,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -43,14 +42,10 @@ except Exception:
     # secrets via the shell environment, exactly like TS without `dotenv`.
     pass
 
-from agirails.version import __version__
 from agirails.cli.utils.output import (
     OutputFormat,
-    print_success,
-    print_error,
-    print_info,
-    print_json,
 )
+from agirails.version import __version__
 
 # Create main app
 app = typer.Typer(
@@ -125,34 +120,38 @@ def main(
 
 
 # Import and register command groups
-from agirails.cli.commands import init as init_cmd
-from agirails.cli.commands import pay as pay_cmd
-from agirails.cli.commands import tx as tx_cmd
+from agirails.cli.commands import agent as agent_cmd
+from agirails.cli.commands import autopublish as autopublish_cmd
 from agirails.cli.commands import balance as balance_cmd
-from agirails.cli.commands import mint as mint_cmd
-from agirails.cli.commands import config as config_cmd
-from agirails.cli.commands import time as time_cmd
-from agirails.cli.commands import watch as watch_cmd
 from agirails.cli.commands import batch as batch_cmd
-from agirails.cli.commands import simulate as simulate_cmd
-from agirails.cli.commands import deploy_env as deploy_env_cmd
+from agirails.cli.commands import claim as claim_cmd
+from agirails.cli.commands import claim_code as claim_code_cmd
+from agirails.cli.commands import config as config_cmd
 from agirails.cli.commands import deploy_check as deploy_check_cmd
-from agirails.cli.commands import publish as publish_cmd
+from agirails.cli.commands import deploy_env as deploy_env_cmd
 from agirails.cli.commands import diff as diff_cmd
-from agirails.cli.commands import pull as pull_cmd
 from agirails.cli.commands import find as find_cmd
 from agirails.cli.commands import health as health_cmd
-from agirails.cli.commands import claim as claim_cmd
-from agirails.cli.commands import autopublish as autopublish_cmd
-from agirails.cli.commands import test as test_cmd
-from agirails.cli.commands import register as register_cmd
+from agirails.cli.commands import init as init_cmd
+from agirails.cli.commands import mint as mint_cmd
 from agirails.cli.commands import negotiate as negotiate_cmd
-from agirails.cli.commands import serve as serve_cmd
-from agirails.cli.commands import claim_code as claim_code_cmd
+from agirails.cli.commands import pay as pay_cmd
+from agirails.cli.commands import publish as publish_cmd
+from agirails.cli.commands import pull as pull_cmd
+from agirails.cli.commands import register as register_cmd
 from agirails.cli.commands import repair as repair_cmd
-from agirails.cli.commands import verify as verify_cmd
 from agirails.cli.commands import request as request_cmd
-from agirails.cli.commands import agent as agent_cmd
+from agirails.cli.commands import serve as serve_cmd
+from agirails.cli.commands import simulate as simulate_cmd
+from agirails.cli.commands import test as test_cmd
+from agirails.cli.commands import time as time_cmd
+from agirails.cli.commands import tx as tx_cmd
+from agirails.cli.commands import verify as verify_cmd
+from agirails.cli.commands import watch as watch_cmd
+from agirails.cli.utils.output import print_error as print_error
+from agirails.cli.utils.output import print_info as print_info
+from agirails.cli.utils.output import print_json as print_json
+from agirails.cli.utils.output import print_success as print_success
 
 # Register commands
 app.command(name="init")(init_cmd.init)

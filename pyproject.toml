@@ -222,7 +222,34 @@ ignore = [
     "S311",   # pseudo-random generators (OK for non-crypto)
     "PLR0913", # too many arguments
     "PLR2004", # magic value in comparison
+    "UP007",  # X | Y unions: target is py39 and annotations are evaluated at runtime (pydantic, typer)
+    "UP045",  # X | None: same py39 runtime constraint as UP007
+    "PLC0415", # lazy imports are deliberate (optional deps, import cycles, CLI start-up time)
+    "E402",   # module-level imports after setup code (path / env bootstrapping)
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+    "PLR0917", # too many positional arguments
+    "PLW0603", # module-level singletons use global
+    "PTH",    # os.path vs pathlib is style, not correctness
+    "UP006",  # typing.List/Dict generics stay valid on py39; migrate when 3.9 is dropped
+    "UP035",  # same as UP006 (typing imports)
+    "ARG001", # unused arguments in public signatures and callbacks; renaming breaks keyword callers
+    "ARG002", # same as ARG001 for methods (interface overrides)
+    "ARG004", # same as ARG001 for static methods
+    "SIM102", # collapsible-if: style
+    "SIM105", # contextlib.suppress: style
+    "SIM108", # ternary: style
+    "SIM117", # combined with-statements: style
+    "S110",   # best-effort cleanup paths swallow errors on purpose
+    "S112",   # same as S110 inside loops
+    "PLC0414", # `import X as X` is the explicit re-export idiom (PEP 484)
+    "PLW0108", # wrapper lambdas defer attribute lookup and hide coroutine functions on purpose
+    "PLR5501", # else-if collapsing re-indents whole blocks for style only
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "I001"]  # re-exports (some via a dynamic __all__.extend); import order can matter for cycles
 
 [tool.bandit]
 exclude_dirs = ["tests", "test"]

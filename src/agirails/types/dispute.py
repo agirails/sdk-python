@@ -58,8 +58,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from eth_abi import encode as _abi_encode
 from eth_account import Account
-from eth_utils import keccak as _keccak, to_checksum_address
-
+from eth_utils import keccak as _keccak
+from eth_utils import to_checksum_address
 
 # ---------------------------------------------------------------------------
 # Enums (1:1 with TS SDK Ruling / DisputeTier)

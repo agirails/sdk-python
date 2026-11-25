@@ -103,7 +103,7 @@ class Provider:
     def __init__(
         self,
         config: Optional[ProviderConfig] = None,
-        client: "Optional[ACTPClient]" = None,
+        client: Optional[ACTPClient] = None,
         directory: Optional[ServiceDirectory] = None,
     ) -> None:
         """
@@ -892,7 +892,7 @@ class Provider:
 
 async def create_provider(
     config: Optional[ProviderConfig] = None,
-    client: "Optional[ACTPClient]" = None,
+    client: Optional[ACTPClient] = None,
 ) -> Provider:
     """
     Factory function to create a Provider.

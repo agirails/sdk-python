@@ -27,7 +27,6 @@ from urllib.parse import urlparse
 from agirails.types.message import DeliveryProof, create_input_hash, create_output_hash
 from agirails.utils.canonical_json import canonical_json_dumps as canonical_json_serialize
 
-
 # ============================================================================
 # URL validation (SSRF prevention) — mirrors sdk-js ProofGenerator.ts:8-53
 # ============================================================================
@@ -69,12 +68,14 @@ _DEFAULT_BLOCKED_HOSTS: Tuple[str, ...] = (
     "metadata.aws.internal",
     "localhost",
     "127.0.0.1",
-    "0.0.0.0",
+    # factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
+    "0.0.0.0",  # noqa: S104  # nosec B104
     "[::1]",
 )
 # Localhost-class hosts removed from the blocklist when allow_localhost=True
 # (ProofGenerator.ts:76-80).
-_LOCALHOST_HOSTS: frozenset = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]"})
+# factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
+_LOCALHOST_HOSTS: frozenset = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]"})  # noqa: S104  # nosec B104
 
 
 @dataclass
@@ -490,7 +491,7 @@ class ProofGenerator:
             "metadata": out_metadata,
         }
 
-    def encode_proof(self, proof: Union[Dict[str, Any], "DeliveryProof"]) -> bytes:
+    def encode_proof(self, proof: Union[Dict[str, Any], DeliveryProof]) -> bytes:
         """
         ABI-encode a delivery proof for on-chain submission.
 
@@ -681,7 +682,7 @@ class ProofGenerator:
 
     @staticmethod
     def _extract_proof_fields(
-        proof: Union[Dict[str, Any], "DeliveryProof"],
+        proof: Union[Dict[str, Any], DeliveryProof],
     ) -> Tuple[str, str, int]:
         """Pull (txId, contentHash, timestamp) from a dict or legacy dataclass."""
         if isinstance(proof, dict):

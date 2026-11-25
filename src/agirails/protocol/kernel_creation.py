@@ -1,5 +1,6 @@
 """Creation ABI selection for the locally pinned legacy deployment descriptor."""
 from typing import Any, List
+
 from eth_abi import encode
 from web3 import Web3
 
@@ -33,9 +34,7 @@ def kernel_creation_abi(address: str, abi: List[Any]) -> List[Any]:
         return abi
     result = []
     for item in abi:
-        if item.get("name") == "createTransaction":
-            result.append({**item, "inputs": [field for field in item["inputs"] if field["name"] != "agreementHash"]})
-        elif item.get("name") == "TransactionCreated":
+        if item.get("name") == "createTransaction" or item.get("name") == "TransactionCreated":
             result.append({**item, "inputs": [field for field in item["inputs"] if field["name"] != "agreementHash"]})
         else:
             result.append(item)

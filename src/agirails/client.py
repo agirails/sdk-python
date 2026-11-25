@@ -27,7 +27,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
@@ -217,7 +217,7 @@ class ACTPClient:
 
         # Maps txId -> adapter that handled it, for adapter-aware get_status
         # routing. Bounded at _MAX_TX_MAP_SIZE (mirrors TS txAdapterMap).
-        self._tx_adapter_map: "dict[str, Any]" = {}
+        self._tx_adapter_map: dict[str, Any] = {}
 
         # Initialize adapters — wire wallet_provider + contract_addresses
         # into BasicAdapter so AIP-12 batched payments are used when
@@ -347,7 +347,7 @@ class ACTPClient:
         wallet: Optional[str] = None,
         config: Optional[ACTPClientConfig] = None,
         **kwargs: Any,
-    ) -> "ACTPClient":
+    ) -> ACTPClient:
         """
         Create an ACTPClient instance.
 
@@ -664,6 +664,7 @@ class ACTPClient:
         """
         # Imports here so mock-mode-only callers don't pay the AA import cost.
         from web3 import Web3
+
         from agirails.config.networks import get_network
         from agirails.wallet.auto_wallet_provider import (
             AutoWalletConfig,
@@ -780,7 +781,7 @@ class ACTPClient:
         cls,
         config: ACTPClientConfig,
         auto_wallet: object,
-    ) -> "tuple[object, str, Optional[object]]":
+    ) -> tuple[object, str, Optional[object]]:
         """Decide whether the gas-sponsored AutoWallet may be used.
 
         Mirrors TS ACTPClient.create() gas-gate (ACTPClient.ts:918-1006).
@@ -913,7 +914,7 @@ class ACTPClient:
     @classmethod
     def _maybe_register_x402(
         cls,
-        client: "ACTPClient",
+        client: ACTPClient,
         config: ACTPClientConfig,
         wallet_provider: object,
         requester_address: str,
@@ -1005,7 +1006,9 @@ class ACTPClient:
         X402Adapter sends back to the provider as proof of payment.
         """
         import json
+
         from web3 import Web3
+
         from agirails.wallet.auto_wallet_provider import TransactionRequest
 
         abi_path = Path(__file__).parent / "abis" / "usdc.json"
@@ -1050,7 +1053,7 @@ class ACTPClient:
     @classmethod
     async def _create_blockchain_runtime(
         cls, config: ACTPClientConfig
-    ) -> tuple["IACTPRuntime", Optional[object]]:
+    ) -> tuple[IACTPRuntime, Optional[object]]:
         """
         Create blockchain runtime for testnet/mainnet.
 
@@ -1498,7 +1501,7 @@ class ACTPClient:
         # SETTLED->SETTLED) but still fire the reputation report below.
         _st = getattr(tx, "state", None) if tx is not None else None
         _st_val = getattr(_st, "value", _st)
-        already_settled = _st_val == "SETTLED" or _st_val == 5
+        already_settled = _st_val in ("SETTLED", 5)
 
         # Release escrow (the critical operation).
         router = self._smart_wallet_router

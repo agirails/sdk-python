@@ -243,7 +243,7 @@ def assert_supported_version(schema_version: str) -> None:
     Raises:
         UnsupportedBundleVersionError
     """
-    major = schema_version.split(".")[0]
+    major = schema_version.split(".", maxsplit=1)[0]
     if not major.isdigit() or int(major) != SUPPORTED_BUNDLE_MAJOR:
         raise UnsupportedBundleVersionError(schema_version)
 
@@ -483,7 +483,7 @@ def pin_evidence_bundle(
         "application/json",
         {"metadata": {"bundleHash": digest, "schemaVersion": valid.schemaVersion}},
     )
-    cid = result["cid"] if isinstance(result, dict) else getattr(result, "cid")
+    cid = result["cid"] if isinstance(result, dict) else result.cid
     return PinEvidenceBundleResult(
         cid=cid, bundle_hash=digest, size=len(canonical_bytes)
     )

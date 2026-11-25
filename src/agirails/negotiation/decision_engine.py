@@ -271,7 +271,7 @@ class DecisionEngine:
     def evaluate_quote(
         self,
         quote: QuoteForEvaluation,
-        policy: "BuyerPolicy",
+        policy: BuyerPolicy,
         rounds_used_so_far: int = 0,
     ) -> QuoteEvaluation:
         """AIP-2.1 §5.2 — decide whether to accept a provider's quote,
@@ -383,8 +383,7 @@ class DecisionEngine:
         else:
             # midpoint: halfway between quoted and target.
             counter_bu = (quoted + target_bu) // 2
-        if counter_bu < platform_min:
-            counter_bu = platform_min
+        counter_bu = max(counter_bu, platform_min)
         if counter_bu >= quoted:
             # Counter must be strictly below quote for CounterOfferBuilder to
             # accept it (otherwise "just accept the quote"). Fall back to

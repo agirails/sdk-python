@@ -21,10 +21,8 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import secrets
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, TypeVar, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypeVar, Union
 
 from eth_account.signers.local import LocalAccount
 from web3 import AsyncWeb3
@@ -32,20 +30,23 @@ from web3 import AsyncWeb3
 from agirails.config.networks import NetworkConfig, get_network
 
 if TYPE_CHECKING:
-    from agirails.protocol.eas import EASHelper
     from agirails.builders.quote import QuoteMessage
-from agirails.errors import EscrowError, TransactionError, ValidationError
+    from agirails.protocol.eas import EASHelper
+from agirails.errors import DisputeWindowActiveError, TransactionError, ValidationError
 from agirails.errors.network import TransientRPCError
-from agirails.protocol.escrow import CreateEscrowParams, EscrowVault, generate_escrow_id
+from agirails.errors.transaction import EscrowError as EscrowError
+from agirails.protocol.escrow import CreateEscrowParams as CreateEscrowParams
+from agirails.protocol.escrow import EscrowVault
+from agirails.protocol.escrow import generate_escrow_id as generate_escrow_id
 from agirails.protocol.events import EventFilter, EventMonitor
-from agirails.protocol.kernel import ACTPKernel, CreateTransactionParams as KernelParams
+from agirails.protocol.kernel import ACTPKernel
+from agirails.protocol.kernel import CreateTransactionParams as KernelParams
 from agirails.protocol.nonce import NonceManager
 from agirails.runtime.base import CreateTransactionParams, TimeInterface
 from agirails.runtime.types import MockTransaction, State
 from agirails.types.transaction import TransactionState
-from agirails.utils.security import TokenBucketRateLimiter, RetryConfig, retry_with_backoff
 from agirails.utils.logging import get_logger
-from agirails.errors import DisputeWindowActiveError
+from agirails.utils.security import RetryConfig, TokenBucketRateLimiter, retry_with_backoff
 
 _logger = get_logger(__name__)
 
@@ -157,7 +158,7 @@ class BlockchainRuntime:
         nonce_manager: NonceManager,
         rate_limiter: Optional[TokenBucketRateLimiter] = None,
         retry_config: Optional[RetryConfig] = None,
-        eas_helper: Optional["EASHelper"] = None,
+        eas_helper: Optional[EASHelper] = None,
     ) -> None:
         """
         Initialize BlockchainRuntime.
@@ -201,8 +202,8 @@ class BlockchainRuntime:
         rpc_url: Optional[str] = None,
         rpc_rate_limit: float = DEFAULT_RPC_RATE_LIMIT,
         retry_config: Optional[RetryConfig] = None,
-        eas_helper: Optional["EASHelper"] = None,
-    ) -> "BlockchainRuntime":
+        eas_helper: Optional[EASHelper] = None,
+    ) -> BlockchainRuntime:
         """
         Create a BlockchainRuntime instance.
 
@@ -526,7 +527,7 @@ class BlockchainRuntime:
         amount_int = int(new_amount) if isinstance(new_amount, str) else new_amount
         await self.kernel.accept_quote(tx_id, amount_int)
 
-    async def submit_quote(self, tx_id: str, quote: "QuoteMessage") -> None:
+    async def submit_quote(self, tx_id: str, quote: QuoteMessage) -> None:
         """Submit an AIP-2 price quote on-chain (INITIATED → QUOTED).
 
         PARITY: BlockchainRuntime.ts:600-610. The canonical quote hash is

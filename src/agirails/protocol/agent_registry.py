@@ -96,7 +96,7 @@ class ServiceDescriptor:
         }
 
     @classmethod
-    def from_tuple(cls, data: tuple) -> "ServiceDescriptor":
+    def from_tuple(cls, data: tuple) -> ServiceDescriptor:
         """Create from contract tuple."""
         return cls(
             service_type_hash="0x" + data[0].hex() if isinstance(data[0], bytes) else data[0],
@@ -195,7 +195,7 @@ class AgentProfile:
         }
 
     @classmethod
-    def from_tuple(cls, data: tuple) -> "AgentProfile":
+    def from_tuple(cls, data: tuple) -> AgentProfile:
         """Create from contract tuple.
 
         Mirrors the 15-field ``getAgent`` AgentProfile struct from the
@@ -282,7 +282,7 @@ def _load_agent_registry_abi() -> List[Dict[str, Any]]:
     )
 
     if os.path.exists(abi_path):
-        with open(abi_path, "r") as f:
+        with open(abi_path) as f:
             return json.load(f)
 
     # Minimal fallback ABI
@@ -502,7 +502,7 @@ class AgentRegistry:
         private_key: str,
         network: Union[str, NetworkConfig] = "base-sepolia",
         rpc_url: Optional[str] = None,
-    ) -> "AgentRegistry":
+    ) -> AgentRegistry:
         """
         Create AgentRegistry with connection to blockchain.
 
@@ -559,7 +559,7 @@ class AgentRegistry:
         cls,
         network: Union[str, NetworkConfig] = "base-sepolia",
         rpc_url: Optional[str] = None,
-    ) -> "AgentRegistry":
+    ) -> AgentRegistry:
         """
         Create a READ-ONLY AgentRegistry (no signer) for view calls such as
         ``get_service_descriptors`` (e.g. the F-5 buyer price-band check).

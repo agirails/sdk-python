@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,14 +22,15 @@ import typer
 from agirails.cli.main import get_global_options
 from agirails.cli.utils.client import get_client
 from agirails.cli.utils.output import (
+    format_state,
     print_error,
     print_info,
+    print_json,
     print_success,
     print_warning,
-    print_json,
-    format_state,
 )
-from agirails.runtime.types import State, TERMINAL_STATES
+from agirails.runtime.types import TERMINAL_STATES as TERMINAL_STATES
+from agirails.runtime.types import State as State
 
 # Valid transaction states
 VALID_STATES = frozenset([

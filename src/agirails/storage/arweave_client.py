@@ -20,12 +20,12 @@ from eth_account import Account
 from agirails.errors.storage import (
     ArweaveDownloadError,
     ArweaveError,
-    ArweaveUploadError,
     CircuitBreakerOpenError,
     FileSizeLimitError,
     InsufficientFundsError,
     SSRFProtectionError,
 )
+from agirails.errors.storage import ArweaveUploadError as ArweaveUploadError
 from agirails.storage.types import (
     ARCHIVE_BUNDLE_TYPE,
     DEFAULT_ARWEAVE_MAX_DOWNLOAD_SIZE,
@@ -42,7 +42,6 @@ from agirails.utils.validation import (
     is_gateway_allowed,
     sanitize_for_logging,
 )
-
 
 # Irys node URLs
 IRYS_NODES = {

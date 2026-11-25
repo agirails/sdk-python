@@ -10,32 +10,32 @@ from __future__ import annotations
 import hashlib
 import time
 from pathlib import Path
-from typing import Callable, List, Optional, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 if TYPE_CHECKING:
     from agirails.builders.quote import QuoteMessage
 
 from agirails.errors import (
-    TransactionNotFoundError,
-    InvalidStateTransitionError,
-    EscrowNotFoundError,
     DeadlinePassedError,
     DisputeWindowActiveError,
+    EscrowNotFoundError,
     InsufficientBalanceError,
     InvalidAmountError,
+    InvalidStateTransitionError,
     QueryCapExceededError,
+    TransactionNotFoundError,
 )
 from agirails.runtime.base import CreateTransactionParams, IMockRuntime
 from agirails.runtime.mock_state_manager import MockStateManager
 from agirails.runtime.types import (
-    State,
-    MockState,
-    MockTransaction,
+    MOCK_STATE_DEFAULTS,
+    STATE_TRANSITIONS,
     MockEscrow,
     MockEvent,
+    MockState,
+    MockTransaction,
+    State,
     is_valid_transition,
-    STATE_TRANSITIONS,
-    MOCK_STATE_DEFAULTS,
 )
 
 
@@ -572,7 +572,7 @@ class MockRuntime(IMockRuntime):
 
         await self._state_manager.with_lock(accept)
 
-    async def submit_quote(self, tx_id: str, quote: "QuoteMessage") -> None:
+    async def submit_quote(self, tx_id: str, quote: QuoteMessage) -> None:
         """Submit an AIP-2 price quote: INITIATED → QUOTED with the canonical
         quote hash stored on the transaction.
 
@@ -941,7 +941,7 @@ class MockRuntime(IMockRuntime):
         return await self._state_manager.load()
 
     @property
-    def events(self) -> "_MockEventAccessor":
+    def events(self) -> _MockEventAccessor:
         """Event access interface.
 
         PARITY: MockRuntime.ts:320-329 / 351-361. Exposes ``get_all()``,
@@ -959,22 +959,22 @@ class _MockEventAccessor:
     getByTransaction / clear).
     """
 
-    def __init__(self, runtime: "MockRuntime") -> None:
+    def __init__(self, runtime: MockRuntime) -> None:
         self._runtime = runtime
 
-    async def get_all(self) -> List["MockEvent"]:
+    async def get_all(self) -> List[MockEvent]:
         """Return all recorded events."""
         await self._runtime._ensure_initialized()
         state = await self._runtime._state_manager.load()
         return list(state.events)
 
-    async def get_by_type(self, event_type: str) -> List["MockEvent"]:
+    async def get_by_type(self, event_type: str) -> List[MockEvent]:
         """Return events filtered by event type."""
         await self._runtime._ensure_initialized()
         state = await self._runtime._state_manager.load()
         return [e for e in state.events if e.event_type == event_type]
 
-    async def get_by_transaction(self, tx_id: str) -> List["MockEvent"]:
+    async def get_by_transaction(self, tx_id: str) -> List[MockEvent]:
         """Return events recorded for a specific transaction."""
         await self._runtime._ensure_initialized()
         state = await self._runtime._state_manager.load()

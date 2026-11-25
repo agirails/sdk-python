@@ -16,8 +16,9 @@ import re
 import time
 from typing import TYPE_CHECKING, Optional, Union
 
-from agirails.errors import ValidationError, InvalidAmountError
-from agirails.utils.helpers import USDC, Deadline, Address, DisputeWindow
+from agirails.errors import InvalidAmountError, ValidationError
+from agirails.utils.helpers import USDC, Address, DisputeWindow
+from agirails.utils.helpers import Deadline as Deadline
 
 if TYPE_CHECKING:
     from agirails.runtime.base import IACTPRuntime

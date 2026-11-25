@@ -31,7 +31,11 @@ from agirails.config.agirailsmd import (
     parse_agirails_md,
     serialize_agirails_md,
 )
-from agirails.config.on_chain_state import OnChainAgentState, OnChainStateError, get_on_chain_agent_state
+from agirails.config.on_chain_state import (
+    OnChainAgentState,
+    OnChainStateError,
+    get_on_chain_agent_state,
+)
 from agirails.config.pending_publish import (
     PendingPublishData,
     ServiceDescriptorData,
@@ -461,7 +465,6 @@ def publish(
                 )
                 if testnet_result:
                     wallet_address = testnet_result.get("wallet_address")
-                    activation_agent_id = testnet_result.get("agent_id")
                     tx_hash = testnet_result.get("tx_hash")
                     if tx_hash:
                         print_success(f"Testnet activation: {tx_hash}")

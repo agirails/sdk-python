@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import secrets
 import struct
@@ -39,14 +38,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from eth_account.signers.local import LocalAccount
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
-from web3.types import TxReceipt
 
 from agirails.config.networks import NetworkConfig
-from agirails.errors import TransactionError, ValidationError
+from agirails.errors import ValidationError
+from agirails.errors.transaction import TransactionError as TransactionError
 from agirails.protocol.base import ContractBase
 from agirails.protocol.nonce import NonceManager
 from agirails.types.transaction import TransactionReceipt
-
 
 # ============================================================================
 # Constants
@@ -232,7 +230,7 @@ class EscrowVault(ContractBase):
         config: NetworkConfig,
         *,
         nonce_manager: Optional[NonceManager] = None,
-    ) -> "EscrowVault":
+    ) -> EscrowVault:
         """
         Create EscrowVault from network configuration.
 
@@ -632,7 +630,6 @@ def generate_escrow_id(
     """
     import hashlib
     import os
-    import time
 
     # Primary entropy: 32 bytes from cryptographically secure RNG
     primary_entropy = secrets.token_bytes(32)

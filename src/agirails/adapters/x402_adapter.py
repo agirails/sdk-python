@@ -685,7 +685,7 @@ class X402Adapter:
 
     async def _build_payment_payload(
         self, chosen: Dict[str, Any]
-    ) -> "tuple[Dict[str, Any], str]":
+    ) -> tuple[Dict[str, Any], str]:
         """Build the inner x402 payload + the network name for the header.
 
         Smart Wallet => Permit2; EOA => EIP-3009 (TS scheme client auto-selects
@@ -1284,7 +1284,8 @@ class LegacyX402Adapter:
             payment_address=validated_address,
             amount=amount,
             network=network,
-            token="USDC",
+            # factory-allow K5 razlog=token symbol, not a credential do=2027-11-25 odobrio=Damir
+            token="USDC",  # noqa: S106
             deadline=deadline_num,
             service_id=h.get(X402_HEADERS["SERVICE_ID"]) or None,
         )
@@ -1301,7 +1302,7 @@ class LegacyX402Adapter:
 
     async def _execute_atomic_payment(
         self, headers: X402PaymentHeaders
-    ) -> "tuple[str, Optional[X402FeeBreakdown]]":
+    ) -> tuple[str, Optional[X402FeeBreakdown]]:
         try:
             if (
                 self._config.relay_address

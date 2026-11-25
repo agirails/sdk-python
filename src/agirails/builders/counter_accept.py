@@ -30,10 +30,10 @@ from eth_account.messages import encode_typed_data
 from eth_hash.auto import keccak
 
 from agirails.builders.counter_offer import (
-    MessageNonceManager,
     PLATFORM_MIN_BASE_UNITS,
     TIMESTAMP_GRACE_SECONDS,
     VALID_CHAIN_IDS,
+    MessageNonceManager,
 )
 from agirails.errors import SignatureVerificationError
 from agirails.utils.canonical_json import canonical_json_dumps

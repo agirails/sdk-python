@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 import httpx
 
@@ -323,6 +323,4 @@ def _is_non_transient(error: Exception) -> bool:
         if -32521 <= code <= -32500:
             return True
     # AA validation errors by message pattern.
-    if "aa" in msg and ("invalid" in msg or "rejected" in msg):
-        return True
-    return False
+    return bool("aa" in msg and ("invalid" in msg or "rejected" in msg))

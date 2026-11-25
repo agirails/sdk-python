@@ -23,9 +23,14 @@ from agirails.cli.utils.output import (
     print_info,
     print_json,
     print_success,
-    print_warning,
 )
-from agirails.config.on_chain_state import OnChainConfigState, OnChainStateError, ZERO_HASH, get_on_chain_config_state
+from agirails.cli.utils.output import print_warning as print_warning
+from agirails.config.on_chain_state import ZERO_HASH as ZERO_HASH
+from agirails.config.on_chain_state import OnChainConfigState as OnChainConfigState
+from agirails.config.on_chain_state import (
+    OnChainStateError,
+    get_on_chain_config_state,
+)
 from agirails.config.sync_operations import pull_config
 
 
@@ -113,7 +118,7 @@ def pull(
         if identity_path and Path(identity_path).exists():
             from agirails.config.agirailsmd import parse_agirails_md_v4
 
-            with open(identity_path, "r", encoding="utf-8") as f:
+            with open(identity_path, encoding="utf-8") as f:
                 v4 = parse_agirails_md_v4(f.read())
             if v4.intent == "pay":
                 _emit_buyer_local(opts.output_format)
@@ -140,7 +145,8 @@ def pull(
     if not agent_address:
         try:
             import asyncio
-            from agirails.wallet.keystore import resolve_private_key, ResolvePrivateKeyOptions
+
+            from agirails.wallet.keystore import ResolvePrivateKeyOptions, resolve_private_key
 
             result = asyncio.run(
                 resolve_private_key(options=ResolvePrivateKeyOptions(network=network))
@@ -203,14 +209,13 @@ def pull(
         )
     elif opts.output_format == OutputFormat.QUIET:
         typer.echo("written" if result.written else "skipped")
+    elif result.written:
+        print_success(
+            "Config pulled successfully",
+            {
+                "CID": result.cid,
+                "Path": md_path,
+            },
+        )
     else:
-        if result.written:
-            print_success(
-                "Config pulled successfully",
-                {
-                    "CID": result.cid,
-                    "Path": md_path,
-                },
-            )
-        else:
-            print_info(result.status)
+        print_info(result.status)

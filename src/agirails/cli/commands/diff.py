@@ -25,12 +25,16 @@ from agirails.cli.utils.output import (
     print_success,
     print_warning,
 )
-from agirails.config.on_chain_state import OnChainConfigState, OnChainStateError, ZERO_HASH, get_on_chain_config_state
+from agirails.config.on_chain_state import (
+    ZERO_HASH,
+    OnChainStateError,
+    get_on_chain_config_state,
+)
+from agirails.config.on_chain_state import OnChainConfigState as OnChainConfigState
 from agirails.config.sync_operations import (
     DiffStatus,
     diff_config,
 )
-
 
 _STATUS_LABELS = {
     DiffStatus.IN_SYNC: "In sync",
@@ -131,7 +135,7 @@ def diff(
         if Path(md_path).exists():
             from agirails.config.agirailsmd import parse_agirails_md_v4
 
-            with open(md_path, "r", encoding="utf-8") as f:
+            with open(md_path, encoding="utf-8") as f:
                 v4 = parse_agirails_md_v4(f.read())
             if v4.intent == "pay":
                 _emit_buyer_local(opts.output_format)
@@ -167,7 +171,8 @@ def diff(
         # Try to resolve from keystore (EOA)
         try:
             import asyncio
-            from agirails.wallet.keystore import resolve_private_key, ResolvePrivateKeyOptions
+
+            from agirails.wallet.keystore import ResolvePrivateKeyOptions, resolve_private_key
 
             result = asyncio.run(
                 resolve_private_key(options=ResolvePrivateKeyOptions(network=network))

@@ -12,6 +12,7 @@ SECURITY: Key ordering and consistent serialization prevent hash collisions.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
@@ -82,7 +83,7 @@ def _js_number_to_string(x: float) -> Optional[str]:
     Returns ``None`` for non-finite values (``JSON.stringify`` renders NaN and
     Infinity as ``null``).
     """
-    if x != x or x in (float("inf"), float("-inf")):
+    if not math.isfinite(x):
         return None
     if x == 0:
         return "0"  # also collapses -0.0
@@ -318,7 +319,6 @@ def hash_struct(
     type_hash = compute_type_hash(type_name, types)
     encoded = _encode_data(type_name, data, types)
 
-    from eth_abi import encode
     from eth_hash.auto import keccak
 
     # Combine type hash with encoded data

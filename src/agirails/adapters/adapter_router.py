@@ -25,7 +25,6 @@ from agirails.adapters.i_adapter import IAdapter
 from agirails.adapters.types import AdapterSelectionResult, UnifiedPayParams
 from agirails.errors import ValidationError
 
-
 # ============================================================================
 # ERC-8004 Bridge Protocol (for dependency injection)
 # ============================================================================

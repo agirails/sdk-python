@@ -13,7 +13,6 @@ Example:
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -101,9 +100,8 @@ from agirails.types.message import (
     ServiceResponse,
     SignedMessage,
     _verification_type_definition,
-    TypedData,
 )
-
+from agirails.types.message import TypedData as TypedData
 
 # Standard EIP-712 type definitions
 EIP712_DOMAIN_TYPE = [
@@ -130,7 +128,7 @@ class SignatureComponents:
     s: bytes
 
     @classmethod
-    def from_signature(cls, signature: str) -> "SignatureComponents":
+    def from_signature(cls, signature: str) -> SignatureComponents:
         """Parse signature hex string into components."""
         sig_bytes = bytes.fromhex(signature.replace("0x", ""))
         if len(sig_bytes) != 65:
@@ -165,7 +163,7 @@ class SignatureComponents:
         s_int = int.from_bytes(self.s, "big")
         return s_int <= SECP256K1_N_DIV_2
 
-    def normalize_s(self) -> "SignatureComponents":
+    def normalize_s(self) -> SignatureComponents:
         """
         Normalize signature to low-s form (EIP-2 compliant).
 
@@ -289,7 +287,7 @@ class MessageSigner:
         private_key: str,
         config: NetworkConfig,
         contract_type: str = "actp_kernel",
-    ) -> "MessageSigner":
+    ) -> MessageSigner:
         """
         Create MessageSigner from network configuration.
 
@@ -321,7 +319,7 @@ class MessageSigner:
         private_key: str,
         network: str = "base-sepolia",
         contract_type: str = "actp_kernel",
-    ) -> "MessageSigner":
+    ) -> MessageSigner:
         """
         Create MessageSigner from network name.
 
@@ -624,7 +622,7 @@ class MessageSigner:
         if nonce_value < _LOW_ENTROPY_NONCE_MAX:
             _logger.warn(
                 "Nonce appears sequential - use SecureNonce.generate_secure_nonce()",
-                {"nonce": nonce},
+                meta={"nonce": nonce},
             )
 
         hex_digits = nonce[2:]
@@ -632,7 +630,7 @@ class MessageSigner:
         if all(d == first_digit for d in hex_digits):
             _logger.warn(
                 "Nonce has low entropy - use SecureNonce.generate_secure_nonce()",
-                {"nonce": nonce, "repeatedDigit": first_digit},
+                meta={"nonce": nonce, "repeatedDigit": first_digit},
             )
 
     def sign_message(self, message: Dict[str, Any]) -> str:

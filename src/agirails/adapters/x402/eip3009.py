@@ -21,14 +21,8 @@ from __future__ import annotations
 import base64
 import json
 import os
-import sys
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
-
-if sys.version_info >= (3, 8):
-    from typing import TypedDict
-else:  # pragma: no cover
-    from typing_extensions import TypedDict
+from typing import Any, Dict, Optional, TypedDict
 
 from eth_account.messages import encode_typed_data
 from eth_utils import to_checksum_address

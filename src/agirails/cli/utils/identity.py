@@ -23,7 +23,6 @@ import json
 import os
 from typing import Optional, Set
 
-
 # Well-known docs that are never agent identity files (mirror TS skip set).
 _SKIP_MD_FILES: Set[str] = {
     "AGIRAILS.md",
@@ -63,7 +62,7 @@ def resolve_identity_path(project_root: Optional[str] = None) -> Optional[str]:
     try:
         config_path = os.path.join(_get_actp_dir(root), "config.json")
         if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
             identity = config.get("identity")
             if identity:
@@ -86,17 +85,14 @@ def resolve_identity_path(project_root: Optional[str] = None) -> Optional[str]:
                 continue
             md_path = os.path.join(root, entry)
             try:
-                with open(md_path, "r", encoding="utf-8") as f:
+                with open(md_path, encoding="utf-8") as f:
                     content = f.read()
                 v4 = parse_agirails_md_v4(content)
                 # Accept provider files (services), buyer files (servicesNeeded),
                 # and any pay/both agent. Requiring services > 0 used to skip
                 # buyer {slug}.md (AIP-18 §1).
                 is_identity = bool(v4.name) and (
-                    len(v4.services) > 0
-                    or len(v4.services_needed) > 0
-                    or v4.intent == "pay"
-                    or v4.intent == "both"
+                    len(v4.services) > 0 or len(v4.services_needed) > 0 or v4.intent in ("pay", "both")
                 )
                 if is_identity:
                     return md_path

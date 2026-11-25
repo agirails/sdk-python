@@ -7,9 +7,8 @@ Fluent builder for creating archive bundles with validation.
 from __future__ import annotations
 
 import json
-import re
 import time
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from eth_utils import keccak
 
@@ -27,7 +26,6 @@ from agirails.storage.types import (
     ArchiveSignatures,
     EscrowRelease,
 )
-
 
 # Current versions
 PROTOCOL_VERSION = "1.0.0"
@@ -82,9 +80,7 @@ def _is_valid_cid(cid: str) -> bool:
     if cid.startswith("Qm") and len(cid) == 46:
         return True
     # CIDv1 starts with b (base32, variable length 59+)
-    if cid.startswith("b") and len(cid) >= 50:
-        return True
-    return False
+    return bool(cid.startswith("b") and len(cid) >= 50)
 
 
 def _is_valid_hash(h: str) -> bool:

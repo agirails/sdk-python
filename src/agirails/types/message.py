@@ -24,7 +24,7 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -315,7 +315,7 @@ class DeliveryProofMessage:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DeliveryProofMessage":
+    def from_dict(cls, data: Dict[str, Any]) -> DeliveryProofMessage:
         """Create from dictionary (handles both camelCase and snake_case)."""
         # Handle camelCase keys from TS SDK
         metadata = None
@@ -464,7 +464,7 @@ class SignedMessage:
         """Check if message has a signature."""
         return bool(self.signature)
 
-    def verify(self, expected_signer: "Optional[str]" = None) -> bool:
+    def verify(self, expected_signer: Optional[str] = None) -> bool:
         """
         Verify the signature.
 
@@ -488,14 +488,11 @@ class SignedMessage:
         if not self.is_signed:
             return False
 
-        if expected_signer and self.signer.lower() != expected_signer.lower():
-            return False
-
         # Note: This checks presence of signature and signer match only.
         # Cryptographic ecrecover verification requires reconstructing
         # the EIP-712 typed data hash, which is context-dependent.
         # For on-chain verification, the smart contract performs ecrecover.
-        return True
+        return not (expected_signer and self.signer.lower() != expected_signer.lower())
 
 
 @dataclass

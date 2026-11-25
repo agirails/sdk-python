@@ -114,7 +114,7 @@ class Semaphore:
         else:
             self._value += 1
 
-    async def __aenter__(self) -> "Semaphore":
+    async def __aenter__(self) -> Semaphore:
         """Async context manager entry."""
         await self.acquire()
         return self

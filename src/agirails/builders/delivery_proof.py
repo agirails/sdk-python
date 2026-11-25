@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from agirails.types.message import DeliveryProofMessage
 from agirails.utils.canonical_json import canonical_json_dumps as canonical_json_serialize
@@ -230,7 +230,7 @@ class DeliveryProofBuilder:
         self._nonce: int = 0
         self._chain_id: int = 84532  # Base Sepolia default
 
-    def for_transaction(self, transaction_id: str) -> "DeliveryProofBuilder":
+    def for_transaction(self, transaction_id: str) -> DeliveryProofBuilder:
         """
         Set the transaction ID this proof is for.
 
@@ -243,7 +243,7 @@ class DeliveryProofBuilder:
         self._transaction_id = transaction_id
         return self
 
-    def from_provider(self, provider: str) -> "DeliveryProofBuilder":
+    def from_provider(self, provider: str) -> DeliveryProofBuilder:
         """
         Set the provider address.
 
@@ -260,7 +260,7 @@ class DeliveryProofBuilder:
         self,
         output: Any,
         compute_hash: bool = True,
-    ) -> "DeliveryProofBuilder":
+    ) -> DeliveryProofBuilder:
         """
         Set the output data.
 
@@ -276,7 +276,7 @@ class DeliveryProofBuilder:
             self._output_hash = compute_output_hash(output)
         return self
 
-    def with_output_hash(self, output_hash: str) -> "DeliveryProofBuilder":
+    def with_output_hash(self, output_hash: str) -> DeliveryProofBuilder:
         """
         Set the output hash directly.
 
@@ -289,7 +289,7 @@ class DeliveryProofBuilder:
         self._output_hash = output_hash
         return self
 
-    def with_attestation(self, attestation_uid: str) -> "DeliveryProofBuilder":
+    def with_attestation(self, attestation_uid: str) -> DeliveryProofBuilder:
         """
         Set the EAS attestation UID.
 
@@ -302,7 +302,7 @@ class DeliveryProofBuilder:
         self._attestation_uid = attestation_uid
         return self
 
-    def at_timestamp(self, timestamp: int) -> "DeliveryProofBuilder":
+    def at_timestamp(self, timestamp: int) -> DeliveryProofBuilder:
         """
         Set the delivery timestamp.
 
@@ -315,7 +315,7 @@ class DeliveryProofBuilder:
         self._timestamp = timestamp
         return self
 
-    def with_metadata(self, key: str, value: Any) -> "DeliveryProofBuilder":
+    def with_metadata(self, key: str, value: Any) -> DeliveryProofBuilder:
         """
         Add metadata key-value pair.
 
@@ -329,7 +329,7 @@ class DeliveryProofBuilder:
         self._metadata[key] = value
         return self
 
-    def with_execution_time(self, milliseconds: int) -> "DeliveryProofBuilder":
+    def with_execution_time(self, milliseconds: int) -> DeliveryProofBuilder:
         """
         Record execution time as metadata.
 
@@ -342,7 +342,7 @@ class DeliveryProofBuilder:
         self._metadata["executionTimeMs"] = milliseconds
         return self
 
-    def with_result_size(self, bytes_count: int) -> "DeliveryProofBuilder":
+    def with_result_size(self, bytes_count: int) -> DeliveryProofBuilder:
         """
         Record result size as metadata.
 
@@ -355,7 +355,7 @@ class DeliveryProofBuilder:
         self._metadata["resultSizeBytes"] = bytes_count
         return self
 
-    def for_consumer(self, consumer: str) -> "DeliveryProofBuilder":
+    def for_consumer(self, consumer: str) -> DeliveryProofBuilder:
         """
         Set the consumer (requester) address.
 
@@ -370,7 +370,7 @@ class DeliveryProofBuilder:
         self._consumer = consumer
         return self
 
-    def with_result_cid(self, cid: str) -> "DeliveryProofBuilder":
+    def with_result_cid(self, cid: str) -> DeliveryProofBuilder:
         """
         Set the IPFS CID of the result.
 
@@ -385,7 +385,7 @@ class DeliveryProofBuilder:
         self._result_cid = cid
         return self
 
-    def with_nonce(self, nonce: int) -> "DeliveryProofBuilder":
+    def with_nonce(self, nonce: int) -> DeliveryProofBuilder:
         """
         Set the monotonically increasing nonce.
 
@@ -400,7 +400,7 @@ class DeliveryProofBuilder:
         self._nonce = nonce
         return self
 
-    def on_chain(self, chain_id: int) -> "DeliveryProofBuilder":
+    def on_chain(self, chain_id: int) -> DeliveryProofBuilder:
         """
         Set the chain ID.
 
@@ -490,7 +490,7 @@ class DeliveryProofBuilder:
         """
         return self.build()
 
-    def reset(self) -> "DeliveryProofBuilder":
+    def reset(self) -> DeliveryProofBuilder:
         """
         Reset builder to initial state.
 
@@ -521,7 +521,7 @@ class BatchDeliveryProofBuilder:
         self._attestation_uid: str = ""
         self._deliveries: List[Dict[str, Any]] = []
 
-    def from_provider(self, provider: str) -> "BatchDeliveryProofBuilder":
+    def from_provider(self, provider: str) -> BatchDeliveryProofBuilder:
         """
         Set the provider address for all proofs.
 
@@ -534,7 +534,7 @@ class BatchDeliveryProofBuilder:
         self._provider = provider
         return self
 
-    def with_attestation(self, attestation_uid: str) -> "BatchDeliveryProofBuilder":
+    def with_attestation(self, attestation_uid: str) -> BatchDeliveryProofBuilder:
         """
         Set the EAS attestation UID for all proofs.
 
@@ -552,7 +552,7 @@ class BatchDeliveryProofBuilder:
         transaction_id: str,
         output: Any,
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> "BatchDeliveryProofBuilder":
+    ) -> BatchDeliveryProofBuilder:
         """
         Add a delivery to the batch.
 
@@ -601,7 +601,7 @@ class BatchDeliveryProofBuilder:
 
         return proofs
 
-    def reset(self) -> "BatchDeliveryProofBuilder":
+    def reset(self) -> BatchDeliveryProofBuilder:
         """
         Reset builder to initial state.
 

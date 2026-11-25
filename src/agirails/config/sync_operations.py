@@ -92,7 +92,6 @@ class PullResult:
 # Backward-compat alias — canonical definition moved to on_chain_state.py
 from agirails.config.on_chain_state import OnChainConfigState as OnChainConfigReader  # noqa: E402
 
-
 # ============================================================================
 # Diff
 # ============================================================================

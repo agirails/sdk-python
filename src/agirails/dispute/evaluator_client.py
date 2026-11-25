@@ -51,22 +51,23 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Awaitable, Dict, List, Optional, Protocol, Sequence, Union
 
 from eth_abi import encode as _abi_encode
 from eth_utils import keccak as _keccak
 
 from agirails.adapters.x402_adapter import X402PayParams
-from agirails.dispute.payment_quote import accepted_quote_terms
 from agirails.dispute.evidence_bundle import (
     EvidenceBundle,
-    bundle_hash as compute_bundle_hash,
     count_bundle_tokens,
     serialize_bundle_to_string,
 )
+from agirails.dispute.evidence_bundle import (
+    bundle_hash as compute_bundle_hash,
+)
+from agirails.dispute.payment_quote import accepted_quote_terms
 from agirails.types.dispute import AIRuling, Ruling, Tier, recover_ruling_signer
-
 
 # ---------------------------------------------------------------------------
 # Wire / config dataclasses (API-CONTRACT.md §2, §3, §4)
@@ -573,11 +574,10 @@ class EvaluatorClient:
                 )
             if not isinstance(body.get("signatures"), list):
                 raise EvaluateResponseError("signed response missing signatures[]")
-        else:
-            if not isinstance(body.get("recommendation"), dict):
-                raise EvaluateResponseError(
-                    "proposeDirectly response missing recommendation"
-                )
+        elif not isinstance(body.get("recommendation"), dict):
+            raise EvaluateResponseError(
+                "proposeDirectly response missing recommendation"
+            )
         return body
 
     @staticmethod

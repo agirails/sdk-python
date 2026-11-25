@@ -9,27 +9,24 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from agirails.cli.main import get_global_options
 from agirails.cli.utils.client import (
+    ensure_initialized,
+    get_config_path,
     load_config,
     save_config,
-    get_config_path,
-    ensure_initialized,
 )
 from agirails.cli.utils.output import (
-    print_success,
+    OutputFormat,
     print_error,
     print_info,
-    print_warning,
     print_json,
-    OutputFormat,
+    print_success,
+    print_warning,
 )
 from agirails.cli.utils.validation import validate_address
-
 
 # Create config subcommand group
 config_app = typer.Typer(
@@ -165,10 +162,9 @@ def get_config(
             print_json({"key": key, "value": None, "exists": False})
         else:
             print_info(f"{key}: (not set)")
+    elif opts.output_format == OutputFormat.JSON:
+        print_json({"key": key, "value": value, "exists": True})
+    elif opts.output_format == OutputFormat.QUIET:
+        typer.echo(value)
     else:
-        if opts.output_format == OutputFormat.JSON:
-            print_json({"key": key, "value": value, "exists": True})
-        elif opts.output_format == OutputFormat.QUIET:
-            typer.echo(value)
-        else:
-            typer.echo(f"{key}: {value}")
+        typer.echo(f"{key}: {value}")

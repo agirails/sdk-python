@@ -11,9 +11,9 @@ Provides configuration dataclasses for:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Literal, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Literal, Optional, Union
 
 if TYPE_CHECKING:
     from agirails.level1.job import Job
@@ -99,7 +99,7 @@ class AgentBehavior:
         retry: Retry configuration for failed jobs
     """
 
-    auto_accept: Union[bool, Callable[["Job"], Union[bool, Awaitable[bool]]]] = True
+    auto_accept: Union[bool, Callable[[Job], Union[bool, Awaitable[bool]]]] = True
     concurrency: int = 10
     timeout: int = 300  # seconds
     retry: Optional[RetryConfig] = None
@@ -206,7 +206,7 @@ class ServiceFilter:
 
     min_budget: Optional[float] = None
     max_budget: Optional[float] = None
-    custom: Optional[Callable[["Job"], bool]] = None
+    custom: Optional[Callable[[Job], bool]] = None
 
     def matches(self, job: Job) -> bool:
         """
@@ -222,9 +222,7 @@ class ServiceFilter:
             return False
         if self.max_budget is not None and job.budget > self.max_budget:
             return False
-        if self.custom is not None and not self.custom(job):
-            return False
-        return True
+        return not (self.custom is not None and not self.custom(job))
 
 
 @dataclass
@@ -252,7 +250,7 @@ class ServiceConfig:
     name: str
     description: str = ""
     filter: Optional[ServiceFilter] = None
-    pricing: Optional["PricingStrategy"] = None
+    pricing: Optional[PricingStrategy] = None
     capabilities: Optional[List[str]] = None
     timeout: Optional[int] = None
     # AIP-16 Phase 2e — per-service delivery mode/privacy. When omitted, the

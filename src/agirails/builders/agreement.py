@@ -74,7 +74,7 @@ def assert_supported_agreement_version(schema_version: str) -> None:
     Raises:
         UnsupportedAgreementVersionError
     """
-    major = schema_version.split(".")[0]
+    major = schema_version.split(".", maxsplit=1)[0]
     if not major.isdigit() or int(major) != SUPPORTED_AGREEMENT_MAJOR:
         raise UnsupportedAgreementVersionError(schema_version)
 

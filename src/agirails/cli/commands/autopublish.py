@@ -9,12 +9,10 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import signal
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -63,8 +61,7 @@ def autopublish(
         opts.quiet = True
 
     # Enforce minimum debounce
-    if debounce < MIN_DEBOUNCE_MS:
-        debounce = MIN_DEBOUNCE_MS
+    debounce = max(debounce, MIN_DEBOUNCE_MS)
 
     # Resolve file path
     if path:
@@ -133,11 +130,13 @@ def autopublish(
             print_info("Change detected — publishing...")
 
         try:
-            result = subprocess.run(
+            # factory-allow K5 razlog=fixed argv of the own CLI, no shell do=2027-11-25 odobrio=Damir
+            result = subprocess.run(  # noqa: S603
                 [sys.executable, "-m", "agirails.cli.main", "publish",
                  "--path", str(md_path), "--network", network, "--quiet"],
                 capture_output=True,
                 text=True,
+                check=False,
                 timeout=60,
             )
             if result.returncode == 0:

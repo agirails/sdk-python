@@ -18,12 +18,11 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
-from typing import List, Optional, Union
+from typing import Optional, Union
 from urllib.parse import urlparse
 
-from agirails.errors import ValidationError, InvalidAddressError, InvalidAmountError
+from agirails.errors import InvalidAddressError, InvalidAmountError, ValidationError
 from agirails.utils.helpers import DisputeWindow
-
 
 # Constants
 MAX_UINT256 = 2**256 - 1
@@ -72,7 +71,8 @@ METADATA_HOST_PATTERNS = [
 # Localhost aliases to block
 LOCALHOST_ALIASES = frozenset([
     "localhost",
-    "0.0.0.0",
+    # factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
+    "0.0.0.0",  # noqa: S104  # nosec B104
     "[::]",
     "[::1]",
     "127.0.0.1",
@@ -251,10 +251,7 @@ def validate_tx_id(tx_id: str, field_name: str = "tx_id") -> str:
 
 def _is_private_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Check if an IP address is in a private range."""
-    for private_range in PRIVATE_IP_RANGES:
-        if ip in private_range:
-            return True
-    return False
+    return any(ip in private_range for private_range in PRIVATE_IP_RANGES)
 
 
 def _is_metadata_host(hostname: str) -> bool:
@@ -271,11 +268,7 @@ def _is_metadata_host(hostname: str) -> bool:
         return True
 
     # Check regex patterns (regional endpoints, subdomains)
-    for pattern in METADATA_HOST_PATTERNS:
-        if pattern.match(hostname_lower):
-            return True
-
-    return False
+    return any(pattern.match(hostname_lower) for pattern in METADATA_HOST_PATTERNS)
 
 
 def _resolve_and_check_ip(hostname: str, field_name: str, url: str) -> None:
@@ -297,7 +290,7 @@ def _resolve_and_check_ip(hostname: str, field_name: str, url: str) -> None:
         # Get all IP addresses for the hostname
         addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
 
-        for family, _, _, _, sockaddr in addr_info:
+        for _family, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0]
             try:
                 ip = ipaddress.ip_address(ip_str)
@@ -708,10 +701,7 @@ def validate_cid(cid: str) -> bool:
         return True
 
     # CIDv1 starts with b (base32, variable length but typically 59+ chars)
-    if CID_V1_PATTERN.match(cid):
-        return True
-
-    return False
+    return bool(CID_V1_PATTERN.match(cid))
 
 
 def is_gateway_allowed(gateway_url: str) -> bool:

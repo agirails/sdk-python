@@ -12,24 +12,22 @@ PARITY: Matches TypeScript SDK's cli/commands/simulate.ts
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import typer
 
+from agirails.adapters.base import BaseAdapter
 from agirails.cli.main import get_global_options
-from agirails.cli.utils.client import load_config, get_default_address
+from agirails.cli.utils.client import get_default_address, load_config
+from agirails.cli.utils.output import format_usdc as format_usdc
 from agirails.cli.utils.output import (
     print_error,
     print_info,
+    print_json,
     print_success,
     print_warning,
-    print_json,
-    format_usdc,
 )
-from agirails.adapters.base import BaseAdapter
 
 # Create the simulate command group
 simulate_app = typer.Typer(
@@ -249,7 +247,7 @@ def simulate_pay(
             print("\n=== Simulation Results ===\n")
 
             print("Transaction Details:")
-            print(f"  Action:   Create and fund transaction")
+            print("  Action:   Create and fund transaction")
             print(f"  Provider: {to}")
             print(f"  Amount:   {result['simulation']['amount']}")
             print(f"  Deadline: {result['simulation']['deadline']}")

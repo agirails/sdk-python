@@ -225,7 +225,7 @@ class MockTransaction:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MockTransaction":
+    def from_dict(cls, data: dict) -> MockTransaction:
         """Create from dictionary (JSON deserialization).
 
         Pre-V3 saved state defaults the new fields to 0 / "" — keeping
@@ -299,7 +299,7 @@ class MockEscrow:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MockEscrow":
+    def from_dict(cls, data: dict) -> MockEscrow:
         """Create from dictionary (JSON deserialization)."""
         return cls(
             id=data["id"],
@@ -328,7 +328,7 @@ class MockAccount:
         return {"address": self.address, "balance": self.balance}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MockAccount":
+    def from_dict(cls, data: dict) -> MockAccount:
         """Create from dictionary (JSON deserialization)."""
         return cls(address=data["address"], balance=data["balance"])
 
@@ -357,7 +357,7 @@ class MockBlockchain:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MockBlockchain":
+    def from_dict(cls, data: dict) -> MockBlockchain:
         """Create from dictionary (JSON deserialization)."""
         return cls(
             block_number=data.get("blockNumber", data.get("block_number", 0)),
@@ -396,7 +396,7 @@ class MockEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MockEvent":
+    def from_dict(cls, data: dict) -> MockEvent:
         """Create from dictionary (JSON deserialization)."""
         return cls(
             event_type=data.get("eventType", data.get("event_type")),
@@ -443,7 +443,7 @@ class MockState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MockState":
+    def from_dict(cls, data: dict) -> MockState:
         """Create from dictionary (JSON deserialization)."""
         return cls(
             version=data.get("version", "2.0.0"),

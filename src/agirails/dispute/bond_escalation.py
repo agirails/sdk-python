@@ -43,7 +43,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from eth_utils import keccak as _keccak
 
-from agirails.types.dispute import AIRuling, DisputeState, Ruling, Tier
+from agirails.types.dispute import AIRuling, DisputeState, Ruling
+from agirails.types.dispute import Tier as Tier
 
 # ---------------------------------------------------------------------------
 # Constants (AIP-14 §7.4) — load-bearing, mirror BondEscalation.sol + TS twin
@@ -125,7 +126,7 @@ class BondEscalationClient:
         config: Any,
         *,
         confirmations: int = 2,
-    ) -> "BondEscalationClient":
+    ) -> BondEscalationClient:
         """
         Build a client from a network config (the ``bond_escalation`` address).
 

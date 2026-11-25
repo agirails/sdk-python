@@ -28,12 +28,21 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, 
 if TYPE_CHECKING:
     from agirails.protocol.agent_registry import AgentRegistry
 
+from agirails.api.discover import DiscoverAgent, DiscoverParams, discover_agents
 from agirails.builders.counter_offer import (
     CounterOfferBuilder,
     CounterOfferParams,
     MessageNonceManager,
 )
 from agirails.builders.quote import QuoteBuilder, QuoteMessage
+from agirails.negotiation.decision_engine import (
+    BuyerQuoteDecider,
+    CandidateStats,
+    DecisionEngine,
+    QuoteEvaluation,
+    QuoteForEvaluation,
+    ScoringWeights,
+)
 from agirails.negotiation.negotiation_channel import (
     COUNTERACCEPT_ENVELOPE,
     COUNTEROFFER_ENVELOPE,
@@ -45,22 +54,12 @@ from agirails.negotiation.negotiation_channel import (
     is_counter_accept_envelope,
     is_quote_envelope,
 )
+from agirails.negotiation.policy_engine import BuyerPolicy, PolicyEngine, QuoteOffer
+from agirails.negotiation.session_store import SessionStore
 from agirails.negotiation.verify_quote_on_chain import (
     VerifyOnChainResult,
     verify_quote_hash_on_chain,
 )
-
-from agirails.api.discover import DiscoverAgent, DiscoverParams, discover_agents
-from agirails.negotiation.decision_engine import (
-    BuyerQuoteDecider,
-    CandidateStats,
-    DecisionEngine,
-    QuoteEvaluation,
-    QuoteForEvaluation,
-    ScoringWeights,
-)
-from agirails.negotiation.policy_engine import BuyerPolicy, PolicyEngine, QuoteOffer
-from agirails.negotiation.session_store import SessionStore
 from agirails.runtime.base import CreateTransactionParams, IACTPRuntime
 
 # ============================================================================
@@ -243,7 +242,7 @@ class BuyerOrchestrator:
         negotiation: Optional[BuyerNegotiationContext] = None,
         client: Optional[Any] = None,
         decide_quote: Optional[BuyerQuoteDecider] = None,
-        agent_registry: Optional["AgentRegistry"] = None,
+        agent_registry: Optional[AgentRegistry] = None,
     ) -> None:
         # Fail-fast on partial negotiation context. Pre-fix bug: a developer who
         # set ``negotiation_channel`` but forgot private_key / chain_id got NO
@@ -315,7 +314,7 @@ class BuyerOrchestrator:
         # Per-txId inbound message queue + resolver + active subscriptions
         # (mirror TS inboundQueues / inboundResolvers / activeSubscriptions).
         self._inbound_queues: Dict[str, List[NegotiationMessage]] = {}
-        self._inbound_resolvers: Dict[str, "asyncio.Future[NegotiationMessage]"] = {}
+        self._inbound_resolvers: Dict[str, asyncio.Future[NegotiationMessage]] = {}
         self._active_subscriptions: Dict[str, Subscription] = {}
 
     # --------------------------------------------------------------------------
@@ -364,7 +363,7 @@ class BuyerOrchestrator:
 
         loop = asyncio.get_event_loop()
         while True:
-            fut: "asyncio.Future[NegotiationMessage]" = loop.create_future()
+            fut: asyncio.Future[NegotiationMessage] = loop.create_future()
             self._inbound_resolvers[tx_id] = fut
             try:
                 msg = await asyncio.wait_for(
@@ -1513,9 +1512,7 @@ class BuyerOrchestrator:
                 continue
 
             pricing_amount = a.published_config.pricing.amount
-            if isinstance(pricing_amount, str):
-                unit_price = float(pricing_amount)
-            elif pricing_amount is not None:
+            if isinstance(pricing_amount, str) or pricing_amount is not None:
                 unit_price = float(pricing_amount)
             else:
                 unit_price = 0.0

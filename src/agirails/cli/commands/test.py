@@ -30,14 +30,13 @@ from typing import Any, Optional
 
 import typer
 
-from agirails.cli.main import get_global_options
-from agirails.cli.utils.output import OutputFormat, print_error
 from agirails.cli.commands.receipt import (
     ReceiptData,
     ReceiptTiming,
     render_receipt,
 )
-
+from agirails.cli.main import get_global_options
+from agirails.cli.utils.output import OutputFormat, print_error
 
 # Test job templates keyed by service type
 _TEST_JOBS = {
@@ -379,8 +378,8 @@ async def _run_test(
 ) -> None:
     """Run the mock ACTP lifecycle test."""
     from agirails.config.agirailsmd import parse_agirails_md
-    from agirails.runtime.mock_runtime import MockRuntime
     from agirails.runtime.base import CreateTransactionParams
+    from agirails.runtime.mock_runtime import MockRuntime
 
     # Parse AGIRAILS.md
     content = agirails_md_path.read_text()

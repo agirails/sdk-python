@@ -15,20 +15,19 @@ from typing import Optional
 import typer
 
 from agirails.cli.main import get_global_options
-from agirails.cli.utils.client import get_client, ensure_initialized
+from agirails.cli.utils.client import ensure_initialized, get_client
 from agirails.cli.utils.output import (
-    print_success,
+    OutputFormat,
+    format_address,
+    format_usdc,
     print_error,
     print_info,
     print_json,
+    print_success,
     print_table,
     print_transaction,
-    format_usdc,
-    format_address,
-    OutputFormat,
 )
-from agirails.cli.utils.validation import validate_tx_id, validate_state
-
+from agirails.cli.utils.validation import validate_state, validate_tx_id
 
 # Create tx subcommand group
 tx_app = typer.Typer(

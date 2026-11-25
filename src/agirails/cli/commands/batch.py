@@ -15,7 +15,6 @@ PARITY: Matches TypeScript SDK's cli/commands/batch.ts
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import shlex
@@ -31,10 +30,10 @@ from agirails.cli.main import get_global_options
 from agirails.cli.utils.output import (
     print_error,
     print_info,
-    print_success,
-    print_warning,
     print_json,
+    print_warning,
 )
+from agirails.cli.utils.output import print_success as print_success
 
 # ============================================================================
 # Security: Command Allowlist and Argument Parsing
@@ -153,11 +152,13 @@ def execute_command(command: str) -> Tuple[bool, str, int]:
         full_args = ["actp"] + args
 
         # SECURITY: Use shell=False and pass arguments as array
-        result = subprocess.run(
+        # factory-allow K5 razlog=argv list with shell=False do=2027-11-25 odobrio=Damir
+        result = subprocess.run(  # noqa: S603
             full_args,
             capture_output=True,
             text=True,
             shell=False,
+            check=False,
             timeout=120,  # 2 minute timeout per command
         )
 

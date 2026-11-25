@@ -55,7 +55,8 @@ def serve(
         8787, "--port", min=1, max=65535, help="HTTP port to listen on."
     ),
     host: str = typer.Option(
-        "0.0.0.0", "--host", help="Bind address (default: 0.0.0.0)."
+        # factory-allow K5 razlog=documented container default, user can override do=2027-11-25 odobrio=Damir
+        "0.0.0.0", "--host", help="Bind address (default: 0.0.0.0)."  # noqa: S104  # nosec B104
     ),
     network: str = typer.Option(
         "base-sepolia",
@@ -125,7 +126,7 @@ def serve(
         print_info(f"  Network:       {network}{'  (mock)' if mock else ''}")
         print_info(f"  Provider:      {signer_address}")
         print_info(f"  Channel base:  {build_channel_path(chain_id, '<txId>')}")
-        print_info(f"  Health:        GET /")
+        print_info("  Health:        GET /")
         print_info("")
         print_info(
             "Counter-offers POSTed to /quote-channel/{chainId}/{txId} are verified +"

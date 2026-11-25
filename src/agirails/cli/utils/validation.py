@@ -9,10 +9,8 @@ from __future__ import annotations
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Optional
 
 import typer
-
 
 # Ethereum address pattern
 ADDRESS_PATTERN = re.compile(r"^0x[a-fA-F0-9]{40}$")
@@ -85,7 +83,6 @@ def _to_checksum_address(address: str) -> str:
     Raises:
         ValueError: If address format is invalid
     """
-    import hashlib
 
     # Remove 0x prefix and lowercase
     addr = address.lower().replace("0x", "")

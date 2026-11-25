@@ -123,7 +123,7 @@ def find(
         raise typer.Exit(1)
 
     async def _find() -> None:
-        from agirails.api.discover import discover_agents, DiscoverParams
+        from agirails.api.discover import DiscoverParams, discover_agents
 
         params = DiscoverParams(
             search=query,

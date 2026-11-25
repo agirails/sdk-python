@@ -9,25 +9,24 @@ Usage:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 import typer
 
 from agirails.cli.main import get_global_options
 from agirails.cli.utils.client import (
-    get_state_directory,
-    init_directory,
+    VALID_MODES,
     ensure_initialized,
     get_default_address,
-    VALID_MODES,
+    get_state_directory,
+    init_directory,
 )
 from agirails.cli.utils.output import (
-    print_success,
-    print_error,
-    print_warning,
-    print_json,
     OutputFormat,
+    print_error,
+    print_json,
+    print_success,
+    print_warning,
 )
 
 

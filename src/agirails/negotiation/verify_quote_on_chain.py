@@ -49,7 +49,7 @@ from typing import Literal, Optional
 from eth_hash.auto import keccak
 
 from agirails.builders.quote import QuoteBuilder, QuoteMessage
-from agirails.utils.canonical_json import canonical_json_dumps
+from agirails.utils.canonical_json import canonical_json_dumps as canonical_json_dumps
 
 # 'aip2' | 'legacy' — which matcher accepted the on-chain hash.
 VerifySource = Literal["aip2", "legacy"]
