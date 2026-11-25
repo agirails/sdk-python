@@ -11,11 +11,10 @@ Environment Variables:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Optional
 
 from agirails.errors import ValidationError
-
 
 # ============================================================================
 # Account Abstraction (ERC-4337) Configuration

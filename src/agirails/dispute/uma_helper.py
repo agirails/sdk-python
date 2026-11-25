@@ -181,7 +181,7 @@ class UMAHelper:
         config: Any,
         *,
         confirmations: int = 2,
-    ) -> "UMAHelper":
+    ) -> UMAHelper:
         """
         Build a helper from a network config (the three dispute-contract
         addresses). PARITY: ``BondEscalationClient.from_config``. The

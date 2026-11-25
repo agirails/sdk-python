@@ -13,14 +13,14 @@ import asyncio
 import typer
 
 from agirails.cli.main import get_global_options
-from agirails.cli.utils.client import get_client, ensure_initialized
+from agirails.cli.utils.client import ensure_initialized, get_client
 from agirails.cli.utils.output import (
-    print_success,
+    OutputFormat,
+    format_address,
+    format_usdc,
     print_error,
     print_json,
-    format_usdc,
-    format_address,
-    OutputFormat,
+    print_success,
 )
 from agirails.cli.utils.validation import validate_address, validate_amount
 from agirails.runtime.base import is_mock_runtime

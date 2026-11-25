@@ -21,7 +21,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import typer
 
@@ -33,7 +33,6 @@ from agirails.cli.utils.output import (
     print_json,
     print_success,
 )
-
 
 # ============================================================================
 # Helpers

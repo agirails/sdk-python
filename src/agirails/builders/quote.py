@@ -129,7 +129,7 @@ class QuoteMessage:
         return d
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "QuoteMessage":
+    def from_dict(cls, data: Dict[str, Any]) -> QuoteMessage:
         return cls(
             tx_id=data.get("txId", data.get("tx_id", "")),
             provider=data.get("provider", ""),
@@ -454,43 +454,43 @@ class LegacyQuoteBuilder:
         self._terms: Optional[str] = None
         self._metadata: Dict[str, Any] = {}
 
-    def for_transaction(self, transaction_id: str) -> "LegacyQuoteBuilder":
+    def for_transaction(self, transaction_id: str) -> LegacyQuoteBuilder:
         self._transaction_id = transaction_id
         return self
 
-    def from_provider(self, provider: str) -> "LegacyQuoteBuilder":
+    def from_provider(self, provider: str) -> LegacyQuoteBuilder:
         self._provider = provider
         return self
 
-    def with_price(self, amount: int, unit: str = "raw") -> "LegacyQuoteBuilder":
+    def with_price(self, amount: int, unit: str = "raw") -> LegacyQuoteBuilder:
         self._price = int(amount * 1_000_000) if unit == "usdc" else amount
         return self
 
-    def with_price_usdc(self, usdc_amount: float) -> "LegacyQuoteBuilder":
+    def with_price_usdc(self, usdc_amount: float) -> LegacyQuoteBuilder:
         self._price = int(usdc_amount * 1_000_000)
         return self
 
-    def with_estimated_time(self, seconds: int) -> "LegacyQuoteBuilder":
+    def with_estimated_time(self, seconds: int) -> LegacyQuoteBuilder:
         self._estimated_time = seconds
         return self
 
-    def with_estimated_time_minutes(self, minutes: int) -> "LegacyQuoteBuilder":
+    def with_estimated_time_minutes(self, minutes: int) -> LegacyQuoteBuilder:
         self._estimated_time = minutes * 60
         return self
 
-    def valid_for(self, seconds: int) -> "LegacyQuoteBuilder":
+    def valid_for(self, seconds: int) -> LegacyQuoteBuilder:
         self._validity_period = seconds
         return self
 
-    def valid_until(self, timestamp: int) -> "LegacyQuoteBuilder":
+    def valid_until(self, timestamp: int) -> LegacyQuoteBuilder:
         self._valid_until = timestamp
         return self
 
-    def with_terms(self, terms: str) -> "LegacyQuoteBuilder":
+    def with_terms(self, terms: str) -> LegacyQuoteBuilder:
         self._terms = terms
         return self
 
-    def with_metadata(self, key: str, value: Any) -> "LegacyQuoteBuilder":
+    def with_metadata(self, key: str, value: Any) -> LegacyQuoteBuilder:
         self._metadata[key] = value
         return self
 
@@ -514,7 +514,7 @@ class LegacyQuoteBuilder:
             metadata=self._metadata,
         )
 
-    def reset(self) -> "LegacyQuoteBuilder":
+    def reset(self) -> LegacyQuoteBuilder:
         self.__init__()
         return self
 

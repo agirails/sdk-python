@@ -24,7 +24,7 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -315,7 +315,7 @@ class DeliveryProofMessage:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DeliveryProofMessage":
+    def from_dict(cls, data: Dict[str, Any]) -> DeliveryProofMessage:
         """Create from dictionary (handles both camelCase and snake_case)."""
         # Handle camelCase keys from TS SDK
         metadata = None
@@ -464,7 +464,7 @@ class SignedMessage:
         """Check if message has a signature."""
         return bool(self.signature)
 
-    def verify(self, expected_signer: "Optional[str]" = None) -> bool:
+    def verify(self, expected_signer: Optional[str] = None) -> bool:
         """
         Verify the signature.
 

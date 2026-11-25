@@ -18,7 +18,6 @@ import logging
 import sys
 from typing import Any, Dict, Optional
 
-
 # Default log format with structured fields
 DEFAULT_FORMAT = (
     "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
@@ -186,7 +185,7 @@ class LogContext:
         self._new_context = kwargs
         self._old_context: Dict[str, Any] = {}
 
-    def __enter__(self) -> "LogContext":
+    def __enter__(self) -> LogContext:
         self._old_context = LogContext._context.copy()
         LogContext._context.update(self._new_context)
         return self

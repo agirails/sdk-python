@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,14 +22,15 @@ import typer
 from agirails.cli.main import get_global_options
 from agirails.cli.utils.client import get_client
 from agirails.cli.utils.output import (
+    format_state,
     print_error,
     print_info,
+    print_json,
     print_success,
     print_warning,
-    print_json,
-    format_state,
 )
-from agirails.runtime.types import State, TERMINAL_STATES
+from agirails.runtime.types import TERMINAL_STATES as TERMINAL_STATES
+from agirails.runtime.types import State as State
 
 # Valid transaction states
 VALID_STATES = frozenset([
@@ -205,12 +205,11 @@ def _emit_state_change(
         print(json.dumps(event), flush=True)
     elif quiet:
         print(to_state, flush=True)
+    # Human-readable format
+    elif from_state:
+        print(f"{iso_time}  {format_state(from_state)} -> {format_state(to_state)}", flush=True)
     else:
-        # Human-readable format
-        if from_state:
-            print(f"{iso_time}  {format_state(from_state)} -> {format_state(to_state)}", flush=True)
-        else:
-            print(f"{iso_time}  Current: {format_state(to_state)}", flush=True)
+        print(f"{iso_time}  Current: {format_state(to_state)}", flush=True)
 
 
 def watch(

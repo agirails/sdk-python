@@ -15,8 +15,8 @@ from typing import List
 
 from web3 import Web3
 
+from agirails.wallet.auto_wallet_provider import IWalletProvider as IWalletProvider
 from agirails.wallet.auto_wallet_provider import (
-    IWalletProvider,
     TransactionReceipt,
     TransactionRequest,
     WalletInfo,

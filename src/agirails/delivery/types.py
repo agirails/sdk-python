@@ -21,7 +21,7 @@ Cite: sdk-js/src/delivery/types.ts.
 
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, TypedDict
 
 # ============================================================================
 # Discriminator unions (TS types.ts:94-154)

@@ -39,7 +39,6 @@ from agirails.config.networks import get_network
 from agirails.protocol.agent_registry import AgentRegistry
 from agirails.wallet.keystore import ResolvePrivateKeyOptions, resolve_private_key
 
-
 # ============================================================================
 # Helpers
 # ============================================================================

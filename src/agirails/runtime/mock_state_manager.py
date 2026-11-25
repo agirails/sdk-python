@@ -41,10 +41,10 @@ else:
 
 from agirails.errors import (
     MockStateCorruptedError,
-    MockStateVersionError,
     MockStateLockError,
+    MockStateVersionError,
 )
-from agirails.runtime.types import MockState, create_default_state, MOCK_STATE_DEFAULTS
+from agirails.runtime.types import MOCK_STATE_DEFAULTS, MockState, create_default_state
 
 T = TypeVar("T")
 
@@ -164,7 +164,7 @@ class MockStateManager:
 
     def _read_file(self) -> str:
         """Synchronous file read (run in thread)."""
-        with open(self.state_file_path, "r", encoding="utf-8") as f:
+        with open(self.state_file_path, encoding="utf-8") as f:
             return f.read()
 
     async def save(self, state: MockState) -> None:
@@ -351,8 +351,8 @@ class MockStateManager:
             True if compatible.
         """
         try:
-            file_major = int(file_version.split(".")[0])
-            current_major = int(STATE_VERSION.split(".")[0])
+            file_major = int(file_version.split(".", maxsplit=1)[0])
+            current_major = int(STATE_VERSION.split(".", maxsplit=1)[0])
             return file_major == current_major
         except (ValueError, IndexError):
             return False

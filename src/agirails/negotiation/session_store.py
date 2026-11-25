@@ -15,7 +15,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-
 # ============================================================================
 # Types
 # ============================================================================
@@ -136,7 +135,7 @@ class SessionStore:
         try:
             if not os.path.exists(path):
                 return
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 raw = json.load(f)
             if raw.get("version") != 1:
                 return

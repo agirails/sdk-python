@@ -206,7 +206,7 @@ class CounterContext:
     """
 
     #: Verified incoming counter (``counter.counterAmount`` = buyer's bid).
-    counter: "CounterOfferMessage"
+    counter: CounterOfferMessage
     #: Provider's most recent quote amount for this tx (base units).
     last_quote_amount_base_units: str
     #: Re-quotes already sent this tx (0 on first counter).
@@ -505,8 +505,7 @@ class ProviderPolicyEngine:
         concession = (gap * safe_pct) // 100
         new_quote = last_quote - concession
         # Defensive: never go below floor regardless of math.
-        if new_quote < self._floor_base_units:
-            new_quote = self._floor_base_units
+        new_quote = max(new_quote, self._floor_base_units)
         return CounterEvaluation(
             decision="requote",
             amount_base_units=str(new_quote),
@@ -520,7 +519,7 @@ class ProviderPolicyEngine:
 
     async def decide_counter(
         self,
-        counter: "CounterOfferMessage",
+        counter: CounterOfferMessage,
         last_quote_amount_base_units: Optional[str] = None,
         requotes_used: int = 0,
     ) -> CounterDecision:

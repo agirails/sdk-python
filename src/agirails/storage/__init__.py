@@ -46,16 +46,8 @@ Example:
 from __future__ import annotations
 
 # ============================================================================
-# Clients
-# ============================================================================
-
-from agirails.storage.arweave_client import ArweaveClient
-from agirails.storage.filebase_client import FilebaseClient
-
-# ============================================================================
 # Builders
 # ============================================================================
-
 from agirails.storage.archive_bundle_builder import (
     ARCHIVE_SCHEMA_VERSION,
     PROTOCOL_VERSION,
@@ -66,9 +58,14 @@ from agirails.storage.archive_bundle_builder import (
 )
 
 # ============================================================================
+# Clients
+# ============================================================================
+from agirails.storage.arweave_client import ArweaveClient
+from agirails.storage.filebase_client import FilebaseClient
+
+# ============================================================================
 # Types
 # ============================================================================
-
 from agirails.storage.types import (
     # Archive Bundle
     ARCHIVE_BUNDLE_TYPE,

@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from eth_account import Account

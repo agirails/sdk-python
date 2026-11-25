@@ -13,17 +13,16 @@ This is a 1:1 port of sdk-js/src/wallet/aa/UserOpBuilder.ts.
 
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import Dict, List
 
 from eth_abi import encode as abi_encode
 from eth_account import Account
-from eth_account.messages import encode_defunct
 from web3 import Web3
 
 from agirails.wallet.aa.constants import (
+    DEFAULT_WALLET_NONCE,
     ENTRYPOINT_V06,
     SMART_WALLET_FACTORY,
-    DEFAULT_WALLET_NONCE,
     SmartWalletCall,
     UserOperationV06,
 )

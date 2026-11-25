@@ -32,16 +32,17 @@ from agirails.server.policy_engine import (
 )
 from agirails.server.quote_channel import (
     DEDUP_TTL_SECONDS,
+    TTL_GRACE_SECONDS,
     HandlerContext,
     HandlerResult,
     InMemoryDedupStore,
     QuoteChannelClient,
     QuoteChannelClientConfig,
     QuoteChannelHandler,
-    TTL_GRACE_SECONDS,
     assert_safe_peer_url,
     build_channel_path,
 )
+
 
 def __getattr__(name):
     """Lazy-import ``create_app`` so ``agirails.server`` is importable

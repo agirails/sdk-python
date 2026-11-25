@@ -23,12 +23,9 @@ from __future__ import annotations
 import json
 import os
 import stat
-import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 
 # ============================================================================
 # Types
@@ -59,7 +56,7 @@ class ServiceDescriptorData:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ServiceDescriptorData":
+    def from_dict(cls, data: Dict[str, Any]) -> ServiceDescriptorData:
         return cls(
             service_type_hash=data.get("serviceTypeHash", ""),
             service_type=data.get("serviceType", ""),
@@ -97,7 +94,7 @@ class PendingPublishData:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PendingPublishData":
+    def from_dict(cls, data: Dict[str, Any]) -> PendingPublishData:
         descriptors = [
             ServiceDescriptorData.from_dict(sd)
             for sd in data.get("serviceDescriptors", [])
@@ -272,13 +269,13 @@ def load_pending_publish(
     if network:
         scoped_path = _get_pending_publish_path(network, actp_dir)
         if os.path.exists(scoped_path):
-            with open(scoped_path, "r") as f:
+            with open(scoped_path) as f:
                 return PendingPublishData.from_dict(json.load(f))
 
     # Fall back to legacy file
     legacy_path = _get_pending_publish_path(None, actp_dir)
     if os.path.exists(legacy_path):
-        with open(legacy_path, "r") as f:
+        with open(legacy_path) as f:
             return PendingPublishData.from_dict(json.load(f))
 
     return None

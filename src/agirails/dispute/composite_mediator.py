@@ -311,7 +311,7 @@ class CompositeMediator:
             return json.load(f)
 
     @classmethod
-    def from_config(cls, w3: Any, config: Any) -> "CompositeMediator":
+    def from_config(cls, w3: Any, config: Any) -> CompositeMediator:
         """
         Create a CompositeMediator client from network configuration.
 

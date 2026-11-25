@@ -13,13 +13,13 @@ Use this adapter when you need more control than BasicAdapter provides.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from web3 import Web3
 
+from agirails.adapters.base import DEFAULT_DISPUTE_WINDOW_SECONDS as DEFAULT_DISPUTE_WINDOW_SECONDS
 from agirails.adapters.base import (
     BaseAdapter,
-    DEFAULT_DISPUTE_WINDOW_SECONDS,
 )
 from agirails.adapters.types import (
     AdapterMetadata,
@@ -31,8 +31,7 @@ from agirails.runtime.types import State
 from agirails.utils.helpers import Address, ServiceHash, ServiceMetadata
 
 if TYPE_CHECKING:
-    from agirails.runtime.base import IACTPRuntime
-    from agirails.runtime.types import MockTransaction
+    pass
 
 
 @dataclass

@@ -15,17 +15,16 @@ from datetime import datetime
 import typer
 
 from agirails.cli.main import get_global_options
-from agirails.cli.utils.client import get_client, ensure_initialized
+from agirails.cli.utils.client import ensure_initialized, get_client
 from agirails.cli.utils.output import (
-    print_success,
+    OutputFormat,
     print_error,
     print_info,
     print_json,
-    OutputFormat,
+    print_success,
 )
 from agirails.cli.utils.validation import validate_seconds, validate_timestamp
 from agirails.runtime.base import is_mock_runtime
-
 
 # Create time subcommand group
 time_app = typer.Typer(

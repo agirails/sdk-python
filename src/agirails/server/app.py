@@ -30,7 +30,6 @@ from agirails.server.policy_engine import evaluate_counter
 from agirails.server.quote_channel import (
     HandlerContext,
     QuoteChannelHandler,
-    build_channel_path,
 )
 from agirails.utils.logger import Logger
 

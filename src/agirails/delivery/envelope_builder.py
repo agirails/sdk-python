@@ -28,6 +28,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from eth_hash.auto import keccak
+
 from agirails.delivery.crypto import (
     body_hash,
     bytes_from_hex,
@@ -61,8 +63,6 @@ from agirails.delivery.validate import (
     validate_scheme_consistency,
 )
 from agirails.utils.canonical_json import canonical_json_dumps
-
-from eth_hash.auto import keccak
 
 # ============================================================================
 # Constants (TS envelopeBuilder.ts:172 / :189)

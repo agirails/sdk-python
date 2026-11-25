@@ -36,7 +36,6 @@ from typing import Any, Dict, List, Union
 import yaml
 from eth_utils import keccak
 
-
 # ============================================================================
 # Types
 # ============================================================================
@@ -443,7 +442,6 @@ def serialize_agirails_md(frontmatter: Dict[str, Any], body: str) -> str:
 
 import re
 from typing import Optional
-
 
 # ----------------------------------------------------------------------------
 # Convention-over-config defaults (mirror TS config/defaults.ts)

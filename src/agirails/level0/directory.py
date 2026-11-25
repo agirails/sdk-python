@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Iterator, List, Optional, Dict
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 
 @dataclass

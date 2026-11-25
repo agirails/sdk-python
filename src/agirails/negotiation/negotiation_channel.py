@@ -370,9 +370,7 @@ class MockChannel:
         for sub in list(self._subscribers):
             if sub.cancelled:
                 continue
-            if isinstance(sub, _TxIdSubscriber) and sub.tx_id == stored.tx_id:
-                await self._deliver_to_sub(sub, stored)
-            elif isinstance(sub, _AgentSubscriber) and self._envelope_addresses_agent(
+            if isinstance(sub, _TxIdSubscriber) and sub.tx_id == stored.tx_id or isinstance(sub, _AgentSubscriber) and self._envelope_addresses_agent(
                 stored.envelope, sub.agent_did
             ):
                 await self._deliver_to_sub(sub, stored)
@@ -497,7 +495,7 @@ class _RelayPollState:
     cursor: Optional[str] = None
     delivered: Set[str] = field(default_factory=set)
     cancelled: bool = False
-    task: Optional["asyncio.Task[Any]"] = None
+    task: Optional[asyncio.Task[Any]] = None
 
 
 class RelayChannel:

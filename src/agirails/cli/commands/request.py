@@ -17,8 +17,6 @@ Python port of ``sdk-js/src/cli/commands/request.ts``.
 from __future__ import annotations
 
 import asyncio
-import json
-import time
 from typing import Optional
 
 import typer
@@ -34,7 +32,6 @@ from agirails.cli.utils.output import (
     print_json,
     print_success,
 )
-
 
 _VALID_NETWORKS = {"mock", "testnet", "mainnet"}
 

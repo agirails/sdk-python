@@ -96,7 +96,7 @@ class _PollState:
 class _RelaySubscription(DeliverySubscription):
     """Subscription handle for the polling loop (TS:335 close())."""
 
-    def __init__(self, state: _PollState, channel: "RelayDeliveryChannel") -> None:
+    def __init__(self, state: _PollState, channel: RelayDeliveryChannel) -> None:
         self._state = state
         self._channel = channel
         self._closed = False

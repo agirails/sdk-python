@@ -7,9 +7,8 @@ Fluent builder for creating archive bundles with validation.
 from __future__ import annotations
 
 import json
-import re
 import time
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from eth_utils import keccak
 
@@ -27,7 +26,6 @@ from agirails.storage.types import (
     ArchiveSignatures,
     EscrowRelease,
 )
-
 
 # Current versions
 PROTOCOL_VERSION = "1.0.0"

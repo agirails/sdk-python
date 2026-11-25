@@ -20,7 +20,6 @@ log; the web receipt is a cosmetic, shareable artifact.
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Literal, Optional, Union
 
@@ -235,7 +234,7 @@ async def _wallet_sig_prepare(
     private_key: str,
     base_url: str,
     timeout_seconds: float,
-) -> "tuple[str, str, int, str]":
+) -> tuple[str, str, int, str]:
     """Run the EIP-712 wallet-sig prepare handshake.
 
     Returns ``(signer_address, nonce, issued_at, signature_hex)``.

@@ -38,7 +38,6 @@ from agirails.delivery.envelope_builder import DeliveryEnvelopeBuilder
 from agirails.delivery.setup_builder import DeliverySetupBuilder
 from agirails.delivery.types import DeliveryEnvelopeWireV1, DeliverySetupWireV1
 
-
 # ============================================================================
 # Public options (TS MockDeliveryChannel.ts:95)
 # ============================================================================

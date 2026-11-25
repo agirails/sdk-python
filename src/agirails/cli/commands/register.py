@@ -21,9 +21,9 @@ from agirails.cli.main import get_global_options
 from agirails.cli.utils.output import (
     OutputFormat,
     print_error,
-    print_warning,
     print_json,
     print_success,
+    print_warning,
 )
 
 
@@ -78,13 +78,13 @@ async def _register_legacy(
     """Execute legacy registration flow."""
     from pathlib import Path
 
-    from agirails.wallet.keystore import (
-        resolve_private_key,
-        ResolvePrivateKeyOptions,
-    )
     from agirails.config.agirailsmd import parse_agirails_md
-    from agirails.config.publish_pipeline import extract_registration_params
     from agirails.config.networks import get_network
+    from agirails.config.publish_pipeline import extract_registration_params
+    from agirails.wallet.keystore import (
+        ResolvePrivateKeyOptions,
+        resolve_private_key,
+    )
 
     # Resolve private key
     private_key = await resolve_private_key(
@@ -128,14 +128,15 @@ async def _register_legacy(
 
     # Build and submit registration
     from web3 import Web3
-    from agirails.wallet.auto_wallet_provider import (
-        AutoWalletProvider,
-        AutoWalletConfig,
-    )
+
     from agirails.wallet.aa.transaction_batcher import (
+        ServiceDescriptor,
         build_register_agent_batch,
         build_testnet_mint_batch,
-        ServiceDescriptor,
+    )
+    from agirails.wallet.auto_wallet_provider import (
+        AutoWalletConfig,
+        AutoWalletProvider,
     )
 
     rpc_url = net_config.rpc_url

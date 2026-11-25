@@ -14,7 +14,6 @@ from typing import Literal, Optional, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ============================================================================
 # Arweave TX ID validation (AIP-7 §4.3 — SSRF / input-validation parity)
 # ============================================================================

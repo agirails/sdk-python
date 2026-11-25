@@ -15,14 +15,13 @@ This is a 1:1 port of sdk-js/src/wallet/aa/TransactionBatcher.ts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional
+from typing import List, Literal, Optional
 
 from eth_abi import encode as abi_encode
 from web3 import Web3
+
 from agirails.protocol.kernel_creation import encode_kernel_creation
-
 from agirails.wallet.aa.constants import SmartWalletCall
-
 
 # ============================================================================
 # Types

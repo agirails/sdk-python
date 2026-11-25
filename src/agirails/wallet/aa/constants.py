@@ -9,8 +9,7 @@ This is a 1:1 port of sdk-js/src/wallet/aa/constants.ts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
+from dataclasses import dataclass
 
 # ERC-4337 EntryPoint v0.6 (canonical, all EVM chains)
 ENTRYPOINT_V06 = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"

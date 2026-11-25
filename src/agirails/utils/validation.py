@@ -18,12 +18,11 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
-from typing import List, Optional, Union
+from typing import Optional, Union
 from urllib.parse import urlparse
 
-from agirails.errors import ValidationError, InvalidAddressError, InvalidAmountError
+from agirails.errors import InvalidAddressError, InvalidAmountError, ValidationError
 from agirails.utils.helpers import DisputeWindow
-
 
 # Constants
 MAX_UINT256 = 2**256 - 1

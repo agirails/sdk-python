@@ -47,55 +47,8 @@ Example:
 from __future__ import annotations
 
 # ============================================================================
-# PolicyEngine
-# ============================================================================
-
-from agirails.negotiation.policy_engine import (
-    BudgetEntry,
-    BudgetLedgerFile,
-    BuyerPolicy,
-    Constraints,
-    MaxDailySpend,
-    MaxUnitPrice,
-    Negotiation,
-    PolicyEngine,
-    PolicyResult,
-    PolicyViolation,
-    QuoteOffer,
-    Selection,
-    TargetUnitPrice,
-)
-
-# ============================================================================
-# DecisionEngine
-# ============================================================================
-
-from agirails.negotiation.decision_engine import (
-    BuyerQuoteDecider,
-    CandidateStats,
-    DEFAULT_WEIGHTS,
-    DecisionEngine,
-    QuoteEvaluation,
-    QuoteForEvaluation,
-    ScoreBreakdown,
-    ScoredCandidate,
-    ScoringWeights,
-)
-
-# ============================================================================
-# SessionStore
-# ============================================================================
-
-from agirails.negotiation.session_store import (
-    SessionMapping,
-    SessionsFile,
-    SessionStore,
-)
-
-# ============================================================================
 # BuyerOrchestrator
 # ============================================================================
-
 from agirails.negotiation.buyer_orchestrator import (
     BuyerNegotiationContext,
     BuyerOrchestrator,
@@ -114,15 +67,18 @@ from agirails.negotiation.buyer_orchestrator import (
 )
 
 # ============================================================================
-# Provider-side orchestrator (AIP-2.1) + negotiation channel transport
+# DecisionEngine
 # ============================================================================
-
-from agirails.negotiation.provider_orchestrator import (
-    ProviderOrchestrator,
-    ProviderOrchestratorConfig,
-    QuoteDecision,
-    QuoteDecisionViolation,
-    QuoteResult,
+from agirails.negotiation.decision_engine import (
+    DEFAULT_WEIGHTS,
+    BuyerQuoteDecider,
+    CandidateStats,
+    DecisionEngine,
+    QuoteEvaluation,
+    QuoteForEvaluation,
+    ScoreBreakdown,
+    ScoredCandidate,
+    ScoringWeights,
 )
 from agirails.negotiation.negotiation_channel import (
     COUNTERACCEPT_ENVELOPE,
@@ -132,10 +88,10 @@ from agirails.negotiation.negotiation_channel import (
     MockChannel,
     MockChannelConfig,
     NegotiationChannel,
-    RelayChannel,
-    RelayChannelConfig,
     NegotiationMessage,
     NegotiationMessageType,
+    RelayChannel,
+    RelayChannelConfig,
     Subscription,
     envelope_chain_id,
     envelope_tx_id,
@@ -145,11 +101,40 @@ from agirails.negotiation.negotiation_channel import (
 )
 
 # ============================================================================
+# PolicyEngine
+# ============================================================================
+from agirails.negotiation.policy_engine import (
+    BudgetEntry,
+    BudgetLedgerFile,
+    BuyerPolicy,
+    Constraints,
+    MaxDailySpend,
+    MaxUnitPrice,
+    Negotiation,
+    PolicyEngine,
+    PolicyResult,
+    PolicyViolation,
+    QuoteOffer,
+    Selection,
+    TargetUnitPrice,
+)
+
+# ============================================================================
+# Provider-side orchestrator (AIP-2.1) + negotiation channel transport
+# ============================================================================
+from agirails.negotiation.provider_orchestrator import (
+    ProviderOrchestrator,
+    ProviderOrchestratorConfig,
+    QuoteDecision,
+    QuoteDecisionViolation,
+    QuoteResult,
+)
+
+# ============================================================================
 # ProviderPolicy (AIP-2.1, TS parity) — provider-side pricing/counter policy.
 # NOTE: provider_policy.ProviderPolicy (human-amount shape) is namespaced here
 # to avoid colliding with server.policy.ProviderPolicy (base-unit v1).
 # ============================================================================
-
 from agirails.negotiation.provider_policy import (
     CounterContext,
     CounterDecider,
@@ -162,13 +147,23 @@ from agirails.negotiation.provider_policy import (
     ProviderPolicyResult,
     ProviderPolicyViolation,
     ProviderPricing,
+)
+from agirails.negotiation.provider_policy import (
     parse_ttl as provider_parse_ttl,
+)
+
+# ============================================================================
+# SessionStore
+# ============================================================================
+from agirails.negotiation.session_store import (
+    SessionMapping,
+    SessionsFile,
+    SessionStore,
 )
 
 # ============================================================================
 # On-chain quote-hash verification (AIP-2.1 anchoring cross-check)
 # ============================================================================
-
 from agirails.negotiation.verify_quote_on_chain import (
     VerifyOnChainResult,
     VerifySource,

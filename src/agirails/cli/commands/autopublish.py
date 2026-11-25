@@ -9,12 +9,10 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import signal
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -63,8 +61,7 @@ def autopublish(
         opts.quiet = True
 
     # Enforce minimum debounce
-    if debounce < MIN_DEBOUNCE_MS:
-        debounce = MIN_DEBOUNCE_MS
+    debounce = max(debounce, MIN_DEBOUNCE_MS)
 
     # Resolve file path
     if path:

@@ -125,7 +125,7 @@ def serve(
         print_info(f"  Network:       {network}{'  (mock)' if mock else ''}")
         print_info(f"  Provider:      {signer_address}")
         print_info(f"  Channel base:  {build_channel_path(chain_id, '<txId>')}")
-        print_info(f"  Health:        GET /")
+        print_info("  Health:        GET /")
         print_info("")
         print_info(
             "Counter-offers POSTed to /quote-channel/{chainId}/{txId} are verified +"

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union, overload
+from typing import Any, Callable, Dict, List, Optional, Union, overload
 
 from agirails.level0.directory import ServiceEntry, get_global_directory
 from agirails.level0.provider import Provider, ProviderConfig, ServiceHandler
@@ -189,7 +189,7 @@ def list_provided() -> List[str]:
     return provider.services
 
 
-def set_provider_client(client: "ACTPClient", address: Optional[str] = None) -> None:
+def set_provider_client(client: ACTPClient, address: Optional[str] = None) -> None:
     """
     Set the ACTP client for the global provider.
 

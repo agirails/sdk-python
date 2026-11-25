@@ -25,7 +25,7 @@ import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 import typer
@@ -40,11 +40,10 @@ from agirails.cli.utils.output import (
 from agirails.config.agirailsmd import compute_config_hash, parse_agirails_md
 from agirails.config.networks import get_network
 from agirails.config.on_chain_state import (
+    ZERO_HASH,
     OnChainStateError,
     get_on_chain_config_state,
-    ZERO_HASH,
 )
-
 
 _IPFS_GATEWAYS = (
     "https://ipfs.io/ipfs/",

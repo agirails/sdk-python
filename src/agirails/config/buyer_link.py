@@ -38,7 +38,6 @@ from typing import Any, Dict, Optional
 
 from agirails.config.pending_publish import SecurityError, get_actp_dir
 
-
 # ============================================================================
 # Types
 # ============================================================================
@@ -74,7 +73,7 @@ class BuyerLink:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BuyerLink":
+    def from_dict(cls, data: Dict[str, Any]) -> BuyerLink:
         """Deserialize from the on-disk JSON shape."""
         return cls(
             version=int(data.get("version", 1)),
@@ -198,7 +197,7 @@ def load_buyer_link(
     if not os.path.exists(file_path):
         return None
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             return BuyerLink.from_dict(json.load(f))
     except Exception:
         # Corrupt marker → treat as absent rather than crash client creation.

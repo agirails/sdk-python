@@ -10,12 +10,6 @@ Provides:
 
 from __future__ import annotations
 
-from agirails.wallet.keystore import (
-    ResolvePrivateKeyOptions,
-    get_cached_address,
-    resolve_private_key,
-    _clear_cache,
-)
 from agirails.wallet.auto_wallet_provider import (
     AutoWalletConfig,
     AutoWalletProvider,
@@ -30,6 +24,12 @@ from agirails.wallet.auto_wallet_provider import (
     WalletTier,
 )
 from agirails.wallet.eoa_wallet_provider import EOAWalletProvider
+from agirails.wallet.keystore import (
+    ResolvePrivateKeyOptions,
+    _clear_cache,
+    get_cached_address,
+    resolve_private_key,
+)
 
 __all__ = [
     # Keystore

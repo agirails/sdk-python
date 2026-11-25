@@ -243,6 +243,7 @@ ignore = [
     "SIM117", # combined with-statements: style
     "S110",   # best-effort cleanup paths swallow errors on purpose
     "S112",   # same as S110 inside loops
+    "PLC0414", # `import X as X` is the explicit re-export idiom (PEP 484)
 ]
 
 [tool.bandit]

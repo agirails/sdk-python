@@ -25,8 +25,8 @@ from typing import Any, Mapping, Optional
 
 from eth_utils import keccak as _keccak
 
-from agirails.utils.canonical_json import canonical_json_dumps
 from agirails.dispute.evidence_bundle import count_bundle_tokens, enforce_token_cap
+from agirails.utils.canonical_json import canonical_json_dumps
 
 EVIDENCE_ARTIFACT_V2_SCHEMA_VERSION: str = "2.0.0"
 

@@ -41,7 +41,7 @@ import inspect
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from eth_account import Account
 from eth_hash.auto import keccak
@@ -643,12 +643,12 @@ async def _push_receipt(
     on any failure (the Platform indexer cron is the backstop).
     """
     try:
+        from agirails.cli.commands.receipt import compute_display_fee
+        from agirails.config.networks import get_network
         from agirails.receipts import (
             PushReceiptArgs,
             push_receipt_on_settled,
         )
-        from agirails.cli.commands.receipt import compute_display_fee
-        from agirails.config.networks import get_network
 
         net_name = "base-sepolia" if network == "testnet" else "base-mainnet"
         kernel_address = get_network(net_name).contracts.actp_kernel

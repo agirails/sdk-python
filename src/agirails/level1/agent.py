@@ -23,10 +23,10 @@ import json
 import secrets
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 from agirails.client import ACTPClient
 from agirails.errors import NoProviderFoundError
@@ -42,8 +42,8 @@ from agirails.level1.config import (
     ServiceFilter,
 )
 from agirails.level1.job import Job, JobContext, JobHandler, JobResult
+from agirails.level1.pricing import DEFAULT_PRICING_STRATEGY as DEFAULT_PRICING_STRATEGY
 from agirails.level1.pricing import (
-    DEFAULT_PRICING_STRATEGY,
     PricingStrategy,
     calculate_price,
 )

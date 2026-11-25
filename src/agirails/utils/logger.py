@@ -162,7 +162,7 @@ class Logger:
         """
         self._log("error", message, meta, exception)
 
-    def child(self, source_suffix: str) -> "Logger":
+    def child(self, source_suffix: str) -> Logger:
         """
         Create a child logger with extended source name.
 

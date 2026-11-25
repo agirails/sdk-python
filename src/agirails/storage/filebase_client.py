@@ -42,13 +42,12 @@ from agirails.storage.types import (
 )
 from agirails.utils.circuit_breaker import CircuitBreaker
 from agirails.utils.retry import RetryConfig, retry_async
+from agirails.utils.validation import ALLOWED_IPFS_GATEWAYS as ALLOWED_IPFS_GATEWAYS
 from agirails.utils.validation import (
-    ALLOWED_IPFS_GATEWAYS,
     is_gateway_allowed,
     sanitize_for_logging,
     validate_cid,
 )
-
 
 # AWS region used by Filebase S3-compatible endpoint (mirrors TS DEFAULT_REGION).
 DEFAULT_REGION = "us-east-1"

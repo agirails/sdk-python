@@ -27,7 +27,6 @@ from urllib.parse import urlparse
 from agirails.types.message import DeliveryProof, create_input_hash, create_output_hash
 from agirails.utils.canonical_json import canonical_json_dumps as canonical_json_serialize
 
-
 # ============================================================================
 # URL validation (SSRF prevention) — mirrors sdk-js ProofGenerator.ts:8-53
 # ============================================================================
@@ -490,7 +489,7 @@ class ProofGenerator:
             "metadata": out_metadata,
         }
 
-    def encode_proof(self, proof: Union[Dict[str, Any], "DeliveryProof"]) -> bytes:
+    def encode_proof(self, proof: Union[Dict[str, Any], DeliveryProof]) -> bytes:
         """
         ABI-encode a delivery proof for on-chain submission.
 
@@ -681,7 +680,7 @@ class ProofGenerator:
 
     @staticmethod
     def _extract_proof_fields(
-        proof: Union[Dict[str, Any], "DeliveryProof"],
+        proof: Union[Dict[str, Any], DeliveryProof],
     ) -> Tuple[str, str, int]:
         """Pull (txId, contentHash, timestamp) from a dict or legacy dataclass."""
         if isinstance(proof, dict):

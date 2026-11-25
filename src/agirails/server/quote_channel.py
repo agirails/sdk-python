@@ -39,7 +39,6 @@ from agirails.builders.counter_offer import (
 from agirails.builders.quote import QuoteMessage
 from agirails.errors import SignatureVerificationError
 
-
 # ============================================================================
 # Constants
 # ============================================================================

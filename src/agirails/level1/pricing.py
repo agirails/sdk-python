@@ -165,7 +165,7 @@ DEFAULT_PRICING_STRATEGY = PricingStrategy(
 )
 
 
-def estimate_units(job: "Job", unit: str) -> int:
+def estimate_units(job: Job, unit: str) -> int:
     """Estimate number of units in a job's input.
 
     Mirrors TS ``estimateUnits`` (PriceCalculator.ts:140-198). Supports

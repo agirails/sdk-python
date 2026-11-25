@@ -16,7 +16,6 @@ SECURITY FIX (MEDIUM-6): Uses integer arithmetic for USDC to prevent precision l
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
@@ -24,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from agirails.runtime.types import State, STATE_TRANSITIONS, TERMINAL_STATES
+from agirails.runtime.types import STATE_TRANSITIONS, TERMINAL_STATES, State
 
 
 class USDC:

@@ -29,7 +29,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Generic, List, Optional, Tuple, TypeVar, Union
 
-
 # ============================================================================
 # L-2: Security Event Logging
 # ============================================================================
@@ -120,7 +119,7 @@ class SecurityLogger:
         ... )
     """
 
-    _instance: Optional["SecurityLogger"] = None
+    _instance: Optional[SecurityLogger] = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
@@ -138,7 +137,7 @@ class SecurityLogger:
         }
 
     @classmethod
-    def get_instance(cls) -> "SecurityLogger":
+    def get_instance(cls) -> SecurityLogger:
         """
         Get singleton instance of SecurityLogger.
 
@@ -837,7 +836,7 @@ class SecureAccountWrapper:
     """
 
     # Track all instances for cleanup
-    _instances: weakref.WeakSet["SecureAccountWrapper"] = weakref.WeakSet()
+    _instances: weakref.WeakSet[SecureAccountWrapper] = weakref.WeakSet()
 
     def __init__(
         self,
@@ -1067,7 +1066,7 @@ class TokenBucketRateLimiter:
                 # Wait for tokens to accumulate
                 await asyncio.sleep(wait_time)
 
-    async def __aenter__(self) -> "TokenBucketRateLimiter":
+    async def __aenter__(self) -> TokenBucketRateLimiter:
         """Async context manager entry."""
         await self.acquire()
         return self

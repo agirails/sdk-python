@@ -37,7 +37,7 @@ from eth_abi import decode as decode_abi
 from eth_account.signers.local import LocalAccount
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
-from web3.types import TxReceipt, Wei
+from web3.types import TxReceipt
 
 from agirails.config.networks import NetworkConfig
 from agirails.errors import (
@@ -46,11 +46,14 @@ from agirails.errors import (
     TransactionNotFoundError,
     ValidationError,
 )
-from agirails.protocol.kernel_creation import kernel_creation_arguments, kernel_creation_abi, is_legacy_creation_kernel
+from agirails.protocol.kernel_creation import (
+    is_legacy_creation_kernel,
+    kernel_creation_abi,
+    kernel_creation_arguments,
+)
 from agirails.protocol.kernel_retries import KernelRetries
 from agirails.protocol.nonce import NonceManager
 from agirails.types.transaction import Transaction, TransactionReceipt, TransactionState
-
 
 # ============================================================================
 # Constants
@@ -283,7 +286,7 @@ class TransactionView:
         )
 
     @classmethod
-    def from_tuple(cls, data: Tuple) -> "TransactionView":
+    def from_tuple(cls, data: Tuple) -> TransactionView:
         """Create from contract return tuple.
 
         Reads the V3 21-field prefix; the current ABI appends two hash words:
@@ -328,7 +331,7 @@ class TransactionView:
         )
 
     @classmethod
-    def from_legacy_tuple(cls, data: Tuple) -> "TransactionView":
+    def from_legacy_tuple(cls, data: Tuple) -> TransactionView:
         """Create from the legacy 16-field contract return tuple.
 
         Used as the BAD_DATA fallback for pre-V3 deployments (Base Mainnet
@@ -432,7 +435,7 @@ class ACTPKernel(KernelRetries):
         config: NetworkConfig,
         *,
         nonce_manager: Optional[NonceManager] = None,
-    ) -> "ACTPKernel":
+    ) -> ACTPKernel:
         """
         Create ACTPKernel from network configuration.
 
@@ -1193,8 +1196,7 @@ class ACTPKernel(KernelRetries):
                 if len(raw) not in (16 * 32, 21 * 32, 23 * 32):
                     raise ValueError(f"Unsupported getTransaction return size: {len(raw)} bytes")
                 legacy_types = [c["type"] for c in _LEGACY_GET_TRANSACTION_ABI[0]["outputs"][0]["components"]]
-                v3_types = ("bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,address,"
-                            "bytes32,bytes32,uint256,bytes32,uint16,uint16,uint16,uint256,uint256,address,uint256").split(",")
+                v3_types = ["bytes32", "address", "address", "uint8", "uint256", "uint256", "uint256", "uint256", "bytes32", "address", "bytes32", "bytes32", "uint256", "bytes32", "uint16", "uint16", "uint16", "uint256", "uint256", "address", "uint256"]
                 types = legacy_types if words == 16 else v3_types + (["bytes32", "bytes32"] if words == 23 else [])
                 result = decode_abi(["(" + ",".join(types) + ")"], raw)[0]
             except Exception as legacy_error:

@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Union
 
 # Security Note (M-3): Default timeout for transaction receipts (5 minutes)
 DEFAULT_TX_WAIT_TIMEOUT = 300.0
@@ -42,10 +42,9 @@ except ImportError:
 from agirails.config.networks import NetworkConfig, get_network
 from agirails.types.transaction import TransactionReceipt
 from agirails.utils.used_attestation_tracker import (
-    IUsedAttestationTracker,
     InMemoryUsedAttestationTracker,
+    IUsedAttestationTracker,
 )
-
 
 # EAS contract ABI (minimal for attestations)
 EAS_ABI = [
@@ -419,7 +418,7 @@ class EASHelper:
         network: Union[str, NetworkConfig] = "base-sepolia",
         rpc_url: Optional[str] = None,
         attestation_tracker: Optional[IUsedAttestationTracker] = None,
-    ) -> "EASHelper":
+    ) -> EASHelper:
         """
         Create EASHelper with connection to blockchain.
 

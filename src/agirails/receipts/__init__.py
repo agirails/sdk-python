@@ -1,16 +1,5 @@
 """AGIRAILS receipts package — Web Receipts upload helper."""
 
-from agirails.receipts.web_receipt import (
-    DEFAULT_BASE_URL,
-    EIP712_DOMAIN_NAME,
-    EIP712_DOMAIN_VERSION,
-    ReceiptUploadFailure,
-    ReceiptUploadOptions,
-    ReceiptUploadPayload,
-    ReceiptUploadResult,
-    ReceiptUploadSuccess,
-    upload_receipt,
-)
 from agirails.receipts.push import (
     RECEIPT_WRITE_DOMAIN_V2,
     RECEIPT_WRITE_TYPES_V2,
@@ -26,6 +15,17 @@ from agirails.receipts.push import (
     format_settled_line,
     push_receipt_on_settled,
     render_receipt_v3,
+)
+from agirails.receipts.web_receipt import (
+    DEFAULT_BASE_URL,
+    EIP712_DOMAIN_NAME,
+    EIP712_DOMAIN_VERSION,
+    ReceiptUploadFailure,
+    ReceiptUploadOptions,
+    ReceiptUploadPayload,
+    ReceiptUploadResult,
+    ReceiptUploadSuccess,
+    upload_receipt,
 )
 
 __all__ = [

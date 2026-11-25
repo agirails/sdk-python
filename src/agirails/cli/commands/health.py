@@ -8,7 +8,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from pathlib import Path
@@ -20,11 +19,11 @@ from agirails.cli.main import get_global_options
 from agirails.cli.utils.output import (
     OutputFormat,
     print_error,
-    print_info,
     print_json,
     print_success,
-    print_warning,
 )
+from agirails.cli.utils.output import print_info as print_info
+from agirails.cli.utils.output import print_warning as print_warning
 
 CheckStatus = Literal["pass", "warn", "fail", "info"]
 
@@ -205,7 +204,11 @@ def health(
                 if not agent_address:
                     try:
                         import asyncio
-                        from agirails.wallet.keystore import resolve_private_key, ResolvePrivateKeyOptions
+
+                        from agirails.wallet.keystore import (
+                            ResolvePrivateKeyOptions,
+                            resolve_private_key,
+                        )
 
                         result = asyncio.run(
                             resolve_private_key(options=ResolvePrivateKeyOptions(network=network))

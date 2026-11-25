@@ -22,7 +22,6 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
-
 # ============================================================================
 # Types
 # ============================================================================
@@ -105,7 +104,7 @@ class BuyerPolicy:
     #: (PolicyEngine.ts:66-72). Accepts a :class:`TargetUnitPrice` or any
     #: object exposing an ``amount`` attribute (DecisionEngine only reads
     #: ``.amount``).
-    target_unit_price: Optional["TargetUnitPrice"] = None
+    target_unit_price: Optional[TargetUnitPrice] = None
 
 
 @dataclass
@@ -119,7 +118,7 @@ class QuoteOffer:
     reputation_score: Optional[float] = None
     commerce_session_id: Optional[str] = None
     final_offer: bool = False
-    """Signal that this is a final offer — no further negotiation expected."""  
+    """Signal that this is a final offer — no further negotiation expected."""
 
 
 @dataclass
@@ -363,7 +362,7 @@ class PolicyEngine:
         try:
             if not os.path.exists(path):
                 return BudgetLedgerFile(version=1, date=today, entries=[])
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 raw = json.load(f)
             if raw.get("version") != 1 or raw.get("date") != today:
                 return BudgetLedgerFile(version=1, date=today, entries=[])

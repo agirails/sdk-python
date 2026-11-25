@@ -28,7 +28,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from typing import Dict, Optional, Set
 
 
 @dataclass

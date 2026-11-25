@@ -23,7 +23,6 @@ Example:
 from __future__ import annotations
 
 import json
-import os
 import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -238,11 +237,11 @@ class FileBasedUsedAttestationTracker(IUsedAttestationTracker):
             )
 
         try:
-            with open(self._file_path, "r") as f:
+            with open(self._file_path) as f:
                 data = json.load(f)
             for uid, tx_id in data.items():
                 self._in_memory.record_usage_sync(uid, tx_id)
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             # Fail closed: losing replay-protection state is a security issue
             raise ValueError(
                 f"Failed to parse used-attestations.json (replay protection would be disabled). "

@@ -318,7 +318,6 @@ def hash_struct(
     type_hash = compute_type_hash(type_name, types)
     encoded = _encode_data(type_name, data, types)
 
-    from eth_abi import encode
     from eth_hash.auto import keccak
 
     # Combine type hash with encoded data

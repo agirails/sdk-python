@@ -22,6 +22,8 @@ from agirails.cli.utils.output import (
     print_error,
     print_info,
     print_warning,
+)
+from agirails.cli.utils.output import (
     print_json as output_json,
 )
 

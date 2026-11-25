@@ -55,7 +55,6 @@ from agirails.protocol.event_queries import EventLogQueries
 from agirails.protocol.kernel_creation import is_legacy_creation_kernel, kernel_creation_abi
 from agirails.types.transaction import TransactionState
 
-
 # ============================================================================
 # Event Types
 # ============================================================================
@@ -368,7 +367,7 @@ class EventMonitor(EventLogQueries):
         cls,
         w3: AsyncWeb3,
         config: NetworkConfig,
-    ) -> "EventMonitor":
+    ) -> EventMonitor:
         """
         Create EventMonitor from network configuration.
 

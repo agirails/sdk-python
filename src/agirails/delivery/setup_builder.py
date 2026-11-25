@@ -18,8 +18,10 @@ Cite: sdk-js/src/delivery/setupBuilder.ts.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, List, Optional, Union
+from dataclasses import dataclass
+from typing import Any, List, Optional
+
+from eth_hash.auto import keccak
 
 from agirails.delivery.eip712 import (
     DeliveryEip712Error,
@@ -35,8 +37,6 @@ from agirails.delivery.types import (
 )
 from agirails.delivery.validate import validate_setup_wire
 from agirails.utils.canonical_json import canonical_json_dumps
-
-from eth_hash.auto import keccak
 
 # ============================================================================
 # Constants (TS setupBuilder.ts:121 / :132 / :141)
