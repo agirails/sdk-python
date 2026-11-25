@@ -47,7 +47,7 @@ from agirails.errors import (
     ValidationError,
 )
 from agirails.protocol.kernel_creation import kernel_creation_arguments, kernel_creation_abi, is_legacy_creation_kernel
-from agirails.protocol.base import ContractBase
+from agirails.protocol.kernel_retries import KernelRetries
 from agirails.protocol.nonce import NonceManager
 from agirails.types.transaction import Transaction, TransactionReceipt, TransactionState
 
@@ -387,7 +387,7 @@ class EconomicParams:
 # ============================================================================
 
 
-class ACTPKernel(ContractBase):
+class ACTPKernel(KernelRetries):
     """
     ACTPKernel contract wrapper for ACTP protocol interactions.
 
@@ -1129,19 +1129,6 @@ class ACTPKernel(ContractBase):
         return int(await self.contract.functions.escrowPrincipal(
             self._to_bytes32(transaction_id)
         ).call())
-
-    async def retry_platform_fee(
-        self, transaction_id: str, gas_limit: Optional[int] = None
-    ) -> TransactionReceipt:
-        """Retry fees permissionlessly; a receipt does not prove funds moved.
-
-        Zero debt is a no-op. A blocked fee recipient can leave debt pending.
-        Unknown transactions and revoked vaults propagate errors.
-        """
-        fn = self.contract.functions.retryPlatformFee(self._to_bytes32(transaction_id))
-        effective_gas = gas_limit if gas_limit is not None else await self._estimate_gas_strict(fn, 300_000)
-        tx = await fn.build_transaction(await self._build_tx_params(gas_limit=effective_gas))
-        return self._to_receipt(await self._sign_and_send(tx))
 
     async def get_transaction(self, transaction_id: str) -> TransactionView:
         """

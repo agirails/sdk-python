@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ACTPKernel.retry_reputation(transaction_id)` sends `retryReputation(bytes32)`,
+  the one function the `b08c0c6` kernel adds. It re-runs the reputation write
+  for a SETTLED transaction, or for a disputed CANCELLED one with no committed
+  result, and a receipt does not prove anything was recorded. The gas limit
+  never drops below 240k (the TS SDK minimum), because the kernel gives the
+  registry call a fixed 150k inside try/catch. The vendored kernel ABI was
+  re-vendored from the `b08c0c6` forge build; `retryReputation` is the only
+  new entry. Both retries now live in `agirails.protocol.kernel_retries`, and
+  `ACTPKernel` inherits them.
+
 ### Changed
 
 - Base Sepolia now points at the `b08c0c6` kernel stack deployed 2026-11-23:
