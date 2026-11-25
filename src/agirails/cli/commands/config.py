@@ -52,10 +52,12 @@ def show() -> None:
     config_path = get_config_path(opts.directory)
 
     if opts.output_format == OutputFormat.JSON:
-        print_json({
-            "path": str(config_path),
-            "config": config,
-        })
+        print_json(
+            {
+                "path": str(config_path),
+                "config": config,
+            }
+        )
     elif opts.output_format == OutputFormat.QUIET:
         for key, value in config.items():
             typer.echo(f"{key}={value}")
@@ -87,7 +89,11 @@ def set_config(
     known_keys = {"mode", "address", "rpc_url"}
     if key == "private_key":
         if opts.output_format == OutputFormat.JSON:
-            print_json({"error": "private_key cannot be stored in config (security risk). Use ACTP_PRIVATE_KEY environment variable instead."})
+            print_json(
+                {
+                    "error": "private_key cannot be stored in config (security risk). Use ACTP_PRIVATE_KEY environment variable instead."
+                }
+            )
         else:
             print_error("Security Risk", "private_key cannot be stored in config file.")
             print_warning("Use ACTP_PRIVATE_KEY environment variable instead.")
@@ -125,19 +131,24 @@ def set_config(
     save_config(config, opts.directory)
 
     if opts.output_format == OutputFormat.JSON:
-        print_json({
-            "success": True,
-            "key": key,
-            "value": value,
-            "oldValue": old_value,
-        })
+        print_json(
+            {
+                "success": True,
+                "key": key,
+                "value": value,
+                "oldValue": old_value,
+            }
+        )
     elif opts.output_format == OutputFormat.QUIET:
         typer.echo(value)
     else:
-        print_success(f"Set {key}", {
-            "Value": value,
-            "Previous": old_value or "(not set)",
-        })
+        print_success(
+            f"Set {key}",
+            {
+                "Value": value,
+                "Previous": old_value or "(not set)",
+            },
+        )
 
 
 @config_app.command("get")

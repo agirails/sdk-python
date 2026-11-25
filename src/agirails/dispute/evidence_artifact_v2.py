@@ -58,7 +58,9 @@ def _is_mapping(x: Any) -> bool:
     return isinstance(x, Mapping)
 
 
-def _require_str(obj: Mapping[str, Any], key: str, path: str, pattern: Optional[re.Pattern] = None) -> str:
+def _require_str(
+    obj: Mapping[str, Any], key: str, path: str, pattern: Optional[re.Pattern] = None
+) -> str:
     v = obj.get(key)
     if not isinstance(v, str) or len(v) == 0:
         raise InvalidArtifactError(f"{path}{key}: must be a non-empty string")
@@ -106,12 +108,16 @@ def validate_evidence_artifact_v2(artifact: Any) -> dict[str, Any]:
     if not _is_mapping(artifact):
         raise InvalidArtifactError("<root> must be an object")
     assert_artifact_v2_version(artifact.get("schemaVersion"))
-    _no_extra_keys(artifact, {"schemaVersion", "disputeId", "transaction", "agreement", "delivery"}, "<root>")
+    _no_extra_keys(
+        artifact, {"schemaVersion", "disputeId", "transaction", "agreement", "delivery"}, "<root>"
+    )
 
     dispute_id = _require_str(artifact, "disputeId", "", _BYTES32_HEX)
 
     txn = _require_map(artifact, "transaction", "")
-    _no_extra_keys(txn, {"transactionId", "parties", "amount", "initiator", "timestamps"}, "transaction")
+    _no_extra_keys(
+        txn, {"transactionId", "parties", "amount", "initiator", "timestamps"}, "transaction"
+    )
     transaction_id = _require_str(txn, "transactionId", "transaction.", _BYTES32_HEX)
     amount = _require_str(txn, "amount", "transaction.", _DECIMAL)
     initiator = _require_str(txn, "initiator", "transaction.", _ADDRESS)
@@ -131,10 +137,14 @@ def validate_evidence_artifact_v2(artifact: Any) -> dict[str, Any]:
     agreement_cid = agreement.get("cid")
     if agreement_bytes is not None and not isinstance(agreement_bytes, str):
         raise InvalidArtifactError("agreement.bytes: must be a string")
-    if agreement_cid is not None and (not isinstance(agreement_cid, str) or len(agreement_cid) == 0):
+    if agreement_cid is not None and (
+        not isinstance(agreement_cid, str) or len(agreement_cid) == 0
+    ):
         raise InvalidArtifactError("agreement.cid: must be a non-empty string")
     if agreement_bytes is None and agreement_cid is None:
-        raise InvalidArtifactError("agreement: requires an inline `bytes` preimage or a `cid` to fetch it")
+        raise InvalidArtifactError(
+            "agreement: requires an inline `bytes` preimage or a `cid` to fetch it"
+        )
     quote_out: Optional[dict[str, Any]] = None
     if "quote" in agreement and agreement.get("quote") is not None:
         q = _require_map(agreement, "quote", "agreement.")
@@ -145,7 +155,9 @@ def validate_evidence_artifact_v2(artifact: Any) -> dict[str, Any]:
         }
 
     delivery = _require_map(artifact, "delivery", "")
-    _no_extra_keys(delivery, {"resultHash", "encrypted", "inline", "cid", "retrievalInstructions"}, "delivery")
+    _no_extra_keys(
+        delivery, {"resultHash", "encrypted", "inline", "cid", "retrievalInstructions"}, "delivery"
+    )
     result_hash = _require_str(delivery, "resultHash", "delivery.", _BYTES32_HEX)
     encrypted = delivery.get("encrypted")
     if encrypted is not None and not isinstance(encrypted, bool):
@@ -189,7 +201,11 @@ def validate_evidence_artifact_v2(artifact: Any) -> dict[str, Any]:
             "parties": {"requester": requester, "provider": provider},
             "amount": amount,
             "initiator": initiator,
-            "timestamps": {"createdAt": created_at, "deliveredAt": delivered_at, "disputedAt": disputed_at},
+            "timestamps": {
+                "createdAt": created_at,
+                "deliveredAt": delivered_at,
+                "disputedAt": disputed_at,
+            },
         },
         "agreement": agreement_out,
         "delivery": delivery_out,

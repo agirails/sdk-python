@@ -122,9 +122,15 @@ def render_receipt(data: ReceiptData, output_format: OutputFormat) -> str:
         f"\u2502  Network:  {data.network:<32}\u2502",
         f"\u2502  TX:       {format_tx_id(data.tx_id):<32}\u2502",
         "\u251c" + "\u2500" * 44 + "\u2524",
-        f"\u2502  Total:    {data.timing.total_ms}ms" + " " * max(0, 31 - len(f"{data.timing.total_ms}ms")) + "\u2502",
-        f"\u2502  Escrow:   {data.timing.escrow_lock_ms}ms" + " " * max(0, 31 - len(f"{data.timing.escrow_lock_ms}ms")) + "\u2502",
-        f"\u2502  Settle:   {data.timing.settlement_ms}ms" + " " * max(0, 31 - len(f"{data.timing.settlement_ms}ms")) + "\u2502",
+        f"\u2502  Total:    {data.timing.total_ms}ms"
+        + " " * max(0, 31 - len(f"{data.timing.total_ms}ms"))
+        + "\u2502",
+        f"\u2502  Escrow:   {data.timing.escrow_lock_ms}ms"
+        + " " * max(0, 31 - len(f"{data.timing.escrow_lock_ms}ms"))
+        + "\u2502",
+        f"\u2502  Settle:   {data.timing.settlement_ms}ms"
+        + " " * max(0, 31 - len(f"{data.timing.settlement_ms}ms"))
+        + "\u2502",
         "\u2514" + "\u2500" * 44 + "\u2518",
     ]
     return "\n".join(lines)

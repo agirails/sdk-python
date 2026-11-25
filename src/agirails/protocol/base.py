@@ -86,9 +86,7 @@ class ContractBase:
             nonce = await self._nonce_manager.get_nonce()
         else:
             # Legacy path: fetch nonce from RPC including unconfirmed transactions
-            nonce = await self.w3.eth.get_transaction_count(
-                self.account.address, "pending"
-            )
+            nonce = await self.w3.eth.get_transaction_count(self.account.address, "pending")
 
         # Get gas prices if not provided
         if max_fee_per_gas is None or max_priority_fee_per_gas is None:
@@ -131,9 +129,7 @@ class ContractBase:
 
         signed_tx = self.w3.eth.account.sign_transaction(tx, self.account.key)
         try:
-            tx_hash = await self.w3.eth.send_raw_transaction(
-                signed_tx.raw_transaction
-            )
+            tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
         except Exception:
             # Broadcast failed — release nonce so it can be reused
             if self._nonce_manager is not None and nonce is not None:
@@ -169,9 +165,7 @@ class ContractBase:
 
         return receipt
 
-    async def _extract_revert_reason(
-        self, tx: Dict[str, Any], receipt: TxReceipt
-    ) -> str:
+    async def _extract_revert_reason(self, tx: Dict[str, Any], receipt: TxReceipt) -> str:
         """Replay a reverted tx via eth_call to extract the revert reason string.
 
         Returns the decoded reason or empty string if extraction fails.

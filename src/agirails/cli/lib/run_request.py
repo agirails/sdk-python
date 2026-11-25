@@ -105,9 +105,7 @@ class QuoteTimeoutError(RuntimeError):
 
 
 class DeliveryTimeoutError(RuntimeError):
-    def __init__(
-        self, tx_id: str, timeout_ms: int, last_state: str
-    ) -> None:
+    def __init__(self, tx_id: str, timeout_ms: int, last_state: str) -> None:
         super().__init__(
             f"No delivery within {timeout_ms}ms (last state: {last_state}). "
             f"TX {tx_id} may still be in flight; check 'actp tx status "
@@ -171,9 +169,7 @@ async def run_request(
             options=ResolvePrivateKeyOptions(network=network),
         )
     requester_address = (
-        Account.from_key(private_key).address
-        if private_key
-        else _deterministic_mock_address()
+        Account.from_key(private_key).address if private_key else _deterministic_mock_address()
     )
 
     # 3. Resolve RPC URL.
@@ -288,21 +284,20 @@ async def run_request(
         raise QuoteTimeoutError(tx_id, quote_timeout_ms)
     if last_state in _TERMINAL_FAILURE:
         await _close_subscription(envelope_subscription, tx_id)
-        raise RuntimeError(
-            f"Transaction {last_state.lower()} before delivery"
-        )
+        raise RuntimeError(f"Transaction {last_state.lower()} before delivery")
 
     # 9. Delivery phase.
     reached = await _wait_for_target_state(
-        client, tx_id, {"DELIVERED", "SETTLED"},
-        delivery_timeout_ms / 1000.0, _track,
+        client,
+        tx_id,
+        {"DELIVERED", "SETTLED"},
+        delivery_timeout_ms / 1000.0,
+        _track,
     )
     if not reached:
         await _close_subscription(envelope_subscription, tx_id)
         if last_state in _TERMINAL_FAILURE:
-            raise RuntimeError(
-                f"Transaction {last_state.lower()} before delivery"
-            )
+            raise RuntimeError(f"Transaction {last_state.lower()} before delivery")
         raise DeliveryTimeoutError(tx_id, delivery_timeout_ms, last_state)
 
     # 10. Decode delivery payload.
@@ -315,18 +310,11 @@ async def run_request(
     payload: Optional[Any] = None
 
     if delivery_enabled:
-        wait_ms = (
-            envelope_wait_ms
-            if envelope_wait_ms is not None
-            else _DEFAULT_ENVELOPE_WAIT_MS
-        )
+        wait_ms = envelope_wait_ms if envelope_wait_ms is not None else _DEFAULT_ENVELOPE_WAIT_MS
         # Bounded grace period after DELIVERED to let the channel deliver the
         # envelope. NEVER blocks settlement.
         grace_start = time.monotonic()
-        while (
-            not envelope_state.resolved
-            and (time.monotonic() - grace_start) * 1000.0 < wait_ms
-        ):
+        while not envelope_state.resolved and (time.monotonic() - grace_start) * 1000.0 < wait_ms:
             getter = getattr(delivery_channel, "get_envelopes", None)
             if getter is not None:
                 try:
@@ -353,9 +341,7 @@ async def run_request(
             # Grace period elapsed with no envelope and no prior error.
             delivery_error = {
                 "code": "envelope_missing",
-                "message": (
-                    f"No envelope received within {wait_ms}ms grace period"
-                ),
+                "message": (f"No envelope received within {wait_ms}ms grace period"),
                 "details": {"txId": tx_id, "waitedMs": wait_ms},
             }
 
@@ -377,8 +363,7 @@ async def run_request(
             _emit(on_transition, "SETTLED", tx_id, started_at)
         except Exception as err:
             _logger.warning(
-                "Requester settle failed; settlement will fall back to "
-                "dispute-window auto-settle",
+                "Requester settle failed; settlement will fall back to dispute-window auto-settle",
                 extra={"tx_id": tx_id, "error": str(err)},
             )
 
@@ -562,9 +547,7 @@ async def _setup_delivery(
         envelope_state.wire = env
 
     try:
-        subscription = await delivery_channel.subscribe_envelopes(
-            tx_id, _on_envelope
-        )
+        subscription = await delivery_channel.subscribe_envelopes(tx_id, _on_envelope)
     except Exception as err:
         _logger.warning(
             "Delivery envelope subscription failed; proceeding",
@@ -588,15 +571,10 @@ def _decode_envelope(
     try:
         signed = wire.get("signed") if isinstance(wire, dict) else None
         wire_scheme = signed.get("scheme") if isinstance(signed, dict) else None
-        if (
-            wire_scheme == "x25519-aes256gcm-v1"
-            and buyer_ephemeral_priv_key is not None
-        ):
+        if wire_scheme == "x25519-aes256gcm-v1" and buyer_ephemeral_priv_key is not None:
             from agirails.delivery import DeliveryEnvelopeBuilder
 
-            payload = DeliveryEnvelopeBuilder.decrypt_payload(
-                wire, buyer_ephemeral_priv_key
-            )
+            payload = DeliveryEnvelopeBuilder.decrypt_payload(wire, buyer_ephemeral_priv_key)
             return payload, None
 
         # public-v1: body is hex-encoded UTF-8 JSON OR plaintext JSON
@@ -736,9 +714,7 @@ def _resolve_deadline(deadline: Any) -> Any:
     return deadline
 
 
-def _emit(
-    cb: Optional[TransitionCallback], state: str, tx_id: str, started_at: float
-) -> None:
+def _emit(cb: Optional[TransitionCallback], state: str, tx_id: str, started_at: float) -> None:
     if cb is not None:
         cb(state, tx_id, time.monotonic() - started_at)
 

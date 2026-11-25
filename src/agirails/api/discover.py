@@ -252,7 +252,9 @@ async def discover_agents(params: Optional[DiscoverParams] = None) -> DiscoverRe
 
     if _HAS_AIOHTTP:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers={"Accept": "application/json"}, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(
+                url, headers={"Accept": "application/json"}, timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"discover API failed: {resp.status} {resp.reason}")
                 data = await resp.json()

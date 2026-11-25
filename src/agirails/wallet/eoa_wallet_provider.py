@@ -88,9 +88,7 @@ class EOAWalletProvider:
             success=receipt["status"] == 1,
         )
 
-    async def send_batch_transaction(
-        self, txs: List[TransactionRequest]
-    ) -> TransactionReceipt:
+    async def send_batch_transaction(self, txs: List[TransactionRequest]) -> TransactionReceipt:
         """Send multiple transactions sequentially (no atomic batching).
 
         Fails fast on first failure.

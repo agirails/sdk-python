@@ -28,8 +28,7 @@ from agirails.cli.utils.validation import validate_address
 
 def balance(
     address: Optional[str] = typer.Argument(
-        None,
-        help="Address to check (defaults to configured address)"
+        None, help="Address to check (defaults to configured address)"
     ),
 ) -> None:
     """Check USDC balance for an address."""
@@ -67,19 +66,24 @@ def balance(
             balance_wei = await client.runtime.get_balance(check_address)
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "address": check_address,
-                    "balance": balance_wei,
-                    "formatted": format_usdc(balance_wei),
-                })
+                print_json(
+                    {
+                        "address": check_address,
+                        "balance": balance_wei,
+                        "formatted": format_usdc(balance_wei),
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(balance_wei)
             else:
-                print_success("Balance", {
-                    "Address": format_address(check_address),
-                    "Balance": format_usdc(balance_wei),
-                    "Raw (wei)": balance_wei,
-                })
+                print_success(
+                    "Balance",
+                    {
+                        "Address": format_address(check_address),
+                        "Balance": format_usdc(balance_wei),
+                        "Raw (wei)": balance_wei,
+                    },
+                )
 
         except typer.Exit:
             raise

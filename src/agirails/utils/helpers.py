@@ -155,13 +155,13 @@ class USDC:
         # Calculate divisor and max decimal using integer arithmetic
         divisor_exponent = 6 - decimals
         if divisor_exponent >= 0:
-            divisor = 10 ** divisor_exponent
+            divisor = 10**divisor_exponent
             # Round using integer arithmetic (add half divisor before division)
             rounded_amount = (amount + divisor // 2) // divisor
         else:
             rounded_amount = amount * (10 ** (-divisor_exponent))
 
-        max_decimal = 10 ** decimals
+        max_decimal = 10**decimals
         whole_part = rounded_amount // max_decimal
         decimal_part = rounded_amount % max_decimal
 
@@ -234,7 +234,9 @@ class Deadline:
             raise ValueError(f"hours must be positive, got {hours}")
         max_hours = 24 * Deadline.MAX_DEADLINE_DAYS
         if hours > max_hours:
-            raise ValueError(f"hours exceeds maximum ({max_hours}h = {Deadline.MAX_DEADLINE_DAYS} days)")
+            raise ValueError(
+                f"hours exceeds maximum ({max_hours}h = {Deadline.MAX_DEADLINE_DAYS} days)"
+            )
         return int(time.time()) + int(hours * 3600)
 
     @staticmethod
@@ -277,6 +279,7 @@ class Deadline:
         if isinstance(date, str):
             # Parse ISO format string
             from dateutil import parser
+
             date = parser.isoparse(date)
         return int(date.timestamp())
 
@@ -392,7 +395,7 @@ class Address:
         """
         if len(address) <= 2 + chars * 2:
             return address
-        return f"{address[:2 + chars]}...{address[-chars:]}"
+        return f"{address[: 2 + chars]}...{address[-chars:]}"
 
     @staticmethod
     def is_valid(address: str) -> bool:
@@ -515,7 +518,7 @@ class Bytes32:
         """
         if len(value) <= 2 + chars * 2:
             return value
-        return f"{value[:2 + chars]}...{value[-chars:]}"
+        return f"{value[: 2 + chars]}...{value[-chars:]}"
 
 
 class StateHelper:

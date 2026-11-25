@@ -227,16 +227,13 @@ async def resolve_private_key(
         try:
             decoded = base64.b64decode(raw_b64).decode("utf-8")
         except Exception:
-            raise ValueError(
-                "ACTP_KEYSTORE_BASE64 is not valid base64.\nRun: actp deploy:env"
-            )
+            raise ValueError("ACTP_KEYSTORE_BASE64 is not valid base64.\nRun: actp deploy:env")
 
         try:
             json.loads(decoded)
         except json.JSONDecodeError:
             raise ValueError(
-                "ACTP_KEYSTORE_BASE64 is not valid encrypted keystore JSON.\n"
-                "Run: actp deploy:env"
+                "ACTP_KEYSTORE_BASE64 is not valid encrypted keystore JSON.\nRun: actp deploy:env"
             )
 
         password = os.environ.get("ACTP_KEY_PASSWORD")

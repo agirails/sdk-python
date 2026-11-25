@@ -237,9 +237,7 @@ class BondEscalationClient:
         escrowAmount]``. PARITY: TS ``decodeDisputeState``.
         """
         tx_id_raw = raw[0]
-        tx_id = (
-            "0x" + tx_id_raw.hex() if isinstance(tx_id_raw, (bytes, bytearray)) else tx_id_raw
-        )
+        tx_id = "0x" + tx_id_raw.hex() if isinstance(tx_id_raw, (bytes, bytearray)) else tx_id_raw
         current_ruling = int(raw[1])
         split_bps = int(raw[2])
         tier = int(raw[8])
@@ -269,9 +267,12 @@ class BondEscalationClient:
         receipt = await self._send("openDispute", [_to_bytes32(tx_id)])
         from eth_abi import encode as _abi_encode
 
-        dispute_id = "0x" + _keccak(
-            _abi_encode(["string", "bytes32"], ["ACTP_DISPUTE_V1", _to_bytes32(tx_id)])
-        ).hex()
+        dispute_id = (
+            "0x"
+            + _keccak(
+                _abi_encode(["string", "bytes32"], ["ACTP_DISPUTE_V1", _to_bytes32(tx_id)])
+            ).hex()
+        )
         return {"dispute_id": dispute_id, "eth_tx_hash": receipt}
 
     async def submit_ai_ruling(
@@ -315,9 +316,7 @@ class BondEscalationClient:
         # refs under signatures that never covered them, and the on-chain quorum
         # check would then reject the tx). Raise fail-closed on any mismatch.
         expected_evidence_ref = compute_evidence_ref_hash(ruling.bundle_hash, evidence_cid)
-        expected_reasoning_ref = compute_reasoning_ref_hash(
-            ruling.reasoning_hash, reasoning_cid
-        )
+        expected_reasoning_ref = compute_reasoning_ref_hash(ruling.reasoning_hash, reasoning_cid)
 
         def _norm(v: Optional[Union[str, bytes]]) -> Optional[str]:
             if v is None:
@@ -427,9 +426,7 @@ class BondEscalationClient:
         ``mediatorRetryPending[disputeId]`` to completion. AIP-14 §8.2. Not
         pausable. PARITY: TS ``retryMediatorResolution``.
         """
-        receipt = await self._send(
-            "retryMediatorResolution", [_to_bytes32(dispute_id)]
-        )
+        receipt = await self._send("retryMediatorResolution", [_to_bytes32(dispute_id)])
         return {"eth_tx_hash": receipt}
 
     async def claim_escalation_refund(self, dispute_id: str) -> Dict[str, str]:
@@ -449,9 +446,7 @@ class BondEscalationClient:
         Unsupported legacy contracts and read failures propagate.
         PARITY: TS getTier1Refundable.
         """
-        return bool(await self._contract.functions.tier1Refundable(
-            _to_bytes32(dispute_id)
-        ).call())
+        return bool(await self._contract.functions.tier1Refundable(_to_bytes32(dispute_id)).call())
 
     async def sync_external_resolution(self, dispute_id: str) -> Dict[str, str]:
         """
@@ -523,12 +518,8 @@ class BondEscalationClient:
 
         # Production path: build, sign, broadcast via the injected account/w3.
         if self._account is not None and self._w3 is not None:
-            nonce = await self._w3.eth.get_transaction_count(
-                self._account.address, "pending"
-            )
-            tx = await fn.build_transaction(
-                {"from": self._account.address, "nonce": nonce}
-            )
+            nonce = await self._w3.eth.get_transaction_count(self._account.address, "pending")
+            tx = await fn.build_transaction({"from": self._account.address, "nonce": nonce})
             signed = self._w3.eth.account.sign_transaction(tx, self._account.key)
             tx_hash = await self._w3.eth.send_raw_transaction(signed.raw_transaction)
             await self._w3.eth.wait_for_transaction_receipt(tx_hash)

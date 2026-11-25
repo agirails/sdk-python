@@ -19,9 +19,7 @@ import sys
 from typing import Any, Dict, Optional
 
 # Default log format with structured fields
-DEFAULT_FORMAT = (
-    "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-)
+DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 
 # JSON-like structured format for production
 STRUCTURED_FORMAT = (
@@ -45,16 +43,34 @@ class StructuredFormatter(logging.Formatter):
 
         # Find extra fields (those not in standard LogRecord)
         standard_fields = {
-            'name', 'msg', 'args', 'created', 'filename', 'funcName',
-            'levelname', 'levelno', 'lineno', 'module', 'msecs',
-            'pathname', 'process', 'processName', 'relativeCreated',
-            'stack_info', 'exc_info', 'exc_text', 'thread', 'threadName',
-            'message', 'asctime',
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "exc_info",
+            "exc_text",
+            "thread",
+            "threadName",
+            "message",
+            "asctime",
         }
 
         extra = {
-            k: v for k, v in record.__dict__.items()
-            if k not in standard_fields and not k.startswith('_')
+            k: v
+            for k, v in record.__dict__.items()
+            if k not in standard_fields and not k.startswith("_")
         }
 
         if extra:

@@ -441,15 +441,11 @@ class EventMonitor(EventLogQueries):
                 to_block = event_filter.to_block
 
         # Get kernel events
-        kernel_events = await self._get_kernel_events(
-            event_filter, from_block, to_block
-        )
+        kernel_events = await self._get_kernel_events(event_filter, from_block, to_block)
         events.extend(kernel_events)
 
         # Get escrow events
-        escrow_events = await self._get_escrow_events(
-            event_filter, from_block, to_block
-        )
+        escrow_events = await self._get_escrow_events(event_filter, from_block, to_block)
         events.extend(escrow_events)
 
         # Sort by block number, then log index
@@ -1023,9 +1019,7 @@ class EventMonitor(EventLogQueries):
             raw_data=dict(args),
         )
 
-    def _parse_dispute_split_recorded(
-        self, log: LogReceipt
-    ) -> DisputeSplitRecordedEvent:
+    def _parse_dispute_split_recorded(self, log: LogReceipt) -> DisputeSplitRecordedEvent:
         """Parse DisputeSplitRecorded event log. PARITY: decode_dispute_split_recorded."""
         args = log.get("args", {})
         return DisputeSplitRecordedEvent(
@@ -1043,9 +1037,7 @@ class EventMonitor(EventLogQueries):
             raw_data=dict(args),
         )
 
-    def _parse_uma_dispute_escalated(
-        self, log: LogReceipt
-    ) -> UMADisputeEscalatedEvent:
+    def _parse_uma_dispute_escalated(self, log: LogReceipt) -> UMADisputeEscalatedEvent:
         """Parse UMADisputeEscalated event log (BondEscalation, AIP-14b §8.5)."""
         args = log.get("args", {})
         return UMADisputeEscalatedEvent(
@@ -1067,9 +1059,7 @@ class EventMonitor(EventLogQueries):
             return "0x" + value.hex()
         return value if value.startswith("0x") else "0x" + value
 
-    def _matches_filter(
-        self, event: ACTPEvent, event_filter: Optional[EventFilter]
-    ) -> bool:
+    def _matches_filter(self, event: ACTPEvent, event_filter: Optional[EventFilter]) -> bool:
         """Check if event matches the filter."""
         if event_filter is None:
             return True

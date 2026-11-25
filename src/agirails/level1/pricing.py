@@ -299,10 +299,7 @@ def calculate_price(
     else:
         # Budget below cost (would lose money). Use behavior.
         decision = strategy.below_cost
-        reason = (
-            f"Budget ${offered_price:.2f} below cost ${total_cost:.2f} "
-            f"(would lose money)"
-        )
+        reason = f"Budget ${offered_price:.2f} below cost ${total_cost:.2f} (would lose money)"
         if decision == "counter-offer":
             counter_offer = target_price
 

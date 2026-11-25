@@ -110,9 +110,7 @@ async def _resolve_sign_and_upsert(
     from agirails.api.agirails_app import UpsertAgentParams, upsert_agent
     from agirails.wallet.keystore import ResolvePrivateKeyOptions, resolve_private_key
 
-    priv_key = await resolve_private_key(
-        options=ResolvePrivateKeyOptions(network=network)
-    )
+    priv_key = await resolve_private_key(options=ResolvePrivateKeyOptions(network=network))
     if not priv_key:
         return False
 
@@ -155,9 +153,7 @@ async def _activate_on_testnet(
     from agirails.config.networks import get_network
     from agirails.wallet.keystore import ResolvePrivateKeyOptions, resolve_private_key
 
-    private_key = await resolve_private_key(
-        options=ResolvePrivateKeyOptions(network=network)
-    )
+    private_key = await resolve_private_key(options=ResolvePrivateKeyOptions(network=network))
     if not private_key:
         raise RuntimeError("No wallet found. Cannot activate on testnet.")
 
@@ -173,9 +169,7 @@ async def _activate_on_testnet(
         if aa.bundler_urls.get("coinbase") and aa.bundler_urls.get("pimlico")
         else None
     )
-    paymaster_primary = aa.paymaster_urls.get("coinbase") or aa.paymaster_urls.get(
-        "pimlico"
-    )
+    paymaster_primary = aa.paymaster_urls.get("coinbase") or aa.paymaster_urls.get("pimlico")
     paymaster_backup = (
         aa.paymaster_urls.get("pimlico")
         if aa.paymaster_urls.get("coinbase") and aa.paymaster_urls.get("pimlico")
@@ -256,8 +250,12 @@ async def _activate_on_testnet(
                         service_type_hash=sd.service_type_hash,
                         service_type=sd.service_type,
                         schema_uri=sd.schema_uri,
-                        min_price=int(sd.min_price) if isinstance(sd.min_price, str) else sd.min_price,
-                        max_price=int(sd.max_price) if isinstance(sd.max_price, str) else sd.max_price,
+                        min_price=int(sd.min_price)
+                        if isinstance(sd.min_price, str)
+                        else sd.min_price,
+                        max_price=int(sd.max_price)
+                        if isinstance(sd.max_price, str)
+                        else sd.max_price,
                         avg_completion_time=sd.avg_completion_time,
                         metadata_cid=sd.metadata_cid,
                     )
@@ -271,13 +269,14 @@ async def _activate_on_testnet(
 
     # Always mint 1000 test USDC
     mint_calls = build_testnet_mint_batch(
-        net.contracts.usdc, wallet_address, "1000000000"  # 1000 USDC (6 decimals)
+        net.contracts.usdc,
+        wallet_address,
+        "1000000000",  # 1000 USDC (6 decimals)
     )
 
     all_calls = activation_calls + mint_calls
     tx_requests = [
-        TransactionRequest(to=c.target, data=c.data, value=str(c.value))
-        for c in all_calls
+        TransactionRequest(to=c.target, data=c.data, value=str(c.value)) for c in all_calls
     ]
 
     logger.info("Submitting %d-call UserOp...", len(all_calls))
@@ -302,9 +301,7 @@ async def _activate_on_testnet(
 
 
 def publish(
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Compute hash only, skip upload"
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute hash only, skip upload"),
     network: str = typer.Option(
         "base-mainnet",
         "--network",
@@ -354,15 +351,13 @@ def publish(
 
             slug_result = asyncio.run(check_slug(slug))
             if not slug_result.get("available"):
-                suggestion = slug_result.get("suggestion") or slug_result.get(
-                    "suggestions", [None]
-                )[0]
+                suggestion = (
+                    slug_result.get("suggestion") or slug_result.get("suggestions", [None])[0]
+                )
                 if suggestion:
                     old_slug = slug
                     slug = suggestion
-                    print_warning(
-                        f'Slug "{old_slug}" was taken. Renamed to "{slug}".'
-                    )
+                    print_warning(f'Slug "{old_slug}" was taken. Renamed to "{slug}".')
                     # Update frontmatter and rewrite
                     frontmatter["slug"] = slug
                     content = serialize_agirails_md(frontmatter, parsed.body)
@@ -475,9 +470,7 @@ def publish(
                 testnet_result = None
 
         # ── Update AGIRAILS.md frontmatter ───────────────────────────────
-        updated_content = update_frontmatter_after_publish(
-            content, result.config_hash, result.cid
-        )
+        updated_content = update_frontmatter_after_publish(content, result.config_hash, result.cid)
 
         # Write-back wallet/agent_id/did after testnet activation
         if testnet_result and wallet_address:
@@ -511,17 +504,13 @@ def publish(
                     )
                 )
                 if synced and opts.output_format not in (OutputFormat.JSON, OutputFormat.QUIET):
-                    print_success(
-                        f"Profile live at: agirails.app/a/{slug}"
-                    )
+                    print_success(f"Profile live at: agirails.app/a/{slug}")
             except Exception as e:
                 # Non-blocking: agent is already on-chain
                 print_warning(f"agirails.app sync failed: {e}")
         elif slug and not effective_agent_id:
             if opts.output_format not in (OutputFormat.JSON, OutputFormat.QUIET):
-                print_info(
-                    "First publish — agirails.app sync will happen on re-publish."
-                )
+                print_info("First publish — agirails.app sync will happen on re-publish.")
 
     # Output
     if opts.output_format == OutputFormat.JSON:
@@ -560,18 +549,14 @@ def publish(
                 },
             )
             typer.echo("")
-            typer.echo(
-                "Mainnet: on-chain activation will happen on your first payment."
-            )
+            typer.echo("Mainnet: on-chain activation will happen on your first payment.")
 
             # Context-aware next steps
             has_endpoint = endpoint and endpoint != PENDING_ENDPOINT
             typer.echo("")
             typer.echo("Next steps:")
             if not has_endpoint:
-                typer.echo(
-                    '  1. Set your endpoint:    Add "endpoint: https://..." to AGIRAILS.md'
-                )
+                typer.echo('  1. Set your endpoint:    Add "endpoint: https://..." to AGIRAILS.md')
                 typer.echo("  2. Check endpoint:       actp health")
                 typer.echo("  3. Check your balance:   actp balance")
                 typer.echo("  4. Verify config match:  actp diff")
@@ -583,16 +568,12 @@ def publish(
             # Test payment suggestion
             if is_testnet and testnet_result and testnet_result.get("tx_hash") and slug:
                 typer.echo("")
-                typer.echo(
-                    f"  Try a test payment: actp pay agirails.app/a/{slug} 5"
-                )
+                typer.echo(f"  Try a test payment: actp pay agirails.app/a/{slug} 5")
 
             # Warn if placeholder endpoint
             if not has_endpoint:
                 typer.echo("")
-                print_warning(
-                    "No endpoint set — your agent can't receive jobs yet."
-                )
+                print_warning("No endpoint set — your agent can't receive jobs yet.")
                 typer.echo(
                     '  Add "endpoint: https://your-agent.com/webhook" to AGIRAILS.md, then: actp publish'
                 )

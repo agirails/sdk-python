@@ -62,7 +62,9 @@ _HEX = "0123456789abcdef"
 def bytes_to_hex(b: bytes) -> str:
     """Encode raw bytes to a lowercase 0x-prefixed hex string."""
     if not isinstance(b, (bytes, bytearray)):
-        raise DeliveryCryptoError("crypto_keygen_failed", f"bytes_to_hex expected bytes, got {type(b).__name__}")
+        raise DeliveryCryptoError(
+            "crypto_keygen_failed", f"bytes_to_hex expected bytes, got {type(b).__name__}"
+        )
     out = ["0x"]
     for byte in b:
         out.append(_HEX[(byte >> 4) & 0x0F])
@@ -70,19 +72,27 @@ def bytes_to_hex(b: bytes) -> str:
     return "".join(out)
 
 
-def bytes_from_hex(hex_str: str, *, expected_length: Optional[int] = None, field: str = "value") -> bytes:
+def bytes_from_hex(
+    hex_str: str, *, expected_length: Optional[int] = None, field: str = "value"
+) -> bytes:
     """Decode a 0x-prefixed even-length hex string to bytes."""
     if not isinstance(hex_str, str):
-        raise DeliveryCryptoError("crypto_keygen_failed", f"{field} must be a string, got {type(hex_str).__name__}")
+        raise DeliveryCryptoError(
+            "crypto_keygen_failed", f"{field} must be a string, got {type(hex_str).__name__}"
+        )
     if len(hex_str) < 2 or hex_str[0] != "0" or hex_str[1] not in ("x", "X"):
         raise DeliveryCryptoError("crypto_keygen_failed", f"{field} requires a 0x-prefixed string")
     body = hex_str[2:]
     if len(body) % 2 != 0:
-        raise DeliveryCryptoError("crypto_keygen_failed", f"{field} requires an even number of hex digits")
+        raise DeliveryCryptoError(
+            "crypto_keygen_failed", f"{field} requires an even number of hex digits"
+        )
     try:
         out = bytes.fromhex(body)
     except ValueError as exc:
-        raise DeliveryCryptoError("crypto_keygen_failed", f"{field} contains non-hex characters") from exc
+        raise DeliveryCryptoError(
+            "crypto_keygen_failed", f"{field} contains non-hex characters"
+        ) from exc
     if expected_length is not None and len(out) != expected_length:
         raise DeliveryCryptoError(
             "crypto_keygen_failed",
@@ -94,7 +104,9 @@ def bytes_from_hex(hex_str: str, *, expected_length: Optional[int] = None, field
 
 def _assert_byte_length(value: bytes, expected: int, code: str, field: str) -> None:
     if not isinstance(value, (bytes, bytearray)):
-        raise DeliveryCryptoError(code, f"{field} must be bytes, got {type(value).__name__}", {"field": field})
+        raise DeliveryCryptoError(
+            code, f"{field} must be bytes, got {type(value).__name__}", {"field": field}
+        )
     if len(value) != expected:
         raise DeliveryCryptoError(
             code,
@@ -131,16 +143,24 @@ def generate_ephemeral_key_pair() -> EphemeralKeyPair:
 
 def public_key_from_private(private_key: bytes) -> bytes:
     """Derive the 32-byte X25519 public key from a 32-byte private scalar."""
-    _assert_byte_length(private_key, X25519_PRIVATE_KEY_LENGTH, "crypto_keygen_failed", "privateKey")
+    _assert_byte_length(
+        private_key, X25519_PRIVATE_KEY_LENGTH, "crypto_keygen_failed", "privateKey"
+    )
     try:
-        return X25519PrivateKey.from_private_bytes(bytes(private_key)).public_key().public_bytes_raw()
+        return (
+            X25519PrivateKey.from_private_bytes(bytes(private_key)).public_key().public_bytes_raw()
+        )
     except Exception as err:  # noqa: BLE001
-        raise DeliveryCryptoError("crypto_keygen_failed", f"X25519 public-key derivation failed: {err}") from err
+        raise DeliveryCryptoError(
+            "crypto_keygen_failed", f"X25519 public-key derivation failed: {err}"
+        ) from err
 
 
 def derive_shared_secret(private_key: bytes, peer_pubkey: bytes) -> bytes:
     """X25519 ECDH. Rejects the all-zero shared secret (low-order peer)."""
-    _assert_byte_length(private_key, X25519_PRIVATE_KEY_LENGTH, "crypto_keygen_failed", "privateKey")
+    _assert_byte_length(
+        private_key, X25519_PRIVATE_KEY_LENGTH, "crypto_keygen_failed", "privateKey"
+    )
     _assert_byte_length(peer_pubkey, X25519_PUBLIC_KEY_LENGTH, "crypto_keygen_failed", "peerPubkey")
     try:
         shared = X25519PrivateKey.from_private_bytes(bytes(private_key)).exchange(
@@ -172,18 +192,24 @@ def derive_shared_secret(private_key: bytes, peer_pubkey: bytes) -> bytes:
 # ============================================================================
 
 
-def derive_session_key(shared_secret: bytes, tx_id: str, info: str = DELIVERY_HKDF_INFO_V1) -> bytes:
+def derive_session_key(
+    shared_secret: bytes, tx_id: str, info: str = DELIVERY_HKDF_INFO_V1
+) -> bytes:
     """HKDF-SHA256(ikm=shared_secret, salt=txId bytes, info=utf8(info), L=32).
 
     Byte-exact with Node ``hkdfSync('sha256', shared, txIdBytes, utf8(info), 32)``.
     """
-    _assert_byte_length(shared_secret, X25519_SHARED_SECRET_LENGTH, "crypto_hkdf_failed", "sharedSecret")
+    _assert_byte_length(
+        shared_secret, X25519_SHARED_SECRET_LENGTH, "crypto_hkdf_failed", "sharedSecret"
+    )
     try:
         salt = bytes_from_hex(tx_id, expected_length=TX_ID_BYTES, field="txId")
     except DeliveryCryptoError as err:
         raise DeliveryCryptoError("crypto_hkdf_failed", f"txId is malformed: {err}") from err
     if not isinstance(info, str):
-        raise DeliveryCryptoError("crypto_hkdf_failed", f"info must be a string, got {type(info).__name__}")
+        raise DeliveryCryptoError(
+            "crypto_hkdf_failed", f"info must be a string, got {type(info).__name__}"
+        )
     try:
         derived = HKDF(
             algorithm=hashes.SHA256(),
@@ -194,7 +220,10 @@ def derive_session_key(shared_secret: bytes, tx_id: str, info: str = DELIVERY_HK
     except Exception as err:  # noqa: BLE001
         raise DeliveryCryptoError("crypto_hkdf_failed", f"HKDF-SHA256 failed: {err}") from err
     if len(derived) != DELIVERY_SESSION_KEY_LENGTH:
-        raise DeliveryCryptoError("crypto_hkdf_failed", f"HKDF produced {len(derived)} bytes, expected {DELIVERY_SESSION_KEY_LENGTH}")
+        raise DeliveryCryptoError(
+            "crypto_hkdf_failed",
+            f"HKDF produced {len(derived)} bytes, expected {DELIVERY_SESSION_KEY_LENGTH}",
+        )
     return derived
 
 

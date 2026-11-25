@@ -239,17 +239,22 @@ def transition(
             )
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "success": True,
-                    "txId": tx_id,
-                    "newState": new_state,
-                })
+                print_json(
+                    {
+                        "success": True,
+                        "txId": tx_id,
+                        "newState": new_state,
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(new_state)
             else:
-                print_success(f"Transitioned to {new_state}", {
-                    "Transaction ID": tx_id,
-                })
+                print_success(
+                    f"Transitioned to {new_state}",
+                    {
+                        "Transaction ID": tx_id,
+                    },
+                )
 
         except typer.Exit:
             raise

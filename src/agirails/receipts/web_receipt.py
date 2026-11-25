@@ -176,9 +176,7 @@ async def upload_receipt(
         # to the apex once, gets 308, and httpx returns the 308 as an
         # error response. We follow redirects on both prepare (below) and
         # the main receipts upload.
-        async with httpx.AsyncClient(
-            timeout=opts.timeout_seconds, follow_redirects=True
-        ) as client:
+        async with httpx.AsyncClient(timeout=opts.timeout_seconds, follow_redirects=True) as client:
             res = await client.post(endpoint, headers=headers, json=body)
     except httpx.HTTPError as exc:
         return ReceiptUploadFailure(ok=False, reason=str(exc) or "network error")
@@ -196,20 +194,14 @@ async def upload_receipt(
     try:
         data = res.json()
     except Exception as exc:
-        return ReceiptUploadFailure(
-            ok=False, reason=f"Invalid JSON in response: {exc}"
-        )
+        return ReceiptUploadFailure(ok=False, reason=f"Invalid JSON in response: {exc}")
 
     if not isinstance(data, dict) or "id" not in data or "url" not in data:
-        return ReceiptUploadFailure(
-            ok=False, reason="Malformed response (missing id/url)"
-        )
+        return ReceiptUploadFailure(ok=False, reason="Malformed response (missing id/url)")
 
     url_field = data["url"]
     if not isinstance(url_field, str):
-        return ReceiptUploadFailure(
-            ok=False, reason="Malformed response (url is not a string)"
-        )
+        return ReceiptUploadFailure(ok=False, reason="Malformed response (url is not a string)")
     full_url = url_field if url_field.startswith("http") else f"{base_url}{url_field}"
 
     return ReceiptUploadSuccess(
@@ -247,34 +239,20 @@ async def _wallet_sig_prepare(
 
     prepare_url = f"{base_url}/api/v1/receipts/prepare"
     try:
-        async with httpx.AsyncClient(
-            timeout=timeout_seconds, follow_redirects=True
-        ) as client:
-            prep_res = await client.post(
-                prepare_url, json={"signerAddress": signer_address}
-            )
+        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
+            prep_res = await client.post(prepare_url, json={"signerAddress": signer_address})
     except httpx.HTTPError as exc:
-        raise _UploadFailed(
-            f"Nonce prepare error: {exc or 'network error'}"
-        ) from exc
+        raise _UploadFailed(f"Nonce prepare error: {exc or 'network error'}") from exc
 
     if prep_res.status_code < 200 or prep_res.status_code >= 300:
-        raise _UploadFailed(
-            f"Nonce prepare failed: HTTP {prep_res.status_code}"
-        )
+        raise _UploadFailed(f"Nonce prepare failed: HTTP {prep_res.status_code}")
 
     try:
         prepared = prep_res.json()
     except Exception as exc:
-        raise _UploadFailed(
-            f"Nonce prepare returned invalid JSON: {exc}"
-        ) from exc
+        raise _UploadFailed(f"Nonce prepare returned invalid JSON: {exc}") from exc
 
-    if (
-        not isinstance(prepared, dict)
-        or "nonce" not in prepared
-        or "issuedAt" not in prepared
-    ):
+    if not isinstance(prepared, dict) or "nonce" not in prepared or "issuedAt" not in prepared:
         raise _UploadFailed("Nonce prepare returned malformed payload")
 
     nonce = str(prepared["nonce"])

@@ -175,14 +175,11 @@ class NegotiationChannel(Protocol):
     invoking the subscriber callback, dedup, liveness, and error isolation.
     """
 
-    async def post(self, tx_id: str, envelope: NegotiationMessage) -> None:
-        ...
+    async def post(self, tx_id: str, envelope: NegotiationMessage) -> None: ...
 
-    def subscribe_tx_id(self, tx_id: str, on_message: TxIdCallback) -> Subscription:
-        ...
+    def subscribe_tx_id(self, tx_id: str, on_message: TxIdCallback) -> Subscription: ...
 
-    def subscribe_agent(self, agent_did: str, on_message: AgentCallback) -> Subscription:
-        ...
+    def subscribe_agent(self, agent_did: str, on_message: AgentCallback) -> Subscription: ...
 
 
 # ============================================================================
@@ -370,14 +367,15 @@ class MockChannel:
         for sub in list(self._subscribers):
             if sub.cancelled:
                 continue
-            if isinstance(sub, _TxIdSubscriber) and sub.tx_id == stored.tx_id or isinstance(sub, _AgentSubscriber) and self._envelope_addresses_agent(
-                stored.envelope, sub.agent_did
+            if (
+                isinstance(sub, _TxIdSubscriber)
+                and sub.tx_id == stored.tx_id
+                or isinstance(sub, _AgentSubscriber)
+                and self._envelope_addresses_agent(stored.envelope, sub.agent_did)
             ):
                 await self._deliver_to_sub(sub, stored)
 
-    def _envelope_addresses_agent(
-        self, envelope: NegotiationMessage, agent_did: str
-    ) -> bool:
+    def _envelope_addresses_agent(self, envelope: NegotiationMessage, agent_did: str) -> bool:
         lc = agent_did.lower()
         m = envelope.message
         provider = _msg_provider(m)
@@ -405,13 +403,9 @@ class MockChannel:
                 if is_quote_envelope(stored.envelope):
                     self._quote_verifier.verify(stored.envelope.message, kernel_address)
                 elif is_counter_offer_envelope(stored.envelope):
-                    self._counter_verifier.verify(
-                        stored.envelope.message, kernel_address
-                    )
+                    self._counter_verifier.verify(stored.envelope.message, kernel_address)
                 elif is_counter_accept_envelope(stored.envelope):
-                    self._counter_accept_verifier.verify(
-                        stored.envelope.message, kernel_address
-                    )
+                    self._counter_accept_verifier.verify(stored.envelope.message, kernel_address)
             except Exception:  # noqa: BLE001 — verify failure → drop, mirror RelayChannel
                 return
 
@@ -518,19 +512,13 @@ class RelayChannel:
         self._base_url = base
         self._kernels: Dict[int, str] = dict(cfg.kernel_address_by_chain_id or {})
         self._poll_interval_ms = (
-            cfg.poll_interval_ms
-            if cfg.poll_interval_ms is not None
-            else _DEFAULT_RELAY_POLL_MS
+            cfg.poll_interval_ms if cfg.poll_interval_ms is not None else _DEFAULT_RELAY_POLL_MS
         )
-        request_timeout_ms = (
-            cfg.request_timeout_ms if cfg.request_timeout_ms is not None else 10000
-        )
+        request_timeout_ms = cfg.request_timeout_ms if cfg.request_timeout_ms is not None else 10000
         import httpx as _httpx
 
         self._owns_client = cfg.http_client is None
-        self._client = cfg.http_client or _httpx.AsyncClient(
-            timeout=request_timeout_ms / 1000.0
-        )
+        self._client = cfg.http_client or _httpx.AsyncClient(timeout=request_timeout_ms / 1000.0)
         self._log = cfg.log or (lambda _level, _msg, _ctx=None: None)
         self._quote_verifier = QuoteBuilder()
         self._counter_verifier = CounterOfferBuilder()
@@ -543,14 +531,9 @@ class RelayChannel:
         """POST a signed envelope to the relay (mirror TS ``post``)."""
         from urllib.parse import quote as _url_quote
 
-        url = (
-            f"{self._base_url}/api/v1/negotiations/"
-            f"{_url_quote(tx_id, safe='')}/messages"
-        )
+        url = f"{self._base_url}/api/v1/negotiations/{_url_quote(tx_id, safe='')}/messages"
         body = _envelope_to_wire(envelope)
-        res = await self._client.post(
-            url, headers={"Content-Type": "application/json"}, json=body
-        )
+        res = await self._client.post(url, headers={"Content-Type": "application/json"}, json=body)
         if not (200 <= res.status_code < 300):
             text = ""
             try:
@@ -559,9 +542,7 @@ class RelayChannel:
                 text = ""
             raise RuntimeError(f"Relay POST {res.status_code}: {text[:200]}")
 
-    def subscribe_tx_id(
-        self, tx_id: str, on_message: TxIdCallback
-    ) -> Subscription:
+    def subscribe_tx_id(self, tx_id: str, on_message: TxIdCallback) -> Subscription:
         from urllib.parse import quote as _url_quote
 
         state = _RelayPollState()
@@ -577,12 +558,10 @@ class RelayChannel:
                     if state.cursor:
                         url += f"?after={_url_quote(state.cursor, safe='')}"
                     body = await self._get_json(url)
-                    for item in (body.get("messages") or []):
+                    for item in body.get("messages") or []:
                         if state.cancelled:
                             break
-                        await self._deliver(
-                            item, state, lambda d: on_message(d)
-                        )
+                        await self._deliver(item, state, lambda d: on_message(d))
                         state.cursor = item.get("cursor")
                 except asyncio.CancelledError:
                     raise
@@ -599,9 +578,7 @@ class RelayChannel:
         state.task = asyncio.ensure_future(poll_loop())
         return self._make_subscription(state)
 
-    def subscribe_agent(
-        self, agent_did: str, on_message: AgentCallback
-    ) -> Subscription:
+    def subscribe_agent(self, agent_did: str, on_message: AgentCallback) -> Subscription:
         from urllib.parse import quote as _url_quote
 
         state = _RelayPollState()
@@ -617,7 +594,7 @@ class RelayChannel:
                     if state.cursor:
                         url += f"?after={_url_quote(state.cursor, safe='')}"
                     body = await self._get_json(url)
-                    for item in (body.get("messages") or []):
+                    for item in body.get("messages") or []:
                         if state.cancelled:
                             break
                         item_tx_id = item.get("txId") or item.get("tx_id") or ""

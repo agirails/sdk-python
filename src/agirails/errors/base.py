@@ -40,10 +40,21 @@ def is_debug_mode() -> bool:
 
 
 # Keys that should be redacted in production error messages
-SENSITIVE_KEYS = frozenset({
-    "ip", "resolved_ip", "hostname", "path", "file_path", "directory",
-    "private_key", "secret", "password", "token", "api_key",
-})
+SENSITIVE_KEYS = frozenset(
+    {
+        "ip",
+        "resolved_ip",
+        "hostname",
+        "path",
+        "file_path",
+        "directory",
+        "private_key",
+        "secret",
+        "password",
+        "token",
+        "api_key",
+    }
+)
 
 
 def _redact_sensitive_details(details: Dict[str, Any]) -> Dict[str, Any]:

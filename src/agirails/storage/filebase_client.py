@@ -77,9 +77,7 @@ def _hmac_sha256(key: bytes, msg: str) -> bytes:
     return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
 
 
-def _derive_signing_key(
-    secret_key: str, datestamp: str, region: str, service: str
-) -> bytes:
+def _derive_signing_key(secret_key: str, datestamp: str, region: str, service: str) -> bytes:
     """Derive the SigV4 signing key (kSigning).
 
     Matches the AWS "derive a signing key" worked example byte-for-byte.
@@ -188,9 +186,7 @@ def sign_aws_v4(
                 sign_headers[lname] = str(value).strip()
 
     sorted_names = sorted(sign_headers.keys())
-    canonical_headers = "".join(
-        f"{name}:{sign_headers[name]}\n" for name in sorted_names
-    )
+    canonical_headers = "".join(f"{name}:{sign_headers[name]}\n" for name in sorted_names)
     signed_headers = ";".join(sorted_names)
 
     canonical_request = "\n".join(
@@ -216,9 +212,7 @@ def sign_aws_v4(
     )
 
     signing_key = _derive_signing_key(secret_key, datestamp, region, service)
-    signature = hmac.new(
-        signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
+    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
     authorization = (
         f"{algorithm} "
@@ -272,9 +266,7 @@ class FilebaseClient:
         """
         self._config = config
         self._region = DEFAULT_REGION
-        self._circuit_breaker = CircuitBreaker(
-            config.circuit_breaker or CircuitBreakerConfig()
-        )
+        self._circuit_breaker = CircuitBreaker(config.circuit_breaker or CircuitBreakerConfig())
         self._retry_config = RetryConfig(
             max_attempts=3,
             base_delay_ms=1000,

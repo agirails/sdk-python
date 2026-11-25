@@ -85,9 +85,7 @@ def chain_id_for_network(network: str) -> int:
     """
     caip2 = _NETWORK_ALIAS_TO_CAIP2.get(network, network)
     if not caip2.startswith("eip155:"):
-        raise ValueError(
-            f"Unsupported network format: {network} (expected eip155:CHAIN_ID)"
-        )
+        raise ValueError(f"Unsupported network format: {network} (expected eip155:CHAIN_ID)")
     id_str = caip2.split(":", 1)[1]
     try:
         return int(id_str, 10)

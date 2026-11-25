@@ -231,9 +231,7 @@ class NonceTracker:
             entry = NonceEntry(
                 nonce=nonce,
                 status=NonceStatus.PENDING,
-                expires_at=datetime.fromtimestamp(
-                    time.time() + self._reservation_timeout
-                ),
+                expires_at=datetime.fromtimestamp(time.time() + self._reservation_timeout),
             )
             self._pending[nonce] = entry
             self._stats["nonces_allocated"] += 1

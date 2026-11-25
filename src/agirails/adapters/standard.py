@@ -246,9 +246,7 @@ class StandardAdapter(BaseAdapter):
         provider = self.validate_address(params.to, "to")
         amount_wei = str(tx.amount)
         deadline_iso = (
-            datetime.fromtimestamp(tx.deadline, tz=timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
+            datetime.fromtimestamp(tx.deadline, tz=timezone.utc).isoformat().replace("+00:00", "Z")
         )
 
         # Return a UnifiedPayResult subclass that preserves the legacy dict
@@ -270,9 +268,7 @@ class StandardAdapter(BaseAdapter):
             erc8004_agent_id=params.erc8004_agent_id,
         )
 
-    async def create_transaction(
-        self, params: Union[StandardTransactionParams, dict]
-    ) -> str:
+    async def create_transaction(self, params: Union[StandardTransactionParams, dict]) -> str:
         """
         Create a new ACTP transaction.
 
@@ -335,9 +331,7 @@ class StandardAdapter(BaseAdapter):
             # empty -> ZeroHash, valid bytes32 -> pass-through, raw string ->
             # keccak256(utf8). This differs from the ServiceMetadata wrapper above,
             # which the routed kernel call must NOT use.
-            routed_service_hash = _compute_service_hash(
-                params.service_hash or params.description
-            )
+            routed_service_hash = _compute_service_hash(params.service_hash or params.description)
 
             from agirails.wallet.auto_wallet_provider import (
                 CreateACTPTransactionParams,
@@ -356,9 +350,7 @@ class StandardAdapter(BaseAdapter):
                 )
             )
             if not result.receipt.success:
-                raise RuntimeError(
-                    f"createTransaction UserOp failed: {result.receipt.hash}"
-                )
+                raise RuntimeError(f"createTransaction UserOp failed: {result.receipt.hash}")
             return result.tx_id
 
         # Fallback: EOA / mock path
@@ -425,6 +417,7 @@ class StandardAdapter(BaseAdapter):
             tx = await self._runtime.get_transaction(tx_id)
             if tx is None:
                 from agirails.errors import TransactionNotFoundError
+
                 raise TransactionNotFoundError(tx_id=tx_id)
             amount_wei = tx.amount
         else:
@@ -434,9 +427,7 @@ class StandardAdapter(BaseAdapter):
         # batched UserOp so msg.sender == Smart Wallet (kernel _requesterCheck).
         router = self._smart_wallet_router
         if router is not None and router.should_route() and self._contract_addresses is not None:
-            await router.send_link_escrow(
-                tx_id, amount_wei, self._contract_addresses.usdc
-            )
+            await router.send_link_escrow(tx_id, amount_wei, self._contract_addresses.usdc)
             return tx_id  # escrowId == txId (ACTP standard)
 
         # Link escrow (legacy EOA / mock path)
@@ -485,7 +476,9 @@ class StandardAdapter(BaseAdapter):
         router = self._smart_wallet_router
         if router is not None and router.should_route():
             await router.send_transition(
-                tx_id, new_state.value, proof or "0x",
+                tx_id,
+                new_state.value,
+                proof or "0x",
                 label=f"transitionState({new_state.value})",
             )
             return
@@ -547,8 +540,7 @@ class StandardAdapter(BaseAdapter):
         # MANDATORY gate: if attestation is required, a uid MUST be supplied.
         if attestation_required and not attestation_uid:
             raise RuntimeError(
-                "Attestation verification is REQUIRED for escrow release. "
-                "Provide attestation_uid."
+                "Attestation verification is REQUIRED for escrow release. Provide attestation_uid."
             )
 
         tx_id_from_escrow = SmartWalletRouter.extract_tx_id(escrow_id)
@@ -557,9 +549,7 @@ class StandardAdapter(BaseAdapter):
         # the adapter has a helper, verify (and bind to txId) here. Otherwise the
         # uid is passed down so the runtime/router can enforce/record it.
         if attestation_uid:
-            runtime_has_eas = bool(
-                getattr(self._runtime, "eas_helper", None)
-            )
+            runtime_has_eas = bool(getattr(self._runtime, "eas_helper", None))
             if not runtime_supports_attestation_flag and self._eas_helper and not runtime_has_eas:
                 from agirails.protocol.eas import EASHelper
 
@@ -577,14 +567,11 @@ class StandardAdapter(BaseAdapter):
         if router is not None and router.should_route():
             if attestation_required and not self._eas_helper:
                 raise RuntimeError(
-                    "Attestation verification is required but EAS helper is "
-                    "not initialized."
+                    "Attestation verification is required but EAS helper is not initialized."
                 )
             await router.validate_release_preconditions(tx_id_from_escrow)
             if attestation_uid and self._eas_helper and not attestation_verified_locally:
-                await router.verify_release_attestation(
-                    tx_id_from_escrow, attestation_uid
-                )
+                await router.verify_release_attestation(tx_id_from_escrow, attestation_uid)
             await router.send_settle(tx_id_from_escrow)
             return
 
@@ -736,16 +723,10 @@ class StandardAdapter(BaseAdapter):
 
         dispute_window_ends: Optional[int] = None
         if tx.completed_at:
-            dispute_window_ends = compute_dispute_window_ends(
-                tx.completed_at, tx.dispute_window
-            )
+            dispute_window_ends = compute_dispute_window_ends(tx.completed_at, tx.dispute_window)
 
         def _iso(ts: int) -> str:
-            return (
-                datetime.fromtimestamp(ts, tz=timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z")
-            )
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
         return TransactionStatus(
             state=state_str,
@@ -764,9 +745,7 @@ class StandardAdapter(BaseAdapter):
             amount=self.format_amount(tx.amount),
             deadline=_iso(tx.deadline),
             dispute_window_ends=(
-                _iso(dispute_window_ends)
-                if dispute_window_ends is not None
-                else None
+                _iso(dispute_window_ends) if dispute_window_ends is not None else None
             ),
             provider=tx.provider,
             requester=tx.requester,
@@ -785,9 +764,7 @@ class StandardAdapter(BaseAdapter):
         """
         router = self._smart_wallet_router
         if router is not None and router.should_route():
-            await router.send_transition(
-                tx_id, "IN_PROGRESS", "0x", label="startWork"
-            )
+            await router.send_transition(tx_id, "IN_PROGRESS", "0x", label="startWork")
             return
         await self._runtime.transition_state(tx_id, State.IN_PROGRESS)
 
@@ -830,15 +807,11 @@ class StandardAdapter(BaseAdapter):
 
         router = self._smart_wallet_router
         if router is not None and router.should_route():
-            await router.send_transition(
-                tx_id, "DELIVERED", delivery_proof, label="deliver"
-            )
+            await router.send_transition(tx_id, "DELIVERED", delivery_proof, label="deliver")
             return
         await self._runtime.transition_state(tx_id, State.DELIVERED, delivery_proof)
 
-    async def release(
-        self, escrow_id: str, attestation_uid: Optional[str] = None
-    ) -> None:
+    async def release(self, escrow_id: str, attestation_uid: Optional[str] = None) -> None:
         """
         Release escrow funds (EXPLICIT settlement). IAdapter compliance.
 

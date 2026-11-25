@@ -74,8 +74,7 @@ def _confirm(yes: bool, json_output: bool) -> bool:
 
 def _die_non_tty() -> int:
     print_error(
-        "Non-TTY environment requires explicit confirmation. Re-run with "
-        "--yes to acknowledge."
+        "Non-TTY environment requires explicit confirmation. Re-run with --yes to acknowledge."
     )
     return 2
 
@@ -115,9 +114,7 @@ def repair(
         "--yes",
         help="Skip confirmation prompts (required for non-TTY).",
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit machine-readable JSON."
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     """Reshape on-chain agent (drop phantom services, update endpoint, toggle flags)."""
     try:
@@ -171,32 +168,23 @@ async def _run(
 
     # 2. Validate inputs BEFORE touching the network.
     if endpoint is not None and not endpoint.startswith("https://"):
-        raise typer.BadParameter(
-            f"--endpoint must be HTTPS (got: {endpoint})"
-        )
+        raise typer.BadParameter(f"--endpoint must be HTTPS (got: {endpoint})")
     active_bool = _parse_bool(active, "--active") if active is not None else None
     listed_bool = _parse_bool(listed, "--listed") if listed is not None else None
 
     # 3. Resolve signer.
     tier = _network_to_tier(network)
-    private_key = await resolve_private_key(
-        options=ResolvePrivateKeyOptions(network=tier)
-    )
+    private_key = await resolve_private_key(options=ResolvePrivateKeyOptions(network=tier))
     if not private_key:
         raise RuntimeError(
-            "No wallet found. Set ACTP_KEYSTORE_BASE64 / ACTP_PRIVATE_KEY "
-            "or run `actp init` first."
+            "No wallet found. Set ACTP_KEYSTORE_BASE64 / ACTP_PRIVATE_KEY or run `actp init` first."
         )
 
     cfg = get_network(network)
     if not cfg.contracts.agent_registry:
-        raise RuntimeError(
-            f"AgentRegistry not configured for network: {network}"
-        )
+        raise RuntimeError(f"AgentRegistry not configured for network: {network}")
 
-    registry = await AgentRegistry.create(
-        private_key=private_key, network=cfg
-    )
+    registry = await AgentRegistry.create(private_key=private_key, network=cfg)
     signer_address = registry._account.address  # noqa: SLF001 — narrow OK
 
     # 4. Confirm.
@@ -262,9 +250,7 @@ async def _run(
                 "ok": True,
                 "wallet": signer_address,
                 "network": network,
-                "txHashes": [
-                    {"action": a, "txHash": h} for (a, h) in tx_hashes
-                ],
+                "txHashes": [{"action": a, "txHash": h} for (a, h) in tx_hashes],
             }
         )
     else:

@@ -45,9 +45,7 @@ def request(
             "for now resolve to an address first with `actp find <slug>`."
         ),
     ),
-    amount: str = typer.Argument(
-        ..., help='Amount to escrow, USDC (e.g. "0.05").'
-    ),
+    amount: str = typer.Argument(..., help='Amount to escrow, USDC (e.g. "0.05").'),
     service: str = typer.Option(
         ...,
         "--service",
@@ -80,12 +78,8 @@ def request(
         "--auto-accept/--no-auto-accept",
         help="Auto-accept the first quote (default: auto-accept).",
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit machine-readable JSON."
-    ),
-    quiet: bool = typer.Option(
-        False, "-q", "--quiet", help="Emit only the transaction id."
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Emit only the transaction id."),
 ) -> None:
     """Request a Level 1 negotiated service (quote → accept → deliver → settle)."""
     if network not in _VALID_NETWORKS:
@@ -178,19 +172,14 @@ async def _run(
 ):
     if not (quiet or json_output):
         print_info(f"→ Requesting {service} from {provider}")
-        print_info(
-            f"  amount: {amount}, network: {network}, "
-            f"quote-timeout: {quote_timeout}ms"
-        )
+        print_info(f"  amount: {amount}, network: {network}, quote-timeout: {quote_timeout}ms")
         print_info("")
 
     def _on_transition(state: str, tx_id: str, elapsed_s: float) -> None:
         if quiet or json_output:
             return
         # Live progress log line.
-        print_info(
-            f"  [t+{elapsed_s:6.2f}s] {state:<12} {tx_id}"
-        )
+        print_info(f"  [t+{elapsed_s:6.2f}s] {state:<12} {tx_id}")
 
     return await run_request(
         provider=provider,

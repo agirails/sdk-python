@@ -63,13 +63,12 @@ _SLUG_URL_RE = re.compile(
 
 
 def pay(
-    provider: str = typer.Argument(..., help="Provider address (0x...), HTTP endpoint, agent ID, or agirails.app/a/<slug>"),
+    provider: str = typer.Argument(
+        ..., help="Provider address (0x...), HTTP endpoint, agent ID, or agirails.app/a/<slug>"
+    ),
     amount: str = typer.Argument(..., help="Amount in USDC (e.g., 10.00)"),
     deadline: Optional[str] = typer.Option(
-        None,
-        "--deadline",
-        "-d",
-        help="Deadline (e.g., '24h', '7d', or Unix timestamp)"
+        None, "--deadline", "-d", help="Deadline (e.g., '24h', '7d', or Unix timestamp)"
     ),
     dispute_window: str = typer.Option(
         "172800",
@@ -77,11 +76,7 @@ def pay(
         "-w",
         help="Dispute window in seconds",
     ),
-    description: Optional[str] = typer.Option(
-        None,
-        "--description",
-        help="Payment description"
-    ),
+    description: Optional[str] = typer.Option(None, "--description", help="Payment description"),
     service: Optional[str] = typer.Option(
         None,
         "--service",
@@ -98,13 +93,15 @@ def pay(
     # guessing at the cause. Mirrors TS `src/cli/commands/pay.ts:93-100`.
     if service is not None:
         if opts.output_format == OutputFormat.JSON:
-            print_json({
-                "error": {
-                    "code": "PAY_SERVICE_REJECTED",
-                    "message": PAY_SERVICE_REJECTION_MESSAGE,
-                    "details": {"use": "actp request <provider> <amount> --service <name>"},
+            print_json(
+                {
+                    "error": {
+                        "code": "PAY_SERVICE_REJECTED",
+                        "message": PAY_SERVICE_REJECTION_MESSAGE,
+                        "details": {"use": "actp request <provider> <amount> --service <name>"},
+                    }
                 }
-            })
+            )
         else:
             print_error("Invalid usage", PAY_SERVICE_REJECTION_MESSAGE)
         raise typer.Exit(EX_USAGE)
@@ -214,24 +211,29 @@ def pay(
                 r_deadline = getattr(raw, "deadline", 0)
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "success": True,
-                    "txId": r_tx_id,
-                    "escrowId": r_escrow_id,
-                    "state": r_state,
-                    "amount": r_amount,
-                    "deadline": r_deadline,
-                })
+                print_json(
+                    {
+                        "success": True,
+                        "txId": r_tx_id,
+                        "escrowId": r_escrow_id,
+                        "state": r_state,
+                        "amount": r_amount,
+                        "deadline": r_deadline,
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(r_tx_id)
             else:
-                print_success("Payment created", {
-                    "Transaction ID": r_tx_id,
-                    "Escrow ID": r_escrow_id,
-                    "State": r_state,
-                    "Amount": format_usdc(r_amount),
-                    "Provider": format_address(to),
-                })
+                print_success(
+                    "Payment created",
+                    {
+                        "Transaction ID": r_tx_id,
+                        "Escrow ID": r_escrow_id,
+                        "State": r_state,
+                        "Amount": format_usdc(r_amount),
+                        "Provider": format_address(to),
+                    },
+                )
 
         except typer.Exit:
             raise

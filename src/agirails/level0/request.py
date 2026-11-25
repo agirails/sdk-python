@@ -147,6 +147,7 @@ class RequestOptions:
             # Try parsing as ISO date
             try:
                 from dateutil import parser
+
                 return int(parser.isoparse(self.deadline).timestamp())
             except (ImportError, ValueError):
                 pass
@@ -362,7 +363,8 @@ class RequestHandle:
 
         # Fallback for snake_case mapping
         import re
-        snake_field = re.sub(r'(?<!^)(?=[A-Z])', '_', field).lower()
+
+        snake_field = re.sub(r"(?<!^)(?=[A-Z])", "_", field).lower()
         if hasattr(tx, snake_field):
             value = getattr(tx, snake_field)
             if hasattr(value, "value"):
@@ -439,8 +441,11 @@ class RequestHandle:
                         provider=self._get_tx_field(tx, "provider") or "",
                         budget=self._options.budget,
                         duration=duration,
-                        proof=self._get_tx_field(tx, "deliveryProof") or self._get_tx_field(tx, "delivery_proof") or "",
-                        escrow_id=self._get_tx_field(tx, "escrowId") or self._get_tx_field(tx, "escrow_id"),
+                        proof=self._get_tx_field(tx, "deliveryProof")
+                        or self._get_tx_field(tx, "delivery_proof")
+                        or "",
+                        escrow_id=self._get_tx_field(tx, "escrowId")
+                        or self._get_tx_field(tx, "escrow_id"),
                     )
                     return self._result
                 except Exception as e:
@@ -451,14 +456,16 @@ class RequestHandle:
 
             # Update progress callback
             if self._options.on_progress:
-                progress = min(90, int(
-                    (time.time() * 1000 - self._start_time) / effective_timeout * 90
-                ))
-                self._options.on_progress(ProgressInfo(
-                    state=status.value,
-                    progress=progress,
-                    message=f"Waiting for delivery ({status.value})...",
-                ))
+                progress = min(
+                    90, int((time.time() * 1000 - self._start_time) / effective_timeout * 90)
+                )
+                self._options.on_progress(
+                    ProgressInfo(
+                        state=status.value,
+                        progress=progress,
+                        message=f"Waiting for delivery ({status.value})...",
+                    )
+                )
 
             await asyncio.sleep(poll_interval_sec)
 
@@ -602,6 +609,7 @@ def _find_provider(service: str, provider_option: Optional[str] = None) -> Optio
     # Try to find from service directory
     try:
         from agirails.level0.directory import ServiceQuery, get_global_directory
+
         directory = get_global_directory()
         entries = directory.find(ServiceQuery(name=service))
         if entries and entries[0].provider_address:
@@ -791,6 +799,7 @@ async def request(
         # Create transaction using proper snake_case params
         # PARITY FIX: Use snake_case keys to match CreateTransactionParams
         from agirails.runtime.base import CreateTransactionParams
+
         tx_params = CreateTransactionParams(
             provider=found_provider,
             requester=requester_address,
@@ -808,11 +817,13 @@ async def request(
 
         # Update progress
         if on_progress:
-            on_progress(ProgressInfo(
-                state="initiated",
-                progress=10,
-                message="Transaction created, waiting for provider...",
-            ))
+            on_progress(
+                ProgressInfo(
+                    state="initiated",
+                    progress=10,
+                    message="Transaction created, waiting for provider...",
+                )
+            )
 
         # Create handle
         handle = RequestHandle(
@@ -859,22 +870,22 @@ def _get_requester_address(
             # It's a private key - derive address
             try:
                 from eth_account import Account
+
                 return Account.from_key(wallet).address.lower()
             except ImportError:
                 raise ImportError(
-                    "eth_account required for private key. "
-                    "Install with: pip install eth-account"
+                    "eth_account required for private key. Install with: pip install eth-account"
                 )
         return wallet
 
     if isinstance(wallet, dict) and "privateKey" in wallet:
         try:
             from eth_account import Account
+
             return Account.from_key(wallet["privateKey"]).address.lower()
         except ImportError:
             raise ImportError(
-                "eth_account required for private key. "
-                "Install with: pip install eth-account"
+                "eth_account required for private key. Install with: pip install eth-account"
             )
 
     return "0x" + b"requester".hex().ljust(40, "0")[:40]
@@ -958,31 +969,35 @@ async def request_batch(
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             # Create error result
-            processed.append(RequestResult(
-                result=None,
-                transaction=TransactionInfo(
-                    id="",
-                    provider="",
-                    amount=requests[i].get("budget", 1.0),
-                    fee=0,
-                    duration=0,
-                    proof="",
-                ),
-            ))
+            processed.append(
+                RequestResult(
+                    result=None,
+                    transaction=TransactionInfo(
+                        id="",
+                        provider="",
+                        amount=requests[i].get("budget", 1.0),
+                        fee=0,
+                        duration=0,
+                        proof="",
+                    ),
+                )
+            )
         elif isinstance(result, RequestResult):
             processed.append(result)
         else:
             # Unexpected type
-            processed.append(RequestResult(
-                result=None,
-                transaction=TransactionInfo(
-                    id="",
-                    provider="",
-                    amount=requests[i].get("budget", 1.0),
-                    fee=0,
-                    duration=0,
-                    proof="",
-                ),
-            ))
+            processed.append(
+                RequestResult(
+                    result=None,
+                    transaction=TransactionInfo(
+                        id="",
+                        provider="",
+                        amount=requests[i].get("budget", 1.0),
+                        fee=0,
+                        duration=0,
+                        proof="",
+                    ),
+                )
+            )
 
     return processed

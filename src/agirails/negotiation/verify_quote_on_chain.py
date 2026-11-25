@@ -129,9 +129,7 @@ def verify_quote_hash_on_chain(
                 legacy_hash=legacy_hash,
             )
 
-    return VerifyOnChainResult(
-        match=False, canonical_hash=canonical_hash, legacy_hash=legacy_hash
-    )
+    return VerifyOnChainResult(match=False, canonical_hash=canonical_hash, legacy_hash=legacy_hash)
 
 
 __all__ = [

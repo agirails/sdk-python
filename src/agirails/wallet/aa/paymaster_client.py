@@ -68,9 +68,7 @@ class PaymasterClient:
         self._timeout_s = config.timeout_s
         self._request_id = 0
 
-    async def get_paymaster_stub_data(
-        self, user_op: UserOperationV06
-    ) -> PaymasterResponse:
+    async def get_paymaster_stub_data(self, user_op: UserOperationV06) -> PaymasterResponse:
         """Get stub paymaster data for gas estimation.
 
         Returns approximate paymasterAndData that the bundler can use
@@ -93,9 +91,7 @@ class PaymasterClient:
         )
         return PaymasterResponse(paymaster_and_data=result["paymasterAndData"])
 
-    async def get_paymaster_data(
-        self, user_op: UserOperationV06
-    ) -> PaymasterResponse:
+    async def get_paymaster_data(self, user_op: UserOperationV06) -> PaymasterResponse:
         """Get final paymaster data for the signed UserOp.
 
         Called after gas estimation with final gas values.
@@ -122,17 +118,14 @@ class PaymasterClient:
     # Internal
     # ==========================================================================
 
-    async def _call_with_fallback(
-        self, method: str, params: List[Any]
-    ) -> Any:
+    async def _call_with_fallback(self, method: str, params: List[Any]) -> Any:
         """Call primary, fall back to backup."""
         try:
             return await self._json_rpc(self._primary_url, method, params)
         except Exception as primary_error:
             if not self._backup_url:
                 raise PaymasterError(
-                    f"Gas sponsorship unavailable: {primary_error}. "
-                    "No backup paymaster configured."
+                    f"Gas sponsorship unavailable: {primary_error}. No backup paymaster configured."
                 ) from primary_error
             # Debug, not warning: a recovered failover (primary slow -> backup
             # sponsors) is normal resilience, not a user-facing error. Mirrors
@@ -170,9 +163,7 @@ class PaymasterClient:
             )
 
         if response.status_code != 200:
-            raise PaymasterError(
-                f"HTTP {response.status_code}: {response.reason_phrase}"
-            )
+            raise PaymasterError(f"HTTP {response.status_code}: {response.reason_phrase}")
 
         data = response.json()
 

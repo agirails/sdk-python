@@ -44,6 +44,7 @@ Example:
     assert result.allowed
     ```
 """
+
 from __future__ import annotations
 
 # ============================================================================

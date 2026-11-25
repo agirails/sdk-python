@@ -216,10 +216,7 @@ def upload_to_filebase(
     try:
         import boto3
     except ImportError:
-        raise ImportError(
-            "boto3 is required for Filebase upload. "
-            "Install with: pip install boto3"
-        )
+        raise ImportError("boto3 is required for Filebase upload. Install with: pip install boto3")
 
     s3 = boto3.client(
         "s3",
@@ -280,9 +277,7 @@ def upload_via_proxy(
     )
 
     if response.status_code != 200:
-        raise RuntimeError(
-            f"Publish proxy returned HTTP {response.status_code}: {response.text}"
-        )
+        raise RuntimeError(f"Publish proxy returned HTTP {response.status_code}: {response.text}")
 
     data = response.json()
     cid = data.get("cid")
@@ -292,9 +287,7 @@ def upload_via_proxy(
         raise RuntimeError("Publish proxy did not return a CID")
 
     if returned_hash and returned_hash != config_hash:
-        raise RuntimeError(
-            f"Hash mismatch! Local: {config_hash}, Proxy: {returned_hash}"
-        )
+        raise RuntimeError(f"Hash mismatch! Local: {config_hash}, Proxy: {returned_hash}")
 
     return cid
 

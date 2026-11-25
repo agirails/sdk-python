@@ -143,12 +143,14 @@ def claim(
     profile_url = f"https://agirails.app/a/{slug}" if slug else ""
 
     if opts.output_format == OutputFormat.JSON:
-        print_json({
-            "status": "claimed",
-            "agentId": agent_id,
-            "wallet": wallet_address,
-            "profileUrl": profile_url,
-        })
+        print_json(
+            {
+                "status": "claimed",
+                "agentId": agent_id,
+                "wallet": wallet_address,
+                "profileUrl": profile_url,
+            }
+        )
     elif opts.output_format == OutputFormat.QUIET:
         typer.echo(agent_id)
     else:

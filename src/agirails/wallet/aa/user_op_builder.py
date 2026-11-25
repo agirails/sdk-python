@@ -33,19 +33,13 @@ from agirails.wallet.aa.constants import (
 
 # CoinbaseSmartWallet.executeBatch((address,uint256,bytes)[])
 # selector = keccak256("executeBatch((address,uint256,bytes)[])")[:4]
-_EXECUTE_BATCH_SELECTOR = Web3.keccak(
-    text="executeBatch((address,uint256,bytes)[])"
-)[:4].hex()
+_EXECUTE_BATCH_SELECTOR = Web3.keccak(text="executeBatch((address,uint256,bytes)[])")[:4].hex()
 
 # CoinbaseSmartWalletFactory.createAccount(bytes[],uint256)
-_CREATE_ACCOUNT_SELECTOR = Web3.keccak(
-    text="createAccount(bytes[],uint256)"
-)[:4].hex()
+_CREATE_ACCOUNT_SELECTOR = Web3.keccak(text="createAccount(bytes[],uint256)")[:4].hex()
 
 # CoinbaseSmartWalletFactory.getAddress(bytes[],uint256)
-_GET_ADDRESS_SELECTOR = Web3.keccak(
-    text="getAddress(bytes[],uint256)"
-)[:4].hex()
+_GET_ADDRESS_SELECTOR = Web3.keccak(text="getAddress(bytes[],uint256)")[:4].hex()
 
 
 # ============================================================================
@@ -205,16 +199,16 @@ def get_user_op_hash(user_op: UserOperationV06, chain_id: int) -> str:
     # Pack all fields except signature
     packed = abi_encode(
         [
-            "address",    # sender
-            "uint256",    # nonce
-            "bytes32",    # keccak256(initCode)
-            "bytes32",    # keccak256(callData)
-            "uint256",    # callGasLimit
-            "uint256",    # verificationGasLimit
-            "uint256",    # preVerificationGas
-            "uint256",    # maxFeePerGas
-            "uint256",    # maxPriorityFeePerGas
-            "bytes32",    # keccak256(paymasterAndData)
+            "address",  # sender
+            "uint256",  # nonce
+            "bytes32",  # keccak256(initCode)
+            "bytes32",  # keccak256(callData)
+            "uint256",  # callGasLimit
+            "uint256",  # verificationGasLimit
+            "uint256",  # preVerificationGas
+            "uint256",  # maxFeePerGas
+            "uint256",  # maxPriorityFeePerGas
+            "bytes32",  # keccak256(paymasterAndData)
         ],
         [
             Web3.to_checksum_address(user_op.sender),

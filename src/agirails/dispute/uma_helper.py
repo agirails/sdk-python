@@ -293,9 +293,7 @@ class UMAHelper:
         (``OOV3.getMinimumBond(usdc)``). A direct read, never a recorded write.
         PARITY: TS ``getMinimumBond``.
         """
-        return int(
-            await self._oov3.functions.getMinimumBond(self._usdc_address).call()
-        )
+        return int(await self._oov3.functions.getMinimumBond(self._usdc_address).call())
 
     async def get_effective_bond(self) -> int:
         """
@@ -407,9 +405,7 @@ class UMAHelper:
             assertion_id: bytes32 UMA assertion id (from :meth:`get_assertion_id`
                 or :meth:`requester_force_dvm`).
         """
-        receipt = await self._send(
-            self._oov3, "settleAssertion", [_to_bytes32(assertion_id)]
-        )
+        receipt = await self._send(self._oov3, "settleAssertion", [_to_bytes32(assertion_id)])
         return {"eth_tx_hash": receipt}
 
     # ------------------------------------------------------------------
@@ -441,20 +437,12 @@ class UMAHelper:
 
         # Production path: build, sign, broadcast via the injected account/w3.
         if self._account is not None and self._w3 is not None:
-            nonce = await self._w3.eth.get_transaction_count(
-                self._account.address, "pending"
-            )
-            tx = await fn.build_transaction(
-                {"from": self._account.address, "nonce": nonce}
-            )
+            nonce = await self._w3.eth.get_transaction_count(self._account.address, "pending")
+            tx = await fn.build_transaction({"from": self._account.address, "nonce": nonce})
             signed = self._w3.eth.account.sign_transaction(tx, self._account.key)
             tx_hash = await self._w3.eth.send_raw_transaction(signed.raw_transaction)
             await self._w3.eth.wait_for_transaction_receipt(tx_hash)
-            return (
-                "0x" + tx_hash.hex()
-                if isinstance(tx_hash, (bytes, bytearray))
-                else str(tx_hash)
-            )
+            return "0x" + tx_hash.hex() if isinstance(tx_hash, (bytes, bytearray)) else str(tx_hash)
 
         # Test path: the mock fn exposes an awaitable returning a tx hash/receipt.
         send = getattr(fn, "transact", None)

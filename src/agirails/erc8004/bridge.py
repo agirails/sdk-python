@@ -237,9 +237,7 @@ class ERC8004Bridge:
             balance: int = self._contract.functions.balanceOf(checksum).call()
             agent_ids: List[str] = []
             for idx in range(balance):
-                token_id: int = self._contract.functions.tokenOfOwnerByIndex(
-                    checksum, idx
-                ).call()
+                token_id: int = self._contract.functions.tokenOfOwnerByIndex(checksum, idx).call()
                 agent_ids.append(str(token_id))
             return agent_ids
         except Exception as exc:
@@ -329,7 +327,7 @@ class ERC8004Bridge:
 
         fetch_url = uri
         if uri.startswith("ipfs://"):
-            cid_path = uri[len("ipfs://"):]
+            cid_path = uri[len("ipfs://") :]
             fetch_url = f"{self._config.ipfs_gateway}{cid_path}"
 
         try:

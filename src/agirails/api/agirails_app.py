@@ -104,7 +104,11 @@ async def _get(url: str, timeout: float = 15.0) -> Dict[str, Any]:
 
     if _HAS_AIOHTTP:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers={"Accept": "application/json"}, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+            async with session.get(
+                url,
+                headers={"Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as resp:
                 if resp.status >= 400:
                     raise AgirailsAppError(f"GET {url} failed: {resp.status}", resp.status)
                 return await resp.json()
@@ -216,12 +220,15 @@ async def claim_agent(params: ClaimAgentParams) -> Dict[str, Any]:
         API response dict.
     """
     url = f"{AGIRAILS_APP_BASE_URL}/api/v1/agents/claim"
-    return await _post(url, {
-        "agentId": params.agent_id,
-        "wallet": params.wallet,
-        "challenge": params.challenge,
-        "signature": params.signature,
-    })
+    return await _post(
+        url,
+        {
+            "agentId": params.agent_id,
+            "wallet": params.wallet,
+            "challenge": params.challenge,
+            "signature": params.signature,
+        },
+    )
 
 
 @dataclass

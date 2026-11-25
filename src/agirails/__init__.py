@@ -327,6 +327,7 @@ try:
         ServiceDescriptor,
         compute_service_type_hash,
     )
+
     HAS_WEB3_PROTOCOL = True
 except ImportError:
     HAS_WEB3_PROTOCOL = False

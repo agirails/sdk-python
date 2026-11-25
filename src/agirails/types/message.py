@@ -180,10 +180,11 @@ class DeliveryProofMetadata(TypedDict, total=False):
     This is stored separately from the signed message.
     Matches TS SDK: sdk-js/src/types/message.ts DeliveryProofMessage.metadata
     """
+
     execution_time: int  # executionTime in TS (seconds)
-    output_format: str   # outputFormat in TS (MIME type)
-    output_size: int     # outputSize in TS (bytes)
-    notes: str           # Max 500 chars
+    output_format: str  # outputFormat in TS (MIME type)
+    output_size: int  # outputSize in TS (bytes)
+    notes: str  # Max 500 chars
 
 
 @dataclass
@@ -612,6 +613,7 @@ def _get_keccak256() -> Any:
     """
     try:
         from eth_hash.auto import keccak
+
         return keccak
     except ImportError:
         raise ImportError(
@@ -696,7 +698,9 @@ def create_output_hash(output_data: Any) -> str:
     return create_input_hash(output_data)
 
 
-def _verification_type_definition(message_type: str, message: dict[str, Any]) -> list[dict[str, str]]:
+def _verification_type_definition(
+    message_type: str, message: dict[str, Any]
+) -> list[dict[str, str]]:
     if not isinstance(message, dict):
         return []
     if message_type != DeliveryProof.TYPE_NAME:

@@ -46,11 +46,11 @@ def is_valid_arweave_tx_id(tx_id: str) -> bool:
 # ============================================================================
 
 IrysCurrency = Literal[
-    "base-eth",      # RECOMMENDED: Base ETH (native to AGIRAILS)
-    "ethereum",      # Ethereum mainnet ETH
-    "matic",         # Polygon MATIC
-    "arbitrum",      # Arbitrum ETH
-    "usdc-eth",      # USDC on Ethereum
+    "base-eth",  # RECOMMENDED: Base ETH (native to AGIRAILS)
+    "ethereum",  # Ethereum mainnet ETH
+    "matic",  # Polygon MATIC
+    "arbitrum",  # Arbitrum ETH
+    "usdc-eth",  # USDC on Ethereum
     "usdc-polygon",  # USDC on Polygon
 ]
 """Supported Irys payment tokens.
@@ -65,6 +65,7 @@ IrysNetwork = Literal["mainnet", "devnet"]
 # ============================================================================
 # Circuit Breaker Configuration
 # ============================================================================
+
 
 class CircuitBreakerConfig(BaseModel):
     """
@@ -105,6 +106,7 @@ class CircuitBreakerConfig(BaseModel):
 # ============================================================================
 # Filebase Configuration
 # ============================================================================
+
 
 class FilebaseConfig(BaseModel):
     """
@@ -165,6 +167,7 @@ class FilebaseConfig(BaseModel):
 # ============================================================================
 # Arweave Configuration
 # ============================================================================
+
 
 class ArweaveConfig(BaseModel):
     """
@@ -445,6 +448,7 @@ class ArchiveBundle(BaseModel):
 # Upload/Download Results
 # ============================================================================
 
+
 class IPFSUploadResult(BaseModel):
     """Result of uploading to IPFS."""
 
@@ -512,6 +516,7 @@ class DownloadResult(BaseModel):
 # ============================================================================
 # Irys Tags
 # ============================================================================
+
 
 class ArchiveTags(TypedDict):
     """Arweave/Irys tags for archive bundles."""

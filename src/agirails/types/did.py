@@ -40,9 +40,7 @@ class DIDNetwork(Enum):
 
 
 # DID pattern: did:<method>:<network>:<identifier>
-DID_PATTERN = re.compile(
-    r"^did:([a-z]+):([a-z0-9-]+):([a-zA-Z0-9]+)$"
-)
+DID_PATTERN = re.compile(r"^did:([a-z]+):([a-z0-9-]+):([a-zA-Z0-9]+)$")
 
 
 @dataclass

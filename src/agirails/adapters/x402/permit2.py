@@ -309,12 +309,8 @@ def read_permit2_allowance_is_set(
     if read_provider is None:
         return False
 
-    owner_word = bytes.fromhex(
-        to_checksum_address(owner)[2:].lower()
-    ).rjust(32, b"\x00")
-    spender_word = bytes.fromhex(
-        to_checksum_address(spender)[2:].lower()
-    ).rjust(32, b"\x00")
+    owner_word = bytes.fromhex(to_checksum_address(owner)[2:].lower()).rjust(32, b"\x00")
+    spender_word = bytes.fromhex(to_checksum_address(spender)[2:].lower()).rjust(32, b"\x00")
     data = "0x" + (_ALLOWANCE_SELECTOR + owner_word + spender_word).hex()
     to_addr = to_checksum_address(token)
 

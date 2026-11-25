@@ -233,9 +233,7 @@ class EvaluateResponseError(EvaluatorClientError):
 # ---------------------------------------------------------------------------
 
 
-def select_third_evaluator(
-    dispute_id: str, rotating_pool: Sequence[str]
-) -> Optional[str]:
+def select_third_evaluator(dispute_id: str, rotating_pool: Sequence[str]) -> Optional[str]:
     """Select the rotating third evaluator for a dispute (§4.7 step 4).
 
     ``rotatingPool[uint256(keccak256(abi.encode(disputeId))) % len]``. ``abi.encode``
@@ -345,8 +343,7 @@ class EvaluatorClient:
             raise EvaluatorClientError("EvaluatorClient requires a base_url string.")
         if config.payment_client is None or not hasattr(config.payment_client, "pay"):
             raise EvaluatorClientError(
-                "EvaluatorClient requires a payment_client with a pay() method "
-                "(e.g. X402Adapter)."
+                "EvaluatorClient requires a payment_client with a pay() method (e.g. X402Adapter)."
             )
         self._base_url = config.base_url.rstrip("/")
         self._payment_client = config.payment_client
@@ -357,9 +354,7 @@ class EvaluatorClient:
     def base_url(self) -> str:
         return self._base_url
 
-    async def request_evaluation(
-        self, params: RequestEvaluationParams
-    ) -> EvaluationResult:
+    async def request_evaluation(self, params: RequestEvaluationParams) -> EvaluationResult:
         """Run the full STEP 0→5 evaluator handshake for an evidence bundle.
 
         Returns either signed-and-§4.7-verified ruling(s) or a ``proposeDirectly``
@@ -512,7 +507,9 @@ class EvaluatorClient:
             raise QuoteRejectedError(402, None, "quote body missing disputeNonce")
         return quote
 
-    async def _pay_and_evaluate(self, evaluate_body: Dict[str, Any], accepted_quote: Mapping[str, str]) -> Any:
+    async def _pay_and_evaluate(
+        self, evaluate_body: Dict[str, Any], accepted_quote: Mapping[str, str]
+    ) -> Any:
         """STEP 2: pay the quote and POST ``/evaluate`` via the existing x402 buyer stack.
 
         The :class:`EvaluatorPaymentClient` ``pay()`` posts the body, transparently
@@ -521,7 +518,9 @@ class EvaluatorClient:
         """
         body = json.dumps(evaluate_body)
         params = _EvaluatePayParams(
-            method="POST", body=body, headers={"content-type": "application/json", "accept": "application/json"},
+            method="POST",
+            body=body,
+            headers={"content-type": "application/json", "accept": "application/json"},
             accepted_quote=accepted_quote,
             to=f"{self._base_url}/evaluate",
             http_method="POST",
@@ -555,10 +554,7 @@ class EvaluatorClient:
             )
         # OQ-10: the returned bundleHash MUST equal the one we declared.
         resp_hash = body.get("bundleHash")
-        if (
-            not isinstance(resp_hash, str)
-            or resp_hash.lower() != expected_bundle_hash.lower()
-        ):
+        if not isinstance(resp_hash, str) or resp_hash.lower() != expected_bundle_hash.lower():
             raise EvaluateResponseError(
                 f"bundleHash mismatch: response {resp_hash} != declared {expected_bundle_hash}"
             )
@@ -566,18 +562,13 @@ class EvaluatorClient:
             ruling = body.get("ruling")
             if (
                 not isinstance(ruling, dict)
-                or str(ruling.get("bundleHash", "")).lower()
-                != expected_bundle_hash.lower()
+                or str(ruling.get("bundleHash", "")).lower() != expected_bundle_hash.lower()
             ):
-                raise EvaluateResponseError(
-                    "signed ruling.bundleHash != declared bundleHash"
-                )
+                raise EvaluateResponseError("signed ruling.bundleHash != declared bundleHash")
             if not isinstance(body.get("signatures"), list):
                 raise EvaluateResponseError("signed response missing signatures[]")
         elif not isinstance(body.get("recommendation"), dict):
-            raise EvaluateResponseError(
-                "proposeDirectly response missing recommendation"
-            )
+            raise EvaluateResponseError("proposeDirectly response missing recommendation")
         return body
 
     @staticmethod
@@ -629,7 +620,6 @@ class _EvaluatePayParams(X402PayParams):
     """
 
 
-
 def _to_bytes32(value: Union[str, bytes]) -> bytes:
     """Coerce a bytes32hex string (or bytes) to exactly 32 bytes."""
     if isinstance(value, bytes):
@@ -672,6 +662,4 @@ async def _default_http_post(
     import httpx  # local import — keeps httpx optional for pure-verification use
 
     async with httpx.AsyncClient() as client:
-        return await client.request(
-            method, url, headers=headers or {}, content=body
-        )
+        return await client.request(method, url, headers=headers or {}, content=body)

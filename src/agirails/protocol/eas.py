@@ -178,7 +178,9 @@ DELIVERY_SCHEMA_AIP4_LEGACY = (
 
 # Legacy Python-only AIP-4 schema (backwards compat for Python-emitted attestations only;
 # NO TS twin — kept so attestations produced by create_delivery_attestation_aip4() still decode)
-DELIVERY_SCHEMA_AIP4 = "bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp"
+DELIVERY_SCHEMA_AIP4 = (
+    "bytes32 transactionId, bytes32 outputHash, address provider, uint64 timestamp"
+)
 
 # Default to AIP-6 for new registrations
 DELIVERY_SCHEMA = DELIVERY_SCHEMA_AIP6

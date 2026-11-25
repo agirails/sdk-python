@@ -261,7 +261,11 @@ class EscrowVault(ContractBase):
         )
 
         return cls(
-            escrow_contract, usdc_contract, account, w3, config.chain_id,
+            escrow_contract,
+            usdc_contract,
+            account,
+            w3,
+            config.chain_id,
             nonce_manager=nonce_manager,
         )
 
@@ -598,7 +602,6 @@ class EscrowVault(ContractBase):
     async def get_kernel_address(self) -> str:
         """Get the ACTPKernel address linked to the vault."""
         return await self.contract.functions.kernel().call()
-
 
 
 def generate_escrow_id(

@@ -72,9 +72,7 @@ def create_app(
         }
 
     @app.post("/quote-channel/{chain_id}/{tx_id}")
-    async def quote_channel(
-        chain_id: int, tx_id: str, request: Request
-    ) -> Any:
+    async def quote_channel(chain_id: int, tx_id: str, request: Request) -> Any:
         try:
             payload = await request.json()
         except Exception:
@@ -117,10 +115,7 @@ def create_app(
                     f"→ {verdict.action.value}: {verdict.reason}"
                 )
             except Exception as exc:
-                _logger.warn(
-                    f"[counter] tx={tx_id[:12]}… "
-                    f"policy eval failed: {exc}"
-                )
+                _logger.warn(f"[counter] tx={tx_id[:12]}… policy eval failed: {exc}")
                 body["verdict_error"] = str(exc)
 
         return JSONResponse(status_code=result.status, content=body)

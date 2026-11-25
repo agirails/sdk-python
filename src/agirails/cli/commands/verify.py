@@ -116,11 +116,7 @@ class VerifyResult:
                 "cid": out["ipfs"]["cid"],
             },
             "trustTier": out["trust_tier"],
-            **(
-                {"reputation": out["reputation"]}
-                if out["reputation"] is not None
-                else {}
-            ),
+            **({"reputation": out["reputation"]} if out["reputation"] is not None else {}),
         }
 
 
@@ -130,9 +126,7 @@ class VerifyResult:
 
 
 def verify(
-    source: Optional[str] = typer.Argument(
-        None, help="File path, URL, or '-' for stdin."
-    ),
+    source: Optional[str] = typer.Argument(None, help="File path, URL, or '-' for stdin."),
     network: str = typer.Option(
         "base-sepolia",
         "-n",
@@ -148,12 +142,8 @@ def verify(
     reputation: bool = typer.Option(
         False, "--reputation", help="Also fetch + display reputation data."
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit machine-readable JSON."
-    ),
-    quiet: bool = typer.Option(
-        False, "-q", "--quiet", help="Minimal output; exit code only."
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Minimal output; exit code only."),
 ) -> None:
     """Verify an agent identity file against on-chain state."""
     try:
@@ -190,9 +180,7 @@ async def _run(
     # 1. Read input.
     content = await _read_content(source)
     if not content:
-        print_error(
-            "No input provided. Usage: actp verify <file> or pipe from stdin."
-        )
+        print_error("No input provided. Usage: actp verify <file> or pipe from stdin.")
         return 2
 
     # 2. Parse frontmatter.
@@ -224,9 +212,7 @@ async def _run(
             net_cfg = get_network(network)
             if not net_cfg.contracts.agent_registry:
                 if not quiet and not json_output:
-                    print_warning(
-                        "AgentRegistry not deployed on this network"
-                    )
+                    print_warning("AgentRegistry not deployed on this network")
             else:
                 on_chain_state = get_on_chain_config_state(
                     address=effective_address, network=network
@@ -266,13 +252,10 @@ async def _run(
                         if not quiet and not json_output:
                             if result.ipfs.match:
                                 print_success(
-                                    f"IPFS CID: {on_chain_state.config_cid[:16]}… "
-                                    "(content matches)"
+                                    f"IPFS CID: {on_chain_state.config_cid[:16]}… (content matches)"
                                 )
                             else:
-                                print_warning(
-                                    "IPFS content hash differs from local"
-                                )
+                                print_warning("IPFS content hash differs from local")
                     elif not quiet and not json_output:
                         print_warning("IPFS fetch failed (gateways unavailable)")
         except OnChainStateError as exc:
@@ -311,9 +294,7 @@ async def _run(
         print_json(result.to_dict())
     elif not quiet:
         print_info("")
-        print_info(
-            f"  Agent: {name} ({slug}) | Trust: {result.trust_tier}"
-        )
+        print_info(f"  Agent: {name} ({slug}) | Trust: {result.trust_tier}")
 
     return 0 if result.valid else 1
 
@@ -344,9 +325,7 @@ async def _read_content(source: Optional[str]) -> Optional[str]:
     raise FileNotFoundError(f"File not found: {source}")
 
 
-def _resolve_address(
-    wallet_field: Any, override: Optional[str]
-) -> Optional[str]:
+def _resolve_address(wallet_field: Any, override: Optional[str]) -> Optional[str]:
     """Pick the agent address: --address override > frontmatter wallet > None."""
     if override:
         if not _HEX_ADDRESS.match(override):
@@ -372,9 +351,7 @@ async def _fetch_ipfs(cid: str) -> Optional[str]:
 
 def _reputation_url(content: str, slug: str) -> str:
     """Extract check_reputation URL from frontmatter or fall back to default."""
-    match = re.search(
-        r"check_reputation:\s*[\"']?([^\s\"']+)", content
-    )
+    match = re.search(r"check_reputation:\s*[\"']?([^\s\"']+)", content)
     if match:
         return match.group(1)
     return f"https://agirails.app/a/{slug}/{slug}.reputation.json"

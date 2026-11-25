@@ -31,19 +31,13 @@ from agirails.wallet.auto_wallet_provider import TransactionRequest
 # Function selectors (matches transaction_batcher.py for consistency)
 # ============================================================================
 
-_TRANSITION_STATE_SELECTOR = Web3.keccak(
-    text="transitionState(bytes32,uint8,bytes)"
-)[:4].hex()
+_TRANSITION_STATE_SELECTOR = Web3.keccak(text="transitionState(bytes32,uint8,bytes)")[:4].hex()
 
-_LINK_ESCROW_SELECTOR = Web3.keccak(
-    text="linkEscrow(bytes32,address,bytes32)"
-)[:4].hex()
+_LINK_ESCROW_SELECTOR = Web3.keccak(text="linkEscrow(bytes32,address,bytes32)")[:4].hex()
 
 _APPROVE_SELECTOR = Web3.keccak(text="approve(address,uint256)")[:4].hex()
 
-_ACCEPT_QUOTE_SELECTOR = Web3.keccak(
-    text="acceptQuote(bytes32,uint256)"
-)[:4].hex()
+_ACCEPT_QUOTE_SELECTOR = Web3.keccak(text="acceptQuote(bytes32,uint256)")[:4].hex()
 
 
 # Threshold to distinguish duration vs absolute-timestamp dispute windows.
@@ -75,9 +69,7 @@ def _bytes32_to_bytes(value: str) -> bytes:
     """Convert 0x-prefixed bytes32 hex string to raw 32 bytes."""
     hex_str = value.replace("0x", "")
     if len(hex_str) != 64:
-        raise ValueError(
-            f"Expected bytes32 (64 hex chars), got {len(hex_str)}: {value}"
-        )
+        raise ValueError(f"Expected bytes32 (64 hex chars), got {len(hex_str)}: {value}")
     return bytes.fromhex(hex_str)
 
 
@@ -91,9 +83,7 @@ def _state_to_int(state: Union[int, str]) -> int:
     return _STATE_NAME_TO_INT[upper]
 
 
-def compute_dispute_window_ends(
-    completed_at: int, dispute_window: int
-) -> int:
+def compute_dispute_window_ends(completed_at: int, dispute_window: int) -> int:
     """Compute absolute end-time of the dispute window.
 
     Handles both representations transparently:
@@ -202,9 +192,7 @@ class SmartWalletRouter:
         """Encode ``ACTPKernel.transitionState(txId, SETTLED, 0x)``."""
         return self.encode_transition_state_tx(tx_id, "SETTLED", "0x")
 
-    def encode_accept_quote_tx(
-        self, tx_id: str, new_amount: str
-    ) -> TransactionRequest:
+    def encode_accept_quote_tx(self, tx_id: str, new_amount: str) -> TransactionRequest:
         """Encode ``ACTPKernel.acceptQuote(txId, newAmount)``."""
         data = (
             "0x"
@@ -250,9 +238,7 @@ class SmartWalletRouter:
 
         return [
             TransactionRequest(to=usdc_address, data=approve_data, value="0"),
-            TransactionRequest(
-                to=self._contracts.actp_kernel, data=link_escrow_data, value="0"
-            ),
+            TransactionRequest(to=self._contracts.actp_kernel, data=link_escrow_data, value="0"),
         ]
 
     # ------------------------------------------------------------------
@@ -276,18 +262,14 @@ class SmartWalletRouter:
     async def send_settle(self, tx_id: str) -> _Receipt:
         return await self.send_transition(tx_id, "SETTLED", "0x", label="release")
 
-    async def send_accept_quote(
-        self, tx_id: str, new_amount: str
-    ) -> _Receipt:
+    async def send_accept_quote(self, tx_id: str, new_amount: str) -> _Receipt:
         tx = self.encode_accept_quote_tx(tx_id, new_amount)
         receipt = await self._wallet_provider.send_transaction(tx)  # type: ignore[attr-defined]
         if not receipt.success:
             raise RuntimeError(f"acceptQuote UserOp failed: {receipt.hash}")
         return _Receipt(hash=receipt.hash, success=True)
 
-    async def send_link_escrow(
-        self, tx_id: str, amount: str, usdc_address: str
-    ) -> _Receipt:
+    async def send_link_escrow(self, tx_id: str, amount: str, usdc_address: str) -> _Receipt:
         """Submit the approve + linkEscrow batch as one UserOp."""
         calls = self.encode_link_escrow_calls(tx_id, amount, usdc_address)
         receipt = await self._wallet_provider.send_batch_transaction(calls)  # type: ignore[attr-defined]
@@ -299,9 +281,7 @@ class SmartWalletRouter:
     # Release preconditions + attestation guard
     # ------------------------------------------------------------------
 
-    async def validate_release_preconditions(
-        self, tx_or_id: Union[str, Any]
-    ) -> Any:
+    async def validate_release_preconditions(self, tx_or_id: Union[str, Any]) -> Any:
         """Check state == DELIVERED and dispute window expiry.
 
         Mock mode: ``dispute_window`` = duration seconds, ``completed_at``

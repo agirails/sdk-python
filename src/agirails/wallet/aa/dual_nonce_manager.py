@@ -135,7 +135,9 @@ class DualNonceManager:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
             pass
-        if self._mutex is None or (current_loop is not None and current_loop is not self._mutex_loop):
+        if self._mutex is None or (
+            current_loop is not None and current_loop is not self._mutex_loop
+        ):
             self._mutex = asyncio.Lock()
             self._mutex_loop = current_loop
         return self._mutex
@@ -205,9 +207,7 @@ class DualNonceManager:
             address=Web3.to_checksum_address(ENTRYPOINT_V06),
             abi=ENTRYPOINT_NONCE_ABI,
         )
-        return await asyncio.to_thread(
-            entry_point.functions.getNonce(self._sender_address, 0).call
-        )
+        return await asyncio.to_thread(entry_point.functions.getNonce(self._sender_address, 0).call)
 
     # Backwards-compatible private alias (existing callers used the underscore name).
     async def _read_entry_point_nonce(self) -> int:
@@ -255,12 +255,8 @@ class DualNonceManager:
                 "from events (older deployment?)"
             )
             try:
-                latest_block = await asyncio.to_thread(
-                    lambda: self._w3.eth.block_number
-                )
-                deployment_block = await self._find_contract_deployment_block(
-                    latest_block
-                )
+                latest_block = await asyncio.to_thread(lambda: self._w3.eth.block_number)
+                deployment_block = await self._find_contract_deployment_block(latest_block)
                 events = await self._count_requester_transaction_created_events(
                     deployment_block, latest_block
                 )
@@ -312,9 +308,7 @@ class DualNonceManager:
         """
 
         async def get_code(block: int) -> bytes:
-            return await asyncio.to_thread(
-                self._w3.eth.get_code, self._actp_kernel_address, block
-            )
+            return await asyncio.to_thread(self._w3.eth.get_code, self._actp_kernel_address, block)
 
         def has_code(code: bytes) -> bool:
             return code not in (b"", b"\x00")
@@ -351,9 +345,7 @@ class DualNonceManager:
 
         code_at_latest = await get_code(latest_block)
         if not has_code(code_at_latest):
-            raise RuntimeError(
-                f"ACTPKernel has no code at latest block {latest_block}"
-            )
+            raise RuntimeError(f"ACTPKernel has no code at latest block {latest_block}")
 
         low = 0
         high = latest_block
@@ -381,9 +373,7 @@ class DualNonceManager:
         (DualNonceManager.ts:300-341).
         """
         # Zero-padded 32-byte address topic, lowercase (matches ethers.zeroPadValue).
-        requester_topic = (
-            "0x" + self._sender_address.lower().replace("0x", "").rjust(64, "0")
-        )
+        requester_topic = "0x" + self._sender_address.lower().replace("0x", "").rjust(64, "0")
         logs: List[Any] = []
 
         cursor = from_block

@@ -43,6 +43,7 @@ from agirails.server.quote_channel import (
     build_channel_path,
 )
 
+
 def __getattr__(name):
     """Lazy-import ``create_app`` so ``agirails.server`` is importable
     without the optional ``[server]`` extra (FastAPI). The factory
@@ -51,6 +52,7 @@ def __getattr__(name):
     """
     if name == "create_app":
         from agirails.server.app import create_app as _create_app
+
         return _create_app
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

@@ -194,9 +194,7 @@ class ProofGenerator:
         max_size = cfg.max_size if cfg.max_size is not None else _DEFAULT_MAX_SIZE
         timeout = cfg.timeout if cfg.timeout is not None else _DEFAULT_TIMEOUT
         blocked = (
-            tuple(cfg.blocked_hosts)
-            if cfg.blocked_hosts is not None
-            else _DEFAULT_BLOCKED_HOSTS
+            tuple(cfg.blocked_hosts) if cfg.blocked_hosts is not None else _DEFAULT_BLOCKED_HOSTS
         )
 
         # If localhost is explicitly allowed, drop localhost-class hosts from the
@@ -358,9 +356,7 @@ class ProofGenerator:
             return "0x" + "0" * 64, [[]]
 
         # Normalize leaves
-        normalized = [
-            leaf if leaf.startswith("0x") else "0x" + leaf for leaf in leaves
-        ]
+        normalized = [leaf if leaf.startswith("0x") else "0x" + leaf for leaf in leaves]
 
         # Pad to power of 2
         while len(normalized) & (len(normalized) - 1) != 0:
@@ -531,11 +527,11 @@ class ProofGenerator:
         from eth_abi import decode
 
         if isinstance(proof_data, str):
-            proof_data = bytes.fromhex(proof_data[2:] if proof_data.startswith("0x") else proof_data)
+            proof_data = bytes.fromhex(
+                proof_data[2:] if proof_data.startswith("0x") else proof_data
+            )
 
-        tx_id, content_hash, timestamp = decode(
-            ["bytes32", "bytes32", "uint256"], proof_data
-        )
+        tx_id, content_hash, timestamp = decode(["bytes32", "bytes32", "uint256"], proof_data)
 
         return {
             "txId": "0x" + tx_id.hex(),
@@ -543,9 +539,7 @@ class ProofGenerator:
             "timestamp": int(timestamp),
         }
 
-    def verify_deliverable(
-        self, deliverable: Union[str, bytes], expected_hash: str
-    ) -> bool:
+    def verify_deliverable(self, deliverable: Union[str, bytes], expected_hash: str) -> bool:
         """
         Verify a deliverable matches an expected keccak256 content hash.
 
@@ -632,9 +626,7 @@ class ProofGenerator:
 
                     return self._hash_content_keccak(b"".join(chunks))
         except httpx.TimeoutException as exc:
-            raise ValueError(
-                f"Request timed out after {self._url_timeout}s for {url}"
-            ) from exc
+            raise ValueError(f"Request timed out after {self._url_timeout}s for {url}") from exc
         except ValueError:
             raise
         except Exception as exc:  # pragma: no cover - network failure modes

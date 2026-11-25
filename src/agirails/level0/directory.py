@@ -257,9 +257,7 @@ class ServiceDirectory:
             List of matching ServiceEntry objects
         """
         with self._lock:
-            return [
-                entry for entry in self._services.values() if query.matches(entry)
-            ]
+            return [entry for entry in self._services.values() if query.matches(entry)]
 
     def find_by_capability(self, capability: str) -> List[ServiceEntry]:
         """

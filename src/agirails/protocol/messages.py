@@ -264,8 +264,7 @@ class MessageSigner:
     ) -> None:
         if not HAS_ETH_ACCOUNT:
             raise ImportError(
-                "eth_account is required for MessageSigner. "
-                "Install with: pip install eth-account"
+                "eth_account is required for MessageSigner. Install with: pip install eth-account"
             )
 
         # Normalize private key
@@ -740,7 +739,7 @@ class MessageSigner:
         """
         did_prefix = "did:ethr:"
         if did.startswith(did_prefix):
-            remainder = did[len(did_prefix):]
+            remainder = did[len(did_prefix) :]
             parts = remainder.split(":")
             if len(parts) == 2:
                 chain_id_str, address = parts
@@ -768,8 +767,7 @@ class MessageSigner:
             return did
 
         raise ValueError(
-            f"Invalid DID format: {did}. Expected Ethereum address (0x...) "
-            f"or DID (did:ethr:...)."
+            f"Invalid DID format: {did}. Expected Ethereum address (0x...) or DID (did:ethr:...)."
         )
 
     def address_to_did(self, address: str) -> str:

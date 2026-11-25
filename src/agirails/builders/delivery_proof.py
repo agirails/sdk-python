@@ -29,6 +29,7 @@ from agirails.utils.canonical_json import canonical_json_dumps as canonical_json
 # Try to import keccak for proper hashing
 try:
     from eth_hash.auto import keccak as keccak256
+
     HAS_KECCAK = True
 except ImportError:
     HAS_KECCAK = False
@@ -564,11 +565,13 @@ class BatchDeliveryProofBuilder:
         Returns:
             Self for chaining
         """
-        self._deliveries.append({
-            "transaction_id": transaction_id,
-            "output": output,
-            "metadata": metadata or {},
-        })
+        self._deliveries.append(
+            {
+                "transaction_id": transaction_id,
+                "output": output,
+                "metadata": metadata or {},
+            }
+        )
         return self
 
     def build_all(self) -> List[DeliveryProof]:

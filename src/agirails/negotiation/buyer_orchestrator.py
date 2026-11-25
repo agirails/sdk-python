@@ -275,7 +275,13 @@ class BuyerOrchestrator:
         # Convert dict weights to ScoringWeights if needed
         weights = policy.selection.weights
         if isinstance(weights, dict):
-            weights = ScoringWeights(**{k: v for k, v in weights.items() if k in ("quality", "price", "speed", "reliability")})
+            weights = ScoringWeights(
+                **{
+                    k: v
+                    for k, v in weights.items()
+                    if k in ("quality", "price", "speed", "reliability")
+                }
+            )
         self._decision_engine = DecisionEngine(weights)
         self._session_store = SessionStore(actp_dir)
         self._negotiation = negotiation
@@ -291,16 +297,12 @@ class BuyerOrchestrator:
         # the legacy top-level ``decide_quote`` kwarg (back-compat). Mirrors TS
         # BuyerOrchestrator.ts:199-201.
         effective_decider = (
-            negotiation.decide_quote
-            if negotiation.decide_quote is not None
-            else decide_quote
+            negotiation.decide_quote if negotiation.decide_quote is not None else decide_quote
         )
         self._decider: BuyerQuoteDecider = (
             effective_decider
             if effective_decider is not None
-            else (
-                lambda q, p, r: self._decision_engine.evaluate_quote(q, p, r)
-            )
+            else (lambda q, p, r: self._decision_engine.evaluate_quote(q, p, r))
         )
 
         # Counter builder is only wired when a signer is present.
@@ -366,9 +368,7 @@ class BuyerOrchestrator:
             fut: asyncio.Future[NegotiationMessage] = loop.create_future()
             self._inbound_resolvers[tx_id] = fut
             try:
-                msg = await asyncio.wait_for(
-                    asyncio.shield(fut), timeout=timeout_ms / 1000.0
-                )
+                msg = await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_ms / 1000.0)
             except asyncio.TimeoutError:
                 if self._inbound_resolvers.get(tx_id) is fut:
                     self._inbound_resolvers.pop(tx_id, None)
@@ -391,9 +391,7 @@ class BuyerOrchestrator:
             self._inbound_queues[tx_id] = q
             # loop: re-register resolver for the next message.
 
-    async def negotiate(
-        self, config: Optional[OrchestratorConfig] = None
-    ) -> NegotiationResult:
+    async def negotiate(self, config: Optional[OrchestratorConfig] = None) -> NegotiationResult:
         """Execute the full negotiation flow."""
         if config is None:
             config = OrchestratorConfig()
@@ -411,9 +409,7 @@ class BuyerOrchestrator:
             # Guarantee session reaches terminal status on any uncaught throw
             current_session = self._session_store.get(session.commerce_session_id)
             if current_session and current_session.status == "active":
-                self._session_store.update_status(
-                    session.commerce_session_id, "failed"
-                )
+                self._session_store.update_status(session.commerce_session_id, "failed")
             raise
 
     async def _negotiate(
@@ -459,9 +455,7 @@ class BuyerOrchestrator:
 
         if len(discovered.agents) == 0:
             emit(CompleteEvent(success=False, reason="No candidates found"))
-            self._session_store.update_status(
-                session.commerce_session_id, "failed"
-            )
+            self._session_store.update_status(session.commerce_session_id, "failed")
             return NegotiationResult(
                 success=False,
                 commerce_session_id=session.commerce_session_id,
@@ -479,14 +473,8 @@ class BuyerOrchestrator:
         emit(ScoringEvent(ranked=len(ranked)))
 
         if len(ranked) == 0:
-            emit(
-                CompleteEvent(
-                    success=False, reason="No candidates within budget"
-                )
-            )
-            self._session_store.update_status(
-                session.commerce_session_id, "failed"
-            )
+            emit(CompleteEvent(success=False, reason="No candidates within budget"))
+            self._session_store.update_status(session.commerce_session_id, "failed")
             return NegotiationResult(
                 success=False,
                 commerce_session_id=session.commerce_session_id,
@@ -497,9 +485,7 @@ class BuyerOrchestrator:
 
         # Dry-run: return ranked candidates without creating transactions
         if config.dry_run:
-            self._session_store.update_status(
-                session.commerce_session_id, "completed"
-            )
+            self._session_store.update_status(session.commerce_session_id, "completed")
             emit(CompleteEvent(success=True, reason="Dry run complete"))
             return NegotiationResult(
                 success=True,
@@ -510,9 +496,7 @@ class BuyerOrchestrator:
                     RoundResult(
                         round=i + 1,
                         provider_slug=c.slug,
-                        provider_address=self._find_agent_address(
-                            discovered.agents, c.slug
-                        ),
+                        provider_address=self._find_agent_address(discovered.agents, c.slug),
                         action="accepted",
                         reason=f"Score: {c.score:.3f}",
                     )
@@ -522,9 +506,7 @@ class BuyerOrchestrator:
 
         # 3. Try candidates up to rounds_max
         max_rounds = min(self._policy.negotiation.rounds_max, len(ranked))
-        quote_ttl_seconds = PolicyEngine.parse_ttl(
-            self._policy.negotiation.quote_ttl
-        )
+        quote_ttl_seconds = PolicyEngine.parse_ttl(self._policy.negotiation.quote_ttl)
 
         # Price tracking for deadlock detection (PRD-5B)
         price_history: List[float] = []
@@ -532,30 +514,18 @@ class BuyerOrchestrator:
 
         for round_idx in range(max_rounds):
             candidate = ranked[round_idx]
-            provider_address = self._find_agent_address(
-                discovered.agents, candidate.slug
-            )
+            provider_address = self._find_agent_address(discovered.agents, candidate.slug)
 
-            emit(
-                RoundStartEvent(
-                    round=round_idx + 1, provider=candidate.slug
-                )
-            )
-            self._session_store.record_attempt(
-                session.commerce_session_id, candidate.slug
-            )
+            emit(RoundStartEvent(round=round_idx + 1, provider=candidate.slug))
+            self._session_store.record_attempt(session.commerce_session_id, candidate.slug)
 
             # 3a. Pre-validate with PolicyEngine
             offer = QuoteOffer(
                 provider=candidate.slug,
-                unit_price=self._find_agent_price(
-                    discovered.agents, candidate.slug
-                ),
+                unit_price=self._find_agent_price(discovered.agents, candidate.slug),
                 currency=self._policy.constraints.max_unit_price.currency,
                 unit=self._policy.constraints.max_unit_price.unit,
-                reputation_score=self._find_agent_reputation(
-                    discovered.agents, candidate.slug
-                ),
+                reputation_score=self._find_agent_reputation(discovered.agents, candidate.slug),
                 commerce_session_id=session.commerce_session_id,
                 expires_at=int(time.time()) + quote_ttl_seconds,
                 final_offer=deadlock_detected,
@@ -563,9 +533,7 @@ class BuyerOrchestrator:
 
             validation = self._policy_engine.validate(offer)
             if not validation.allowed:
-                reason = "; ".join(
-                    f"{v.rule}: {v.detail}" for v in validation.violations
-                )
+                reason = "; ".join(f"{v.rule}: {v.detail}" for v in validation.violations)
                 rounds.append(
                     RoundResult(
                         round=round_idx + 1,
@@ -649,11 +617,7 @@ class BuyerOrchestrator:
                         reason=f"createTransaction failed: {reason}",
                     )
                 )
-                emit(
-                    RoundEndEvent(
-                        round=round_idx + 1, action="error", reason=reason
-                    )
-                )
+                emit(RoundEndEvent(round=round_idx + 1, action="error", reason=reason))
                 continue
 
             # Open negotiation channel subscription for this txId. All inbound
@@ -667,17 +631,11 @@ class BuyerOrchestrator:
                 def _cb(delivered: DeliveredMessage, _tx: str = captured_tx) -> None:
                     self._on_channel_message(_tx, delivered)
 
-                sub = self._negotiation.negotiation_channel.subscribe_tx_id(
-                    tx_id, _cb
-                )
+                sub = self._negotiation.negotiation_channel.subscribe_tx_id(tx_id, _cb)
                 self._active_subscriptions[tx_id] = sub
 
             # 3c. Wait for quote or direct commit (ACTP allows INITIATED -> COMMITTED fast path)
-            emit(
-                WaitingQuoteEvent(
-                    tx_id=tx_id, ttl_seconds=quote_ttl_seconds
-                )
-            )
+            emit(WaitingQuoteEvent(tx_id=tx_id, ttl_seconds=quote_ttl_seconds))
 
             reached_state = await self._wait_for_state(
                 tx_id,
@@ -722,7 +680,11 @@ class BuyerOrchestrator:
             try:
                 quoted_tx = await self._runtime.get_transaction(tx_id)
                 if quoted_tx and hasattr(quoted_tx, "amount") and quoted_tx.amount is not None:
-                    raw_amount = float(quoted_tx.amount) if isinstance(quoted_tx.amount, str) else float(quoted_tx.amount)
+                    raw_amount = (
+                        float(quoted_tx.amount)
+                        if isinstance(quoted_tx.amount, str)
+                        else float(quoted_tx.amount)
+                    )
                     quoted_price = raw_amount / 1_000_000  # Convert base units to USDC
                     price_history.append(quoted_price)
 
@@ -739,10 +701,7 @@ class BuyerOrchestrator:
             # 'QUOTED' — the COMMITTED fast-path below bypasses negotiation
             # entirely because the provider already locked the deal at buyer's
             # offered amount. Mirror of TS BuyerOrchestrator.ts:534-568.
-            if (
-                reached_state == "QUOTED"
-                and self._negotiation.negotiation_channel is not None
-            ):
+            if reached_state == "QUOTED" and self._negotiation.negotiation_channel is not None:
                 neg_done, neg_success, neg_reason = await self._run_negotiation_round(
                     tx_id=tx_id,
                     candidate_slug=candidate.slug,
@@ -810,16 +769,8 @@ class BuyerOrchestrator:
                     )
                 )
 
-                emit(
-                    RoundEndEvent(
-                        round=round_idx + 1, action="accepted", reason=reason
-                    )
-                )
-                emit(
-                    CompleteEvent(
-                        success=True, reason="Negotiation complete"
-                    )
-                )
+                emit(RoundEndEvent(round=round_idx + 1, action="accepted", reason=reason))
+                emit(CompleteEvent(success=True, reason="Negotiation complete"))
 
                 # COMMITTED fast-path bypassed _run_negotiation_round (the usual
                 # cleanup site) — drop any stashed channel state so daemon
@@ -865,16 +816,8 @@ class BuyerOrchestrator:
                     )
                 )
 
-                emit(
-                    RoundEndEvent(
-                        round=round_idx + 1, action="accepted", reason=reason
-                    )
-                )
-                emit(
-                    CompleteEvent(
-                        success=True, reason="Negotiation complete"
-                    )
-                )
+                emit(RoundEndEvent(round=round_idx + 1, action="accepted", reason=reason))
+                emit(CompleteEvent(success=True, reason="Negotiation complete"))
 
                 # Symmetric to the COMMITTED fast-path above — this success exit
                 # also bypassed _run_negotiation_round's cleanup site.
@@ -905,24 +848,14 @@ class BuyerOrchestrator:
                         quoted_price=quoted_price,
                     )
                 )
-                emit(
-                    RoundEndEvent(
-                        round=round_idx + 1, action="error", reason=reason
-                    )
-                )
+                emit(RoundEndEvent(round=round_idx + 1, action="error", reason=reason))
                 # Same daemon-leak rationale as the timeout `continue` above.
                 self._cleanup_tx_state(tx_id)
                 continue
 
         # All rounds exhausted
-        self._session_store.update_status(
-            session.commerce_session_id, "failed"
-        )
-        emit(
-            CompleteEvent(
-                success=False, reason="All candidates exhausted"
-            )
-        )
+        self._session_store.update_status(session.commerce_session_id, "failed")
+        emit(CompleteEvent(success=False, reason="All candidates exhausted"))
 
         exhausted_reason = (
             f"All {len(rounds)} candidates exhausted (price deadlock detected)"
@@ -984,9 +917,7 @@ class BuyerOrchestrator:
             self._cleanup_tx_state(tx_id)
             return (False, False, None)
 
-        counter_ttl_sec = getattr(
-            self._policy.negotiation, "counter_response_ttl_seconds", None
-        )
+        counter_ttl_sec = getattr(self._policy.negotiation, "counter_response_ttl_seconds", None)
         if counter_ttl_sec is None:
             counter_ttl_sec = PolicyEngine.parse_ttl(self._policy.negotiation.quote_ttl)
         counter_ttl_ms = counter_ttl_sec * 1000
@@ -1013,9 +944,7 @@ class BuyerOrchestrator:
             if counter_round == 0:
                 on_chain_tx = await self._runtime.get_transaction(tx_id)
                 on_chain_hash = (
-                    getattr(on_chain_tx, "quote_hash", None)
-                    if on_chain_tx is not None
-                    else None
+                    getattr(on_chain_tx, "quote_hash", None) if on_chain_tx is not None else None
                 )
                 if not on_chain_hash:
                     # No anchored quote — fall through to fixed-price.
@@ -1130,9 +1059,7 @@ class BuyerOrchestrator:
                             f"{rounds_budget}, source: {hash_source})"
                         ),
                         tx_id=tx_id,
-                        quoted_price=self._base_units_for_log(
-                            current_quote.quoted_amount
-                        ),
+                        quoted_price=self._base_units_for_log(current_quote.quoted_amount),
                     )
                 )
                 emit(
@@ -1163,13 +1090,10 @@ class BuyerOrchestrator:
 
             # ----- counter -----
             try:
-                signer_addr = (
-                    self._negotiation.signer_address
-                    or _address_from_private_key(self._negotiation.private_key)
+                signer_addr = self._negotiation.signer_address or _address_from_private_key(
+                    self._negotiation.private_key
                 )
-                consumer_did = (
-                    f"did:ethr:{self._negotiation.chain_id}:{signer_addr.lower()}"
-                )
+                consumer_did = f"did:ethr:{self._negotiation.chain_id}:{signer_addr.lower()}"
                 now = int(time.time())
                 # inReplyTo is the canonical hash of the quote we're countering
                 # — recompute on every round (re-quotes have their own hash).
@@ -1189,9 +1113,7 @@ class BuyerOrchestrator:
                     )
                 )
             except Exception as err:
-                reason = (
-                    f"Counter build failed on round {counter_round + 1}: {err}"
-                )
+                reason = f"Counter build failed on round {counter_round + 1}: {err}"
                 rounds.append(
                     RoundResult(
                         round=round_idx + 1,
@@ -1211,9 +1133,7 @@ class BuyerOrchestrator:
                     NegotiationMessage(type=COUNTEROFFER_ENVELOPE, message=counter),
                 )
             except Exception as err:
-                reason = (
-                    f"Counter post failed on round {counter_round + 1}: {err}"
-                )
+                reason = f"Counter post failed on round {counter_round + 1}: {err}"
                 rounds.append(
                     RoundResult(
                         round=round_idx + 1,
@@ -1239,10 +1159,7 @@ class BuyerOrchestrator:
                     await self._transition_state(tx_id, "CANCELLED")
                 except Exception:
                     pass
-                reason = (
-                    f"No response within {counter_ttl_sec}s on round "
-                    f"{counter_round + 1}"
-                )
+                reason = f"No response within {counter_ttl_sec}s on round {counter_round + 1}"
                 rounds.append(
                     RoundResult(
                         round=round_idx + 1,
@@ -1265,9 +1182,7 @@ class BuyerOrchestrator:
                     or accept.inReplyTo != counter_hash
                     or accept.acceptedAmount != counter.counterAmount
                 ):
-                    reason = (
-                        f"CounterAccept binding mismatch on round {counter_round + 1}"
-                    )
+                    reason = f"CounterAccept binding mismatch on round {counter_round + 1}"
                     rounds.append(
                         RoundResult(
                             round=round_idx + 1,
@@ -1278,11 +1193,7 @@ class BuyerOrchestrator:
                             tx_id=tx_id,
                         )
                     )
-                    emit(
-                        RoundEndEvent(
-                            round=round_idx + 1, action="error", reason=reason
-                        )
-                    )
+                    emit(RoundEndEvent(round=round_idx + 1, action="error", reason=reason))
                     return terminate(False, reason)
                 result = await self._commit_at_amount(
                     tx_id,
@@ -1309,9 +1220,7 @@ class BuyerOrchestrator:
             await self._transition_state(tx_id, "CANCELLED")
         except Exception:
             pass
-        reason = (
-            f"Negotiation budget ({rounds_budget} rounds) exhausted without accept"
-        )
+        reason = f"Negotiation budget ({rounds_budget} rounds) exhausted without accept"
         rounds.append(
             RoundResult(
                 round=round_idx + 1,
@@ -1500,15 +1409,11 @@ class BuyerOrchestrator:
 
         return None
 
-    def _map_to_candidate_stats(
-        self, agents: List[DiscoverAgent]
-    ) -> List[CandidateStats]:
+    def _map_to_candidate_stats(self, agents: List[DiscoverAgent]) -> List[CandidateStats]:
         """Map discovered agents to CandidateStats for scoring."""
         results: List[CandidateStats] = []
         for a in agents:
-            if not a.wallet_address or not (
-                a.published_config and a.published_config.pricing
-            ):
+            if not a.wallet_address or not (a.published_config and a.published_config.pricing):
                 continue
 
             pricing_amount = a.published_config.pricing.amount
@@ -1521,32 +1426,24 @@ class BuyerOrchestrator:
                 CandidateStats(
                     slug=a.slug,
                     unit_price=unit_price,
-                    reputation_score=(
-                        a.stats.reputation_score if a.stats else 0.0
-                    ),
+                    reputation_score=(a.stats.reputation_score if a.stats else 0.0),
                     success_rate=a.stats.success_rate if a.stats else 0.0,
                     avg_completion_time_seconds=(
                         a.stats.avg_completion_time_seconds if a.stats else None
                     ),
-                    completed_transactions=(
-                        a.stats.completed_transactions if a.stats else 0
-                    ),
+                    completed_transactions=(a.stats.completed_transactions if a.stats else 0),
                 )
             )
         return results
 
-    def _find_agent_address(
-        self, agents: List[DiscoverAgent], slug: str
-    ) -> str:
+    def _find_agent_address(self, agents: List[DiscoverAgent], slug: str) -> str:
         """Find agent wallet address by slug."""
         for a in agents:
             if a.slug == slug:
                 return a.wallet_address
         return ""
 
-    def _find_agent_price(
-        self, agents: List[DiscoverAgent], slug: str
-    ) -> float:
+    def _find_agent_price(self, agents: List[DiscoverAgent], slug: str) -> float:
         """Find agent unit price by slug."""
         for a in agents:
             if a.slug == slug:
@@ -1559,9 +1456,7 @@ class BuyerOrchestrator:
                 return 0.0
         return 0.0
 
-    def _find_agent_reputation(
-        self, agents: List[DiscoverAgent], slug: str
-    ) -> Optional[float]:
+    def _find_agent_reputation(self, agents: List[DiscoverAgent], slug: str) -> Optional[float]:
         """Find agent reputation score by slug."""
         for a in agents:
             if a.slug == slug:
@@ -1684,9 +1579,7 @@ class BuyerOrchestrator:
         if self._agent_registry is None:
             return (True, None)
         try:
-            descriptors = await self._agent_registry.get_service_descriptors(
-                provider_address
-            )
+            descriptors = await self._agent_registry.get_service_descriptors(provider_address)
         except Exception:
             # read failed (RPC error, registry not deployed) — fail-open
             return (True, None)
@@ -1712,7 +1605,7 @@ class BuyerOrchestrator:
             hi = descriptor.max_price / 1_000_000
             return (
                 False,
-                f'Request ${req:.2f} is outside the provider\'s price band '
+                f"Request ${req:.2f} is outside the provider's price band "
                 f'${lo:.2f}-${hi:.2f} for "{self._policy.task}"',
             )
         return (True, None)
@@ -1741,9 +1634,7 @@ class BuyerOrchestrator:
         self, tx_id: str, new_state: str, proof: Optional[str] = None
     ) -> None:
         if self._client is not None:
-            return await self._client.standard.transition_state(
-                tx_id, new_state, proof
-            )
+            return await self._client.standard.transition_state(tx_id, new_state, proof)
         return await self._runtime.transition_state(tx_id, new_state, proof)
 
     async def _link_escrow(self, tx_id: str, amount: str) -> str:

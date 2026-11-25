@@ -220,9 +220,7 @@ class BasicAdapter(BaseAdapter):
         from datetime import datetime, timezone
 
         deadline_iso = (
-            datetime.fromtimestamp(deadline, tz=timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
+            datetime.fromtimestamp(deadline, tz=timezone.utc).isoformat().replace("+00:00", "Z")
         )
         return BasicPayResult(
             tx_id=tx_id,
@@ -464,6 +462,7 @@ class BasicAdapter(BaseAdapter):
 
         if tx is None:
             from agirails.errors import TransactionNotFoundError
+
             raise TransactionNotFoundError(tx_id)
 
         now = self._runtime.time.now()
@@ -522,16 +521,10 @@ class BasicAdapter(BaseAdapter):
 
         dispute_window_ends: Optional[int] = None
         if tx.completed_at:
-            dispute_window_ends = compute_dispute_window_ends(
-                tx.completed_at, tx.dispute_window
-            )
+            dispute_window_ends = compute_dispute_window_ends(tx.completed_at, tx.dispute_window)
 
         def _iso(ts: int) -> str:
-            return (
-                datetime.fromtimestamp(ts, tz=timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z")
-            )
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
         return TransactionStatus(
             state=state_str,
@@ -550,9 +543,7 @@ class BasicAdapter(BaseAdapter):
             amount=self.format_amount(tx.amount),
             deadline=_iso(tx.deadline),
             dispute_window_ends=(
-                _iso(dispute_window_ends)
-                if dispute_window_ends is not None
-                else None
+                _iso(dispute_window_ends) if dispute_window_ends is not None else None
             ),
             provider=tx.provider,
             requester=tx.requester,
@@ -573,9 +564,7 @@ class BasicAdapter(BaseAdapter):
 
         router = self._smart_wallet_router
         if router is not None and router.should_route():
-            await router.send_transition(
-                tx_id, "IN_PROGRESS", "0x", label="startWork"
-            )
+            await router.send_transition(tx_id, "IN_PROGRESS", "0x", label="startWork")
             return
         await self._runtime.transition_state(tx_id, State.IN_PROGRESS)
 
@@ -618,15 +607,11 @@ class BasicAdapter(BaseAdapter):
 
         router = self._smart_wallet_router
         if router is not None and router.should_route():
-            await router.send_transition(
-                tx_id, "DELIVERED", delivery_proof, label="deliver"
-            )
+            await router.send_transition(tx_id, "DELIVERED", delivery_proof, label="deliver")
             return
         await self._runtime.transition_state(tx_id, State.DELIVERED, delivery_proof)
 
-    async def release(
-        self, escrow_id: str, attestation_uid: Optional[str] = None
-    ) -> None:
+    async def release(self, escrow_id: str, attestation_uid: Optional[str] = None) -> None:
         """
         Release escrow funds (EXPLICIT settlement). IAdapter compliance.
 

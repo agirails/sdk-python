@@ -134,20 +134,15 @@ class AdapterRouter:
             if not adapter:
                 available = ", ".join(self._registry.get_ids()) or "none"
                 raise RuntimeError(
-                    f"Preferred adapter '{preferred}' not found. "
-                    f"Available adapters: {available}"
+                    f"Preferred adapter '{preferred}' not found. Available adapters: {available}"
                 )
             # Verify adapter can handle these params
             adapter.validate(params)
             return adapter
 
         # 2. Escrow/dispute required -> STRICT enforcement
-        requires_escrow = (
-            metadata.get("requires_escrow") if isinstance(metadata, dict) else None
-        )
-        requires_dispute = (
-            metadata.get("requires_dispute") if isinstance(metadata, dict) else None
-        )
+        requires_escrow = metadata.get("requires_escrow") if isinstance(metadata, dict) else None
+        requires_dispute = metadata.get("requires_dispute") if isinstance(metadata, dict) else None
 
         if requires_escrow or requires_dispute:
             # First try standard adapter
@@ -216,10 +211,7 @@ class AdapterRouter:
             return basic
 
         available = ", ".join(self._registry.get_ids()) or "none"
-        raise RuntimeError(
-            f"No suitable adapter found for params. "
-            f"Available adapters: {available}"
-        )
+        raise RuntimeError(f"No suitable adapter found for params. Available adapters: {available}")
 
     def _validate_params(self, params: UnifiedPayParams) -> None:
         """
@@ -252,15 +244,11 @@ class AdapterRouter:
         if isinstance(params.to, str):
             # Check for path traversal attempts
             if ".." in params.to:
-                raise ValidationError(
-                    "Invalid recipient: path traversal characters not allowed"
-                )
+                raise ValidationError("Invalid recipient: path traversal characters not allowed")
 
             # Check for script injection attempts
             if "<" in params.to or ">" in params.to:
-                raise ValidationError(
-                    "Invalid recipient: HTML/script characters not allowed"
-                )
+                raise ValidationError("Invalid recipient: HTML/script characters not allowed")
 
             # Check for null bytes
             if "\0" in params.to:
@@ -290,27 +278,21 @@ class AdapterRouter:
         # nor a meaningful numeric amount).
         if isinstance(amount, bool):
             raise ValidationError(
-                "Invalid payment params: amount must be a non-empty string "
-                "or a positive number"
+                "Invalid payment params: amount must be a non-empty string or a positive number"
             )
 
         if isinstance(amount, str):
             if amount == "":
-                raise ValidationError(
-                    "Invalid payment params: amount string must not be empty"
-                )
+                raise ValidationError("Invalid payment params: amount string must not be empty")
             return
 
         if isinstance(amount, (int, float, Decimal)):
             if amount <= 0:
-                raise ValidationError(
-                    "Invalid payment params: amount must be a positive number"
-                )
+                raise ValidationError("Invalid payment params: amount must be a positive number")
             return
 
         raise ValidationError(
-            "Invalid payment params: amount must be a non-empty string or a "
-            "positive number"
+            "Invalid payment params: amount must be a non-empty string or a positive number"
         )
 
     @staticmethod
@@ -406,9 +388,7 @@ class AdapterRouter:
     # ERC-8004 Agent ID Resolution
     # ======================================================================
 
-    async def select_and_resolve(
-        self, params: UnifiedPayParams
-    ) -> AdapterSelectionResult:
+    async def select_and_resolve(self, params: UnifiedPayParams) -> AdapterSelectionResult:
         """
         Select adapter AND resolve ERC-8004 agent IDs.
 
@@ -471,9 +451,7 @@ class AdapterRouter:
             except ValidationError:
                 raise
             except Exception as e:
-                raise ValidationError(
-                    f"Failed to resolve ERC-8004 agent '{params.to}': {e}"
-                )
+                raise ValidationError(f"Failed to resolve ERC-8004 agent '{params.to}': {e}")
 
         # Not an agent ID - proceed normally
         adapter = self.select(params)

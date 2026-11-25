@@ -350,7 +350,10 @@ class Provider:
 
         _logger.info(
             "Stopping provider",
-            extra={"provider": self._config.name or "unnamed", "active_jobs": len(self._active_jobs)},
+            extra={
+                "provider": self._config.name or "unnamed",
+                "active_jobs": len(self._active_jobs),
+            },
         )
         self._status = ProviderStatus.STOPPING
 
@@ -439,7 +442,8 @@ class Provider:
                 all_txs = await runtime.get_all_transactions()
                 # PARITY FIX: Use attribute access for MockTransaction objects
                 pending_txs = [
-                    tx for tx in all_txs
+                    tx
+                    for tx in all_txs
                     if self._get_tx_field(tx, "provider") == self.address
                     and self._get_tx_field(tx, "state") == "INITIATED"
                 ]
@@ -490,9 +494,7 @@ class Provider:
                     )
 
                     # Process job asynchronously (don't await to continue polling)
-                    asyncio.create_task(
-                        self._process_job(tx_id, tx, service_name, handler)
-                    )
+                    asyncio.create_task(self._process_job(tx_id, tx, service_name, handler))
 
                 except Exception as e:
                     _logger.error(
@@ -539,7 +541,8 @@ class Provider:
     def _to_snake_case(self, name: str) -> str:
         """Convert camelCase to snake_case."""
         import re
-        return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+
+        return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
     def _resolve_service_name(self, tx: Any) -> Optional[str]:
         """Resolve a service name for a transaction (dispatch entry point).
@@ -577,9 +580,7 @@ class Provider:
             and service_desc.lower().startswith("0x")
             and len(service_desc) == 66
         )
-        no_routable_hash = (not service_desc) or (
-            is_bytes32 and service_desc.lower() == zero_hash
-        )
+        no_routable_hash = (not service_desc) or (is_bytes32 and service_desc.lower() == zero_hash)
         if no_routable_hash:
             with self._lock:
                 if len(self._services) == 1:
@@ -639,6 +640,7 @@ class Provider:
         # Try JSON format first
         try:
             import json
+
             parsed = json.loads(service_desc)
             if isinstance(parsed, dict) and "service" in parsed:
                 return parsed["service"]
@@ -678,6 +680,7 @@ class Provider:
         # Try JSON format first
         try:
             import json
+
             parsed = json.loads(service_desc)
             if isinstance(parsed, dict) and "input" in parsed:
                 return parsed["input"]
@@ -690,6 +693,7 @@ class Provider:
             if len(parts) > 1:
                 try:
                     import json
+
                     return json.loads(parts[1])
                 except (json.JSONDecodeError, TypeError):
                     return parts[1]
@@ -719,6 +723,7 @@ class Provider:
         """
         import json
         import time
+
         start_time = time.time()
 
         try:
@@ -737,15 +742,21 @@ class Provider:
             # Compute content hash
             # PARITY FIX: Use separators=(',', ':') to match JS JSON.stringify() (no whitespace)
             # PARITY FIX: Use ensure_ascii=False to match JS JSON.stringify() unicode handling
-            deliverable = result if isinstance(result, str) else json.dumps(
-                result, separators=(",", ":"), ensure_ascii=False
+            deliverable = (
+                result
+                if isinstance(result, str)
+                else json.dumps(result, separators=(",", ":"), ensure_ascii=False)
             )
             content_hash = compute_output_hash(deliverable)
 
             # Create wrapper matching TS SDK format
             # TS: { type: 'delivery.proof', txId, contentHash, timestamp, metadata, result }
             # PARITY FIX: Add size and mimeType to metadata (from TS ProofGenerator.ts)
-            deliverable_size = len(deliverable.encode('utf-8')) if isinstance(deliverable, str) else len(deliverable)
+            deliverable_size = (
+                len(deliverable.encode("utf-8"))
+                if isinstance(deliverable, str)
+                else len(deliverable)
+            )
             delivery_proof_wrapper = {
                 "type": "delivery.proof",  # PARITY: Unique marker for request extraction
                 "txId": tx_id,
@@ -884,10 +895,7 @@ class Provider:
 
     def __repr__(self) -> str:
         """String representation."""
-        return (
-            f"Provider(status={self._status.value}, "
-            f"services={len(self._services)})"
-        )
+        return f"Provider(status={self._status.value}, services={len(self._services)})"
 
 
 async def create_provider(

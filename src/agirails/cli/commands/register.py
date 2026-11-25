@@ -28,17 +28,13 @@ from agirails.cli.utils.output import (
 
 
 def register(
-    endpoint: Optional[str] = typer.Option(
-        None, "--endpoint", help="Service endpoint URL"
-    ),
+    endpoint: Optional[str] = typer.Option(None, "--endpoint", help="Service endpoint URL"),
     force_legacy: bool = typer.Option(
         False, "--force-legacy", help="Force legacy registration flow"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Minimal output"),
-    network: str = typer.Option(
-        "base-sepolia", "--network", "-n", help="Network to register on"
-    ),
+    network: str = typer.Option("base-sepolia", "--network", "-n", help="Network to register on"),
 ) -> None:
     """Register agent on-chain (DEPRECATED - use `actp publish` instead)."""
     global_opts = get_global_options()
@@ -51,15 +47,11 @@ def register(
 
     # Show deprecation warning (skip for JSON to keep stdout parseable)
     if output_format != OutputFormat.JSON:
-        print_warning(
-            "actp register is deprecated. Use `actp publish` instead."
-        )
+        print_warning("actp register is deprecated. Use `actp publish` instead.")
 
     if not force_legacy:
         if output_format == OutputFormat.JSON:
-            typer.echo(
-                '{"deprecated": true, "message": "Use actp publish instead"}'
-            )
+            typer.echo('{"deprecated": true, "message": "Use actp publish instead"}')
         raise typer.Exit(0)
 
     # Force-legacy flow
@@ -87,9 +79,7 @@ async def _register_legacy(
     )
 
     # Resolve private key
-    private_key = await resolve_private_key(
-        options=ResolvePrivateKeyOptions(network=network)
-    )
+    private_key = await resolve_private_key(options=ResolvePrivateKeyOptions(network=network))
     if not private_key:
         print_error("No private key found. Set ACTP_PRIVATE_KEY or use a keystore.")
         raise typer.Exit(1)
@@ -189,10 +179,7 @@ async def _register_legacy(
 
     # Submit
     receipt = await wallet.send_batch_transaction(
-        [
-            type("TX", (), {"to": c.target, "data": c.call_data, "value": "0"})()
-            for c in batch_calls
-        ]
+        [type("TX", (), {"to": c.target, "data": c.call_data, "value": "0"})() for c in batch_calls]
     )
 
     result = {

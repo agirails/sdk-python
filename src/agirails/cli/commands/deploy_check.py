@@ -18,6 +18,7 @@ import typer
 
 try:
     from rich.console import Console
+
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -176,7 +177,9 @@ def _check_env_files(scan_dir: Path) -> List[Tuple[str, str]]:
     """Check .env files for raw private keys."""
     results: List[Tuple[str, str]] = []
     for env_file in scan_dir.glob(".env*"):
-        if env_file.is_file() and _file_contains_pattern(env_file, r"PRIVATE_KEY\s*=\s*0x[0-9a-fA-F]"):
+        if env_file.is_file() and _file_contains_pattern(
+            env_file, r"PRIVATE_KEY\s*=\s*0x[0-9a-fA-F]"
+        ):
             results.append((FAIL, f"Raw private key found in {env_file}"))
     return results
 
@@ -186,7 +189,9 @@ def _check_docker_files(scan_dir: Path) -> List[Tuple[str, str]]:
     results: List[Tuple[str, str]] = []
     for name in ["Dockerfile", "docker-compose.yml", "docker-compose.yaml"]:
         filepath = scan_dir / name
-        if filepath.is_file() and _file_contains_pattern(filepath, r"PRIVATE_KEY\s*=?\s*0x[0-9a-fA-F]"):
+        if filepath.is_file() and _file_contains_pattern(
+            filepath, r"PRIVATE_KEY\s*=?\s*0x[0-9a-fA-F]"
+        ):
             results.append((FAIL, f"Raw private key found in {filepath}"))
     return results
 
@@ -207,7 +212,9 @@ def _check_ci_files(project_dir: Path) -> List[Tuple[str, str]]:
 
     # GitLab CI
     gitlab_ci = project_dir / ".gitlab-ci.yml"
-    if gitlab_ci.is_file() and _file_contains_pattern(gitlab_ci, r"PRIVATE_KEY\s*[:=]\s*0x[0-9a-fA-F]"):
+    if gitlab_ci.is_file() and _file_contains_pattern(
+        gitlab_ci, r"PRIVATE_KEY\s*[:=]\s*0x[0-9a-fA-F]"
+    ):
         results.append((FAIL, f"Raw private key found in {gitlab_ci}"))
 
     return results
@@ -332,14 +339,18 @@ def deploy_check(
             dockerignore = work_dir / ".dockerignore"
             added = _add_entries_to_ignore_file(dockerignore, DOCKERIGNORE_REQUIRED)
             if added:
-                _print_status(PASS, f"Updated {dockerignore}: added {', '.join(added)}", quiet=False)
+                _print_status(
+                    PASS, f"Updated {dockerignore}: added {', '.join(added)}", quiet=False
+                )
 
         # .railwayignore
         railwayignore = work_dir / ".railwayignore"
         if railwayignore.exists() or (work_dir / "railway.json").exists():
             added = _add_entries_to_ignore_file(railwayignore, RAILWAYIGNORE_REQUIRED)
             if added:
-                _print_status(PASS, f"Updated {railwayignore}: added {', '.join(added)}", quiet=False)
+                _print_status(
+                    PASS, f"Updated {railwayignore}: added {', '.join(added)}", quiet=False
+                )
 
     # Summary
     fail_count = sum(1 for s, _ in all_results if s == FAIL)

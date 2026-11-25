@@ -164,9 +164,7 @@ class DeliverySetupBuilder:
             )
 
         # ----- Privacy / pubkey consistency (TS setupBuilder.ts:441) -----
-        pubkey_is_empty = (
-            params.buyer_ephemeral_pubkey.lower() == CANONICAL_EMPTY_BYTES32.lower()
-        )
+        pubkey_is_empty = params.buyer_ephemeral_pubkey.lower() == CANONICAL_EMPTY_BYTES32.lower()
 
         if params.expected_privacy == "public" and not pubkey_is_empty:
             raise DeliveryEip712Error(
@@ -189,9 +187,7 @@ class DeliverySetupBuilder:
 
         # ----- Expiry window (TS setupBuilder.ts:461) -----
         expires_in_sec = (
-            params.expires_in_sec
-            if params.expires_in_sec is not None
-            else DEFAULT_SETUP_EXPIRY_SEC
+            params.expires_in_sec if params.expires_in_sec is not None else DEFAULT_SETUP_EXPIRY_SEC
         )
         if not _is_int(expires_in_sec) or expires_in_sec <= 0:
             raise DeliveryEip712Error(
@@ -311,13 +307,9 @@ class DeliverySetupBuilder:
 
         # Step 4: signature recovery (TS setupBuilder.ts:673).
         try:
-            recovered = recover_setup_signer(
-                signed, wire["requesterSig"], expected_kernel_address
-            )
+            recovered = recover_setup_signer(signed, wire["requesterSig"], expected_kernel_address)
         except Exception as e:  # noqa: BLE001
-            return SetupVerifyResult(
-                ok=False, code="setup_signature_invalid", error=str(e)
-            )
+            return SetupVerifyResult(ok=False, code="setup_signature_invalid", error=str(e))
 
         if recovered.lower() != signed["signerAddress"].lower():
             return SetupVerifyResult(

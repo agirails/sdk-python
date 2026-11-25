@@ -71,10 +71,12 @@ def show() -> None:
             dt = datetime.fromtimestamp(timestamp)
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "timestamp": timestamp,
-                    "datetime": dt.isoformat(),
-                })
+                print_json(
+                    {
+                        "timestamp": timestamp,
+                        "datetime": dt.isoformat(),
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(timestamp)
             else:
@@ -135,21 +137,26 @@ def advance(
             new_time = client.runtime.time.now()
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "success": True,
-                    "advanced": seconds,
-                    "oldTime": old_time,
-                    "newTime": new_time,
-                })
+                print_json(
+                    {
+                        "success": True,
+                        "advanced": seconds,
+                        "oldTime": old_time,
+                        "newTime": new_time,
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(new_time)
             else:
                 old_dt = datetime.fromtimestamp(old_time)
                 new_dt = datetime.fromtimestamp(new_time)
-                print_success(f"Advanced time by {seconds}s", {
-                    "From": old_dt.strftime('%Y-%m-%d %H:%M:%S'),
-                    "To": new_dt.strftime('%Y-%m-%d %H:%M:%S'),
-                })
+                print_success(
+                    f"Advanced time by {seconds}s",
+                    {
+                        "From": old_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                        "To": new_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    },
+                )
 
         except typer.Exit:
             raise
@@ -206,19 +213,24 @@ def set_time(
             new_time = client.runtime.time.now()
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "success": True,
-                    "oldTime": old_time,
-                    "newTime": new_time,
-                })
+                print_json(
+                    {
+                        "success": True,
+                        "oldTime": old_time,
+                        "newTime": new_time,
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(new_time)
             else:
                 new_dt = datetime.fromtimestamp(new_time)
-                print_success("Set time", {
-                    "Timestamp": new_time,
-                    "DateTime": new_dt.strftime('%Y-%m-%d %H:%M:%S'),
-                })
+                print_success(
+                    "Set time",
+                    {
+                        "Timestamp": new_time,
+                        "DateTime": new_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    },
+                )
 
         except typer.Exit:
             raise

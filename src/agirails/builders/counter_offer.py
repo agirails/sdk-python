@@ -224,9 +224,7 @@ class CounterOfferBuilder:
     ) -> None:
         self._private_key = private_key
         self._nonce_manager = nonce_manager
-        self._account = (
-            Account.from_key(private_key) if private_key else None
-        )
+        self._account = Account.from_key(private_key) if private_key else None
 
     # ----------------------------------------------------------------------
     # Public API
@@ -235,9 +233,7 @@ class CounterOfferBuilder:
     def build(self, params: CounterOfferParams) -> CounterOfferMessage:
         """Build and sign a counter-offer message."""
         if self._account is None or self._nonce_manager is None:
-            raise ValueError(
-                "CounterOfferBuilder.build requires private_key + nonce_manager"
-            )
+            raise ValueError("CounterOfferBuilder.build requires private_key + nonce_manager")
         self._validate_params(params)
 
         countered_at = int(time.time())
@@ -246,9 +242,7 @@ class CounterOfferBuilder:
         if expires_at <= countered_at:
             raise ValueError("expiresAt must be after counteredAt")
         if expires_at > countered_at + MAX_TTL_SECONDS:
-            raise ValueError(
-                f"expiresAt cannot exceed {MAX_TTL_SECONDS}s from counteredAt"
-            )
+            raise ValueError(f"expiresAt cannot exceed {MAX_TTL_SECONDS}s from counteredAt")
 
         nonce = self._nonce_manager.get_next_nonce(MESSAGE_TYPE)
         message = CounterOfferMessage(
@@ -271,9 +265,7 @@ class CounterOfferBuilder:
         self._nonce_manager.record_nonce(MESSAGE_TYPE, nonce)
         return message
 
-    def verify(
-        self, message: CounterOfferMessage, kernel_address: str
-    ) -> bool:
+    def verify(self, message: CounterOfferMessage, kernel_address: str) -> bool:
         """Verify a counter-offer:
 
           1. Schema is well-formed
@@ -304,8 +296,7 @@ class CounterOfferBuilder:
         # A counter ≥ existing quote is not a counter — accept the quote instead.
         if counter_amount >= quote_amount:
             raise ValueError(
-                "counterAmount must be less than quoteAmount "
-                "(otherwise just accept the quote)"
+                "counterAmount must be less than quoteAmount (otherwise just accept the quote)"
             )
         if counter_amount > max_price:
             raise ValueError("counterAmount exceeds maxPrice")
@@ -316,9 +307,7 @@ class CounterOfferBuilder:
         # One-sided skew check — only reject timestamps claiming the future.
         # The "too old" side is bounded by expiresAt (checked above).
         if message.counteredAt > now + TIMESTAMP_GRACE_SECONDS:
-            raise ValueError(
-                "counteredAt is in the future beyond skew tolerance"
-            )
+            raise ValueError("counteredAt is in the future beyond skew tolerance")
 
         return True
 
@@ -338,9 +327,7 @@ class CounterOfferBuilder:
     # Internals
     # ----------------------------------------------------------------------
 
-    def _sign_message(
-        self, message: CounterOfferMessage, kernel_address: str
-    ) -> str:
+    def _sign_message(self, message: CounterOfferMessage, kernel_address: str) -> str:
         domain = {
             "name": "AGIRAILS",
             "version": "1",
@@ -364,11 +351,13 @@ class CounterOfferBuilder:
         }
         signable = encode_typed_data(full_message=typed_data)
         signed = self._account.sign_message(signable)  # type: ignore[union-attr]
-        return "0x" + signed.signature.hex() if not signed.signature.hex().startswith("0x") else signed.signature.hex()
+        return (
+            "0x" + signed.signature.hex()
+            if not signed.signature.hex().startswith("0x")
+            else signed.signature.hex()
+        )
 
-    def _recover_signer(
-        self, message: CounterOfferMessage, kernel_address: str
-    ) -> str:
+    def _recover_signer(self, message: CounterOfferMessage, kernel_address: str) -> str:
         domain = {
             "name": "AGIRAILS",
             "version": "1",
@@ -399,9 +388,7 @@ class CounterOfferBuilder:
                 expected_signer=self._extract_address_from_did(message.consumer),
             ) from exc
 
-    def _to_signed_shape(
-        self, message: CounterOfferMessage
-    ) -> Dict[str, Any]:
+    def _to_signed_shape(self, message: CounterOfferMessage) -> Dict[str, Any]:
         return {
             "txId": message.txId,
             "consumer": message.consumer,
@@ -414,9 +401,7 @@ class CounterOfferBuilder:
             "inReplyTo": message.inReplyTo,
             "counteredAt": message.counteredAt,
             "expiresAt": message.expiresAt,
-            "justificationHash": self._compute_justification_hash(
-                message.justification
-            ),
+            "justificationHash": self._compute_justification_hash(message.justification),
             "chainId": message.chainId,
             "nonce": message.nonce,
         }
@@ -446,9 +431,7 @@ class CounterOfferBuilder:
         if not _BYTES32_RE.match(params.txId):
             raise ValueError("txId must be valid bytes32 hex string")
         if not _BYTES32_RE.match(params.inReplyTo):
-            raise ValueError(
-                "inReplyTo must be valid bytes32 hex string (the quote hash)"
-            )
+            raise ValueError("inReplyTo must be valid bytes32 hex string (the quote hash)")
         if not _ADDRESS_RE.match(params.kernelAddress):
             raise ValueError("kernelAddress must be valid Ethereum address")
         if not params.consumer.startswith("did:ethr:"):
@@ -456,9 +439,7 @@ class CounterOfferBuilder:
         if not params.provider.startswith("did:ethr:"):
             raise ValueError("provider must be valid did:ethr format")
         if params.chainId not in VALID_CHAIN_IDS:
-            raise ValueError(
-                "chainId must be 84532 (Base Sepolia) or 8453 (Base Mainnet)"
-            )
+            raise ValueError("chainId must be 84532 (Base Sepolia) or 8453 (Base Mainnet)")
 
         try:
             counter = int(params.counterAmount)
@@ -472,9 +453,7 @@ class CounterOfferBuilder:
         if counter < PLATFORM_MIN_BASE_UNITS:
             raise ValueError("counterAmount below platform minimum ($0.05)")
         if counter >= quote:
-            raise ValueError(
-                "counterAmount must be strictly less than quoteAmount"
-            )
+            raise ValueError("counterAmount must be strictly less than quoteAmount")
         if counter > max_price:
             raise ValueError("counterAmount exceeds maxPrice")
 
@@ -483,16 +462,11 @@ class CounterOfferBuilder:
             if params.expiresAt <= now:
                 raise ValueError("expiresAt must be in the future")
             if params.expiresAt > now + MAX_TTL_SECONDS:
-                raise ValueError(
-                    f"expiresAt cannot be more than {MAX_TTL_SECONDS}s "
-                    "in the future"
-                )
+                raise ValueError(f"expiresAt cannot be more than {MAX_TTL_SECONDS}s in the future")
 
     def _validate_message_schema(self, message: CounterOfferMessage) -> None:
         if message.type != MESSAGE_TYPE:
-            raise ValueError(
-                f"Invalid message type (expected {MESSAGE_TYPE}, got {message.type})"
-            )
+            raise ValueError(f"Invalid message type (expected {MESSAGE_TYPE}, got {message.type})")
         if not _VERSION_RE.match(message.version):
             raise ValueError("Invalid version format")
         if not _BYTES32_RE.match(message.txId):

@@ -57,8 +57,7 @@ def _emit_buyer_local(output_format: OutputFormat) -> None:
                 "hasLocalFile": True,
                 "hasOnChainConfig": False,
                 "note": (
-                    "Buyer config is local-authored; not anchored on-chain "
-                    "(budget stays private)."
+                    "Buyer config is local-authored; not anchored on-chain (budget stays private)."
                 ),
             }
         )
@@ -71,9 +70,7 @@ def _emit_buyer_local(output_format: OutputFormat) -> None:
         "Buyer (intent: pay): config is local-authored and budget is private — "
         "nothing to diff on-chain."
     )
-    print_info(
-        "Edit your {slug}.md locally, then run: actp publish (re-links to agirails.app)."
-    )
+    print_info("Edit your {slug}.md locally, then run: actp publish (re-links to agirails.app).")
 
 
 def diff(
@@ -117,9 +114,7 @@ def diff(
     # check the identity pointer first so a {slug}.md buyer/provider file is
     # found instead of defaulting to AGIRAILS.md. Mirrors TS diff.ts:65-74.
     if chosen_path is None:
-        identity_path = resolve_identity_path(
-            str(opts.directory) if opts.directory else None
-        )
+        identity_path = resolve_identity_path(str(opts.directory) if opts.directory else None)
         if identity_path:
             md_path = identity_path
         else:

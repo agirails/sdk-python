@@ -205,23 +205,23 @@ def is_x402_error(error: BaseException) -> bool:
 
 # DEFAULT_EVM_NETWORKS — X402Adapter.ts:156-163. CAIP-2 keys.
 DEFAULT_EVM_NETWORKS = (
-    "eip155:1",       # Ethereum mainnet
-    "eip155:8453",    # Base mainnet
-    "eip155:84532",   # Base Sepolia
-    "eip155:10",      # Optimism
-    "eip155:42161",   # Arbitrum One
-    "eip155:137",     # Polygon
+    "eip155:1",  # Ethereum mainnet
+    "eip155:8453",  # Base mainnet
+    "eip155:84532",  # Base Sepolia
+    "eip155:10",  # Optimism
+    "eip155:42161",  # Arbitrum One
+    "eip155:137",  # Polygon
 )
 """Default x402 v2 allowed networks (CAIP-2) — maximal interop default."""
 
 # DEFAULT_USDC_BY_NETWORK — X402Adapter.ts:175-182. Lowercase addresses.
 DEFAULT_USDC_BY_NETWORK = {
-    "eip155:1":     "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",  # Ethereum USDC
-    "eip155:8453":  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",  # Base USDC
+    "eip155:1": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",  # Ethereum USDC
+    "eip155:8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",  # Base USDC
     "eip155:84532": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",  # Base Sepolia USDC
-    "eip155:10":    "0x0b2c639c533813f4aa9d7837caf62653d097ff85",  # Optimism USDC
+    "eip155:10": "0x0b2c639c533813f4aa9d7837caf62653d097ff85",  # Optimism USDC
     "eip155:42161": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",  # Arbitrum USDC
-    "eip155:137":   "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",  # Polygon USDC
+    "eip155:137": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",  # Polygon USDC
 }
 """Canonical USDC contract address per supported EVM network (CAIP-2 keys)."""
 

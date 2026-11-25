@@ -96,8 +96,7 @@ class PendingPublishData:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> PendingPublishData:
         descriptors = [
-            ServiceDescriptorData.from_dict(sd)
-            for sd in data.get("serviceDescriptors", [])
+            ServiceDescriptorData.from_dict(sd) for sd in data.get("serviceDescriptors", [])
         ]
         return cls(
             version=data.get("version", 1),
@@ -172,9 +171,7 @@ def _validate_directory(dir_path: str) -> None:
                 f"Security: {dir_path} is a symbolic link (symlink attack prevention)"
             )
         if not stat.S_ISDIR(st.st_mode):
-            raise SecurityError(
-                f"Security: {dir_path} is not a directory"
-            )
+            raise SecurityError(f"Security: {dir_path} is not a directory")
 
 
 class SecurityError(Exception):

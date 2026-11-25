@@ -141,9 +141,7 @@ class CounterAcceptBuilder:
     ) -> None:
         self._private_key = private_key
         self._nonce_manager = nonce_manager
-        self._account = (
-            Account.from_key(private_key) if private_key else None
-        )
+        self._account = Account.from_key(private_key) if private_key else None
 
     # ----------------------------------------------------------------------
     # Public API
@@ -152,9 +150,7 @@ class CounterAcceptBuilder:
     def build(self, params: CounterAcceptParams) -> CounterAcceptMessage:
         """Build and sign a counter-accept message."""
         if self._account is None or self._nonce_manager is None:
-            raise ValueError(
-                "CounterAcceptBuilder.build requires private_key + nonce_manager"
-            )
+            raise ValueError("CounterAcceptBuilder.build requires private_key + nonce_manager")
         self._validate_params(params)
 
         accepted_at = int(time.time())
@@ -176,9 +172,7 @@ class CounterAcceptBuilder:
         self._nonce_manager.record_nonce(MESSAGE_TYPE, nonce)
         return message
 
-    def verify(
-        self, message: CounterAcceptMessage, kernel_address: str
-    ) -> bool:
+    def verify(self, message: CounterAcceptMessage, kernel_address: str) -> bool:
         """Verify provider acceptance:
 
           1. Schema well-formed
@@ -208,9 +202,7 @@ class CounterAcceptBuilder:
 
         now = int(time.time())
         if message.acceptedAt > now + TIMESTAMP_GRACE_SECONDS:
-            raise ValueError(
-                "acceptedAt is in the future beyond skew tolerance"
-            )
+            raise ValueError("acceptedAt is in the future beyond skew tolerance")
 
         return True
 
@@ -225,18 +217,14 @@ class CounterAcceptBuilder:
     # Internals
     # ----------------------------------------------------------------------
 
-    def _sign_message(
-        self, message: CounterAcceptMessage, kernel_address: str
-    ) -> str:
+    def _sign_message(self, message: CounterAcceptMessage, kernel_address: str) -> str:
         typed_data = self._build_typed_data(message, kernel_address)
         signable = encode_typed_data(full_message=typed_data)
         signed = self._account.sign_message(signable)  # type: ignore[union-attr]
         hex_sig = signed.signature.hex()
         return hex_sig if hex_sig.startswith("0x") else "0x" + hex_sig
 
-    def _recover_signer(
-        self, message: CounterAcceptMessage, kernel_address: str
-    ) -> str:
+    def _recover_signer(self, message: CounterAcceptMessage, kernel_address: str) -> str:
         typed_data = self._build_typed_data(message, kernel_address)
         signable = encode_typed_data(full_message=typed_data)
         try:
@@ -293,9 +281,7 @@ class CounterAcceptBuilder:
         if not _BYTES32_RE.match(params.txId):
             raise ValueError("txId must be valid bytes32 hex string")
         if not _BYTES32_RE.match(params.inReplyTo):
-            raise ValueError(
-                "inReplyTo must be valid bytes32 hex string (the counter hash)"
-            )
+            raise ValueError("inReplyTo must be valid bytes32 hex string (the counter hash)")
         if not _ADDRESS_RE.match(params.kernelAddress):
             raise ValueError("kernelAddress must be valid Ethereum address")
         if not params.provider.startswith("did:ethr:"):
@@ -303,9 +289,7 @@ class CounterAcceptBuilder:
         if not params.consumer.startswith("did:ethr:"):
             raise ValueError("consumer must be valid did:ethr format")
         if params.chainId not in VALID_CHAIN_IDS:
-            raise ValueError(
-                "chainId must be 84532 (Base Sepolia) or 8453 (Base Mainnet)"
-            )
+            raise ValueError("chainId must be 84532 (Base Sepolia) or 8453 (Base Mainnet)")
 
         try:
             accepted = int(params.acceptedAmount)
@@ -316,9 +300,7 @@ class CounterAcceptBuilder:
 
     def _validate_message_schema(self, message: CounterAcceptMessage) -> None:
         if message.type != MESSAGE_TYPE:
-            raise ValueError(
-                f"Invalid message type (expected {MESSAGE_TYPE}, got {message.type})"
-            )
+            raise ValueError(f"Invalid message type (expected {MESSAGE_TYPE}, got {message.type})")
         if not _VERSION_RE.match(message.version):
             raise ValueError("Invalid version format")
         if not _BYTES32_RE.match(message.txId):

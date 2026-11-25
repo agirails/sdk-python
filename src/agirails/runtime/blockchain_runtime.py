@@ -266,7 +266,13 @@ class BlockchainRuntime:
         events = EventMonitor.from_config(w3, config)
 
         return cls(
-            w3, account, config, kernel, escrow, events, nonce_manager,
+            w3,
+            account,
+            config,
+            kernel,
+            escrow,
+            events,
+            nonce_manager,
             rate_limiter=rate_limiter,
             retry_config=retry_config,
             eas_helper=eas_helper,
@@ -297,6 +303,7 @@ class BlockchainRuntime:
         Raises:
             Exception: If all retries are exhausted
         """
+
         async def rate_limited_op() -> Any:
             async with self._rate_limiter:
                 return await operation()
@@ -568,6 +575,7 @@ class BlockchainRuntime:
             TransientRPCError: If RPC is unreachable after all retries
             TransactionError: For non-transient on-chain errors
         """
+
         async def _fetch() -> MockTransaction:
             try:
                 tx_view = await self.kernel.get_transaction(tx_id)
@@ -576,8 +584,10 @@ class BlockchainRuntime:
                 exc_name = type(exc).__name__
                 err_msg = str(exc).lower()
                 transient_indicators = (
-                    "ClientConnectorError", "ClientError",
-                    "TimeoutError", "ProviderConnectionError",
+                    "ClientConnectorError",
+                    "ClientError",
+                    "TimeoutError",
+                    "ProviderConnectionError",
                     "RequestException",
                 )
                 if exc_name in transient_indicators or "timeout" in err_msg:
@@ -677,9 +687,7 @@ class BlockchainRuntime:
                 # — at least bounds the eventual scan when RPC recovers.
                 from_block = self.config.actp_kernel_deployment_block or 0
 
-        _logger.info(
-            "get_all_transactions scanning from block %d (limit=%d)", from_block, limit
-        )
+        _logger.info("get_all_transactions scanning from block %d (limit=%d)", from_block, limit)
 
         events = await self.events.get_events(
             EventFilter(event_types=["TransactionCreated"]),
@@ -1001,7 +1009,9 @@ class BlockchainRuntime:
                     f"EAS attestation verification failed for transaction {tx_id}: {e}"
                 )
         elif attestation_uid:
-            _logger.info(f"Settling transaction {tx_id} with attestation {attestation_uid} (no EAS verification)")
+            _logger.info(
+                f"Settling transaction {tx_id} with attestation {attestation_uid} (no EAS verification)"
+            )
         else:
             _logger.info(f"Settling transaction {tx_id} without attestation verification")
 

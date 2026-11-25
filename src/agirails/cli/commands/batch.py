@@ -40,18 +40,34 @@ from agirails.cli.utils.output import print_success as print_success
 # ============================================================================
 
 # Allowlist of valid ACTP subcommands
-VALID_SUBCOMMANDS = frozenset([
-    "init", "pay", "tx", "balance", "mint", "config",
-    "watch", "simulate", "time",
-])
+VALID_SUBCOMMANDS = frozenset(
+    [
+        "init",
+        "pay",
+        "tx",
+        "balance",
+        "mint",
+        "config",
+        "watch",
+        "simulate",
+        "time",
+    ]
+)
 
 # Allowlist of valid 'tx' subcommands
-VALID_TX_SUBCOMMANDS = frozenset([
-    "create", "status", "list", "deliver", "settle", "cancel",
-])
+VALID_TX_SUBCOMMANDS = frozenset(
+    [
+        "create",
+        "status",
+        "list",
+        "deliver",
+        "settle",
+        "cancel",
+    ]
+)
 
 # Characters that are not allowed in command arguments (potential shell injection)
-DANGEROUS_CHARS_PATTERN = re.compile(r'[;&|`$(){}[\]<>!\\]')
+DANGEROUS_CHARS_PATTERN = re.compile(r"[;&|`$(){}[\]<>!\\]")
 
 
 def parse_command_args(command: str) -> List[str]:
@@ -70,7 +86,7 @@ def parse_command_args(command: str) -> List[str]:
         ValueError: If command contains dangerous characters
     """
     # Remove quoted strings temporarily to check for dangerous chars
-    clean_command = re.sub(r'"[^"]*"|\'[^\']*\'', '', command)
+    clean_command = re.sub(r'"[^"]*"|\'[^\']*\'', "", command)
 
     if DANGEROUS_CHARS_PATTERN.search(clean_command):
         raise ValueError(
@@ -114,8 +130,7 @@ def validate_command(args: List[str]) -> bool:
 
     if subcommand not in VALID_SUBCOMMANDS:
         raise ValueError(
-            f"Unknown command: {subcommand}. "
-            f"Allowed: {', '.join(sorted(VALID_SUBCOMMANDS))}"
+            f"Unknown command: {subcommand}. Allowed: {', '.join(sorted(VALID_SUBCOMMANDS))}"
         )
 
     return True
@@ -124,6 +139,7 @@ def validate_command(args: List[str]) -> bool:
 # ============================================================================
 # Batch Execution
 # ============================================================================
+
 
 def execute_command(command: str) -> Tuple[bool, str, int]:
     """
@@ -213,10 +229,17 @@ def parse_command_for_validation(command: str) -> Tuple[bool, Optional[str], Opt
 # Command Definition
 # ============================================================================
 
+
 def batch(
-    file: Optional[str] = typer.Argument(None, help="File containing commands (one per line), or - for stdin"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Parse and validate commands without executing"),
-    stop_on_error: bool = typer.Option(False, "--stop-on-error", help="Stop execution on first error"),
+    file: Optional[str] = typer.Argument(
+        None, help="File containing commands (one per line), or - for stdin"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Parse and validate commands without executing"
+    ),
+    stop_on_error: bool = typer.Option(
+        False, "--stop-on-error", help="Stop execution on first error"
+    ),
 ) -> None:
     """
     Execute multiple commands from a file (agent-first feature).
@@ -284,22 +307,26 @@ def batch(
                 valid, parsed, error = parse_command_for_validation(command)
 
                 if valid:
-                    results.append({
-                        "line": line_num,
-                        "command": command,
-                        "status": "success",
-                        "output": f"Would execute: {parsed}",
-                    })
+                    results.append(
+                        {
+                            "line": line_num,
+                            "command": command,
+                            "status": "success",
+                            "output": f"Would execute: {parsed}",
+                        }
+                    )
                     success_count += 1
                     if not global_opts.quiet and not global_opts.json_output:
                         print(f"[{line_num}] VALID   {command}")
                 else:
-                    results.append({
-                        "line": line_num,
-                        "command": command,
-                        "status": "error",
-                        "error": error,
-                    })
+                    results.append(
+                        {
+                            "line": line_num,
+                            "command": command,
+                            "status": "error",
+                            "error": error,
+                        }
+                    )
                     error_count += 1
                     if not global_opts.quiet and not global_opts.json_output:
                         print(f"[{line_num}] INVALID {command}")
@@ -314,24 +341,28 @@ def batch(
                 success, output, duration_ms = execute_command(command)
 
                 if success:
-                    results.append({
-                        "line": line_num,
-                        "command": command,
-                        "status": "success",
-                        "output": output,
-                        "duration": duration_ms,
-                    })
+                    results.append(
+                        {
+                            "line": line_num,
+                            "command": command,
+                            "status": "success",
+                            "output": output,
+                            "duration": duration_ms,
+                        }
+                    )
                     success_count += 1
                     if not global_opts.quiet and not global_opts.json_output:
                         print(f"[{line_num}] OK      {command} ({duration_ms}ms)")
                 else:
-                    results.append({
-                        "line": line_num,
-                        "command": command,
-                        "status": "error",
-                        "error": output,
-                        "duration": duration_ms,
-                    })
+                    results.append(
+                        {
+                            "line": line_num,
+                            "command": command,
+                            "status": "error",
+                            "error": output,
+                            "duration": duration_ms,
+                        }
+                    )
                     error_count += 1
                     if not global_opts.quiet and not global_opts.json_output:
                         print(f"[{line_num}] FAIL    {command} ({duration_ms}ms)")
@@ -345,15 +376,17 @@ def batch(
 
         # Summary
         if global_opts.json_output:
-            print_json({
-                "results": results,
-                "summary": {
-                    "total": len(commands_with_line),
-                    "succeeded": success_count,
-                    "failed": error_count,
-                    "skipped": skipped_count,
-                },
-            })
+            print_json(
+                {
+                    "results": results,
+                    "summary": {
+                        "total": len(commands_with_line),
+                        "succeeded": success_count,
+                        "failed": error_count,
+                        "skipped": skipped_count,
+                    },
+                }
+            )
         elif not global_opts.quiet:
             print("\n=== Batch Summary ===")
             print(f"  Total Commands: {len(commands_with_line)}")

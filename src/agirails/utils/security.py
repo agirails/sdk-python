@@ -248,7 +248,9 @@ class SecurityLogger:
         details = {"reason": reason}
         if address:
             # Only log partial address for privacy
-            details["address"] = f"{address[:10]}...{address[-4:]}" if len(address) > 14 else "[redacted]"
+            details["address"] = (
+                f"{address[:10]}...{address[-4:]}" if len(address) > 14 else "[redacted]"
+            )
 
         self.log_event(
             SecurityEventType.AUTH_FAILURE,
@@ -336,6 +338,7 @@ def get_security_logger() -> SecurityLogger:
         SecurityLogger singleton instance
     """
     return SecurityLogger.get_instance()
+
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -504,11 +507,7 @@ def _sanitize_object(obj: Any) -> Any:
         Sanitized object with dangerous keys removed.
     """
     if isinstance(obj, dict):
-        return {
-            k: _sanitize_object(v)
-            for k, v in obj.items()
-            if k not in DANGEROUS_KEYS
-        }
+        return {k: _sanitize_object(v) for k, v in obj.items() if k not in DANGEROUS_KEYS}
     elif isinstance(obj, list):
         return [_sanitize_object(item) for item in obj]
     else:
@@ -623,8 +622,7 @@ def safe_json_parse(
                 validated[field_name] = _sanitize_object(value)
             elif isinstance(value, list):
                 validated[field_name] = [
-                    _sanitize_object(item) if isinstance(item, dict) else item
-                    for item in value
+                    _sanitize_object(item) if isinstance(item, dict) else item for item in value
                 ]
             else:
                 validated[field_name] = value
@@ -1033,7 +1031,9 @@ class TokenBucketRateLimiter:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
             current_loop = None
-        if self._lock is None or (current_loop is not None and getattr(self._lock, '_loop', None) is not current_loop):
+        if self._lock is None or (
+            current_loop is not None and getattr(self._lock, "_loop", None) is not current_loop
+        ):
             self._lock = asyncio.Lock()
         async with self._lock:
             while True:
@@ -1147,7 +1147,7 @@ async def retry_with_backoff(
                 raise
 
             # Calculate delay with exponential backoff
-            delay = config.initial_delay * (config.exponential_base ** attempt)
+            delay = config.initial_delay * (config.exponential_base**attempt)
             delay = min(delay, config.max_delay)
 
             # Add jitter

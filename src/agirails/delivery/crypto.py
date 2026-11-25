@@ -81,12 +81,18 @@ def seal_with_nonce(
             {"field": "nonce"},
         )
     if aad is not None and not isinstance(aad, (bytes, bytearray)):
-        raise DeliveryCryptoError("crypto_encrypt_failed", "aad must be bytes when supplied", {"field": "aad"})
+        raise DeliveryCryptoError(
+            "crypto_encrypt_failed", "aad must be bytes when supplied", {"field": "aad"}
+        )
     pt = _to_bytes(plaintext, "plaintext")
     try:
-        sealed = AESGCM(bytes(session_key)).encrypt(bytes(nonce), pt, bytes(aad) if aad is not None else None)
+        sealed = AESGCM(bytes(session_key)).encrypt(
+            bytes(nonce), pt, bytes(aad) if aad is not None else None
+        )
     except Exception as err:  # noqa: BLE001
-        raise DeliveryCryptoError("crypto_encrypt_failed", f"AES-256-GCM encryption failed: {err}") from err
+        raise DeliveryCryptoError(
+            "crypto_encrypt_failed", f"AES-256-GCM encryption failed: {err}"
+        ) from err
     # cryptography appends the 16-byte tag to the ciphertext; split to match TS.
     ciphertext = sealed[:-AES_GCM_TAG_LENGTH]
     tag = sealed[-AES_GCM_TAG_LENGTH:]
@@ -118,7 +124,9 @@ def decrypt_body(
         ("tag", tag, AES_GCM_TAG_LENGTH),
     ):
         if not isinstance(val, (bytes, bytearray)):
-            raise DeliveryCryptoError("crypto_decrypt_failed", f"{name} must be bytes", {"field": name})
+            raise DeliveryCryptoError(
+                "crypto_decrypt_failed", f"{name} must be bytes", {"field": name}
+            )
         if length is not None and len(val) != length:
             raise DeliveryCryptoError(
                 "crypto_decrypt_failed",
@@ -126,7 +134,9 @@ def decrypt_body(
                 {"field": name},
             )
     if aad is not None and not isinstance(aad, (bytes, bytearray)):
-        raise DeliveryCryptoError("crypto_decrypt_failed", "aad must be bytes when supplied", {"field": "aad"})
+        raise DeliveryCryptoError(
+            "crypto_decrypt_failed", "aad must be bytes when supplied", {"field": "aad"}
+        )
     try:
         return AESGCM(bytes(session_key)).decrypt(
             bytes(nonce), bytes(ciphertext) + bytes(tag), bytes(aad) if aad is not None else None
