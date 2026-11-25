@@ -112,9 +112,7 @@ _CREATE_TX_SELECTOR = Web3.keccak(
 )[:4].hex()
 
 # ACTPKernel.linkEscrow(bytes32,address,bytes32)
-_LINK_ESCROW_SELECTOR = Web3.keccak(
-    text="linkEscrow(bytes32,address,bytes32)"
-)[:4].hex()
+_LINK_ESCROW_SELECTOR = Web3.keccak(text="linkEscrow(bytes32,address,bytes32)")[:4].hex()
 
 # AgentRegistry.registerAgent(string,(bytes32,string,string,uint256,uint256,uint256,string)[])
 _REGISTER_AGENT_SELECTOR = Web3.keccak(
@@ -122,9 +120,7 @@ _REGISTER_AGENT_SELECTOR = Web3.keccak(
 )[:4].hex()
 
 # AgentRegistry.publishConfig(string,bytes32)
-_PUBLISH_CONFIG_SELECTOR = Web3.keccak(
-    text="publishConfig(string,bytes32)"
-)[:4].hex()
+_PUBLISH_CONFIG_SELECTOR = Web3.keccak(text="publishConfig(string,bytes32)")[:4].hex()
 
 # AgentRegistry.setListed(bool)
 _SET_LISTED_SELECTOR = Web3.keccak(text="setListed(bool)")[:4].hex()
@@ -205,10 +201,14 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
     )
 
     # Call 1: USDC.approve(escrowVault, amount)
-    approve_data = "0x" + _APPROVE_SELECTOR + abi_encode(
-        ["address", "uint256"],
-        [Web3.to_checksum_address(params.contracts.escrow_vault), amount_int],
-    ).hex()
+    approve_data = (
+        "0x"
+        + _APPROVE_SELECTOR
+        + abi_encode(
+            ["address", "uint256"],
+            [Web3.to_checksum_address(params.contracts.escrow_vault), amount_int],
+        ).hex()
+    )
 
     # Call 2: ACTPKernel.createTransaction(...)
     create_tx_data = encode_kernel_creation(
@@ -230,14 +230,18 @@ def build_actp_pay_batch(params: ACTPBatchParams) -> ACTPBatchResult:
     # Call 3: ACTPKernel.linkEscrow(txId, escrowVault, escrowId)
     # escrowId = txId (ACTP standard)
     tx_id_bytes = bytes.fromhex(tx_id.replace("0x", ""))
-    link_escrow_data = "0x" + _LINK_ESCROW_SELECTOR + abi_encode(
-        ["bytes32", "address", "bytes32"],
-        [
-            tx_id_bytes,
-            Web3.to_checksum_address(params.contracts.escrow_vault),
-            tx_id_bytes,
-        ],
-    ).hex()
+    link_escrow_data = (
+        "0x"
+        + _LINK_ESCROW_SELECTOR
+        + abi_encode(
+            ["bytes32", "address", "bytes32"],
+            [
+                tx_id_bytes,
+                Web3.to_checksum_address(params.contracts.escrow_vault),
+                tx_id_bytes,
+            ],
+        ).hex()
+    )
 
     calls = [
         SmartWalletCall(
@@ -295,10 +299,14 @@ def build_register_agent_batch(
         for sd in service_descriptors
     ]
 
-    data = "0x" + _REGISTER_AGENT_SELECTOR + abi_encode(
-        ["string", "(bytes32,string,string,uint256,uint256,uint256,string)[]"],
-        [endpoint, tuples],
-    ).hex()
+    data = (
+        "0x"
+        + _REGISTER_AGENT_SELECTOR
+        + abi_encode(
+            ["string", "(bytes32,string,string,uint256,uint256,uint256,string)[]"],
+            [endpoint, tuples],
+        ).hex()
+    )
 
     return [
         SmartWalletCall(target=agent_registry_address, value=0, data=data),
@@ -320,10 +328,14 @@ def build_publish_config_batch(
     Returns:
         List with one SmartWalletCall for publishConfig.
     """
-    data = "0x" + _PUBLISH_CONFIG_SELECTOR + abi_encode(
-        ["string", "bytes32"],
-        [cid, bytes.fromhex(config_hash.replace("0x", ""))],
-    ).hex()
+    data = (
+        "0x"
+        + _PUBLISH_CONFIG_SELECTOR
+        + abi_encode(
+            ["string", "bytes32"],
+            [cid, bytes.fromhex(config_hash.replace("0x", ""))],
+        ).hex()
+    )
 
     return [
         SmartWalletCall(target=agent_registry_address, value=0, data=data),
@@ -343,10 +355,14 @@ def build_set_listed_batch(
     Returns:
         List with one SmartWalletCall for setListed.
     """
-    data = "0x" + _SET_LISTED_SELECTOR + abi_encode(
-        ["bool"],
-        [listed],
-    ).hex()
+    data = (
+        "0x"
+        + _SET_LISTED_SELECTOR
+        + abi_encode(
+            ["bool"],
+            [listed],
+        ).hex()
+    )
 
     return [
         SmartWalletCall(target=agent_registry_address, value=0, data=data),
@@ -368,10 +384,14 @@ def build_testnet_mint_batch(
     Returns:
         List with one SmartWalletCall for mint.
     """
-    data = "0x" + _MINT_SELECTOR + abi_encode(
-        ["address", "uint256"],
-        [Web3.to_checksum_address(recipient), int(amount)],
-    ).hex()
+    data = (
+        "0x"
+        + _MINT_SELECTOR
+        + abi_encode(
+            ["address", "uint256"],
+            [Web3.to_checksum_address(recipient), int(amount)],
+        ).hex()
+    )
 
     return [
         SmartWalletCall(target=mock_usdc_address, value=0, data=data),
@@ -433,7 +453,11 @@ def build_activation_batch(params: ActivationBatchParams) -> List[SmartWalletCal
     config_hash = params.config_hash
 
     if scenario == "A":
-        if not params.endpoint or not params.service_descriptors or len(params.service_descriptors) == 0:
+        if (
+            not params.endpoint
+            or not params.service_descriptors
+            or len(params.service_descriptors) == 0
+        ):
             raise ValueError("Scenario A requires endpoint and service_descriptors")
         register_calls = build_register_agent_batch(
             registry, params.endpoint, params.service_descriptors

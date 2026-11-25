@@ -41,9 +41,7 @@ def autopublish(
     publish: bool = typer.Option(
         True, "--publish/--no-publish", help="Auto-publish on change (default: true)"
     ),
-    debounce: int = typer.Option(
-        1000, "--debounce", help="Debounce delay in milliseconds"
-    ),
+    debounce: int = typer.Option(1000, "--debounce", help="Debounce delay in milliseconds"),
     network: str = typer.Option(
         "base-mainnet",
         "--network",
@@ -82,13 +80,15 @@ def autopublish(
     last_mtime = md_path.stat().st_mtime
 
     if opts.output_format == OutputFormat.JSON:
-        print_json({
-            "status": "watching",
-            "path": str(md_path),
-            "configHash": last_hash,
-            "publish": publish,
-            "debounceMs": debounce,
-        })
+        print_json(
+            {
+                "status": "watching",
+                "path": str(md_path),
+                "configHash": last_hash,
+                "publish": publish,
+                "debounceMs": debounce,
+            }
+        )
     elif opts.output_format != OutputFormat.QUIET:
         print_info(f"Watching {md_path}")
         print_info(f"Initial hash: {last_hash}")
@@ -132,8 +132,17 @@ def autopublish(
         try:
             # factory-allow K5 razlog=fixed argv of the own CLI, no shell do=2027-11-25 odobrio=Damir
             result = subprocess.run(  # noqa: S603
-                [sys.executable, "-m", "agirails.cli.main", "publish",
-                 "--path", str(md_path), "--network", network, "--quiet"],
+                [
+                    sys.executable,
+                    "-m",
+                    "agirails.cli.main",
+                    "publish",
+                    "--path",
+                    str(md_path),
+                    "--network",
+                    network,
+                    "--quiet",
+                ],
                 capture_output=True,
                 text=True,
                 check=False,

@@ -82,9 +82,7 @@ _ENV_OVERRIDES = {
 
 class AgentNotFoundError(RuntimeError):
     def __init__(self, slug: str, network: str) -> None:
-        known = ", ".join(
-            s for s, nets in _KNOWN_AGENTS.items() if network in nets
-        )
+        known = ", ".join(s for s, nets in _KNOWN_AGENTS.items() if network in nets)
         super().__init__(
             f"Agent '{slug}' is not registered for network '{network}'. "
             f"Known agents on this network: {known or '(none)'}."
@@ -175,9 +173,7 @@ def parse_duration(duration_str: str) -> int:
 def test(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Minimal output"),
-    network: str = typer.Option(
-        "mock", "--network", "-n", help="Network (default: mock)"
-    ),
+    network: str = typer.Option("mock", "--network", "-n", help="Network (default: mock)"),
     directory: Optional[Path] = typer.Option(
         None, "--directory", "-d", help="Directory containing AGIRAILS.md"
     ),
@@ -266,8 +262,7 @@ async def _run_live_test(output_format: OutputFormat, network: str) -> None:
     network_config = get_network(sentinel_net)
     delivery_channel = RelayDeliveryChannel(
         RelayDeliveryChannelOptions(
-            base_url=os.environ.get("AGIRAILS_RELAY_URL")
-            or "https://www.agirails.app",
+            base_url=os.environ.get("AGIRAILS_RELAY_URL") or "https://www.agirails.app",
         )
     )
 
@@ -392,7 +387,9 @@ async def _run_test(
     # Match service to test job template
     services = fm.get("services", [])
     first_service = services[0] if services else {}
-    service_type = first_service.get("type", "") if isinstance(first_service, dict) else str(first_service)
+    service_type = (
+        first_service.get("type", "") if isinstance(first_service, dict) else str(first_service)
+    )
     job = _TEST_JOBS.get(service_type, _DEFAULT_JOB)
 
     # Get pricing
@@ -416,6 +413,7 @@ async def _run_test(
     # Generate random requester
     try:
         from eth_account import Account
+
         requester_account = Account.create()
         requester = requester_account.address
     except ImportError:
@@ -425,6 +423,7 @@ async def _run_test(
     if not provider_address:
         try:
             from eth_account import Account
+
             provider_account = Account.create()
             provider_address = provider_account.address
         except ImportError:

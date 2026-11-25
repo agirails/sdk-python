@@ -193,8 +193,7 @@ def fetch_from_ipfs(cid: str) -> str:
     # validateCID(cid, 'onChainCID') guard (config/syncOperations.ts:179-180).
     if not validate_cid(cid):
         raise ValueError(
-            f"Invalid on-chain CID format: {cid!r} "
-            "(expected CIDv0 Qm... or CIDv1 bafy...)"
+            f"Invalid on-chain CID format: {cid!r} (expected CIDv0 Qm... or CIDv1 bafy...)"
         )
 
     errors: list[str] = []
@@ -213,9 +212,7 @@ def fetch_from_ipfs(cid: str) -> str:
             errors.append(f"{gateway}: {e}")
 
     error_list = "\n  - ".join(errors)
-    raise RuntimeError(
-        f"Failed to fetch CID {cid} from all IPFS gateways:\n  - {error_list}"
-    )
+    raise RuntimeError(f"Failed to fetch CID {cid} from all IPFS gateways:\n  - {error_list}")
 
 
 # ============================================================================

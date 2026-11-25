@@ -12,6 +12,7 @@ Daily budget ledger persisted to ``.actp/budget-ledger.json``
 using atomic write pattern (write-to-tmp + os.rename).
 Budget resets at UTC midnight.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -25,6 +26,7 @@ from typing import List, Literal, Optional
 # ============================================================================
 # Types
 # ============================================================================
+
 
 @dataclass
 class MaxUnitPrice:
@@ -154,10 +156,13 @@ class BudgetLedgerFile:
 # PolicyEngine
 # ============================================================================
 
+
 class PolicyEngine:
     def __init__(self, policy: BuyerPolicy, actp_dir: Optional[str] = None) -> None:
         self._policy = policy
-        self._actp_dir = actp_dir or os.environ.get("ACTP_DIR") or os.path.join(os.getcwd(), ".actp")
+        self._actp_dir = (
+            actp_dir or os.environ.get("ACTP_DIR") or os.path.join(os.getcwd(), ".actp")
+        )
         self._ledger = self._load_ledger()
 
     def validate(self, offer: QuoteOffer) -> PolicyResult:
@@ -168,64 +173,83 @@ class PolicyEngine:
         if not math.isfinite(offer.unit_price) or offer.unit_price < 0:
             return PolicyResult(
                 allowed=False,
-                violations=[PolicyViolation(
-                    rule="max_unit_price",
-                    detail=f"Invalid unit_price: {offer.unit_price} (must be finite and >= 0)",
-                )],
+                violations=[
+                    PolicyViolation(
+                        rule="max_unit_price",
+                        detail=f"Invalid unit_price: {offer.unit_price} (must be finite and >= 0)",
+                    )
+                ],
             )
-        if offer.total_price is not None and (not math.isfinite(offer.total_price) or offer.total_price < 0):
+        if offer.total_price is not None and (
+            not math.isfinite(offer.total_price) or offer.total_price < 0
+        ):
             return PolicyResult(
                 allowed=False,
-                violations=[PolicyViolation(
-                    rule="max_daily_spend",
-                    detail=f"Invalid total_price: {offer.total_price} (must be finite and >= 0)",
-                )],
+                violations=[
+                    PolicyViolation(
+                        rule="max_daily_spend",
+                        detail=f"Invalid total_price: {offer.total_price} (must be finite and >= 0)",
+                    )
+                ],
             )
 
         # 1. Unit price check (with currency/unit consistency enforcement)
         policy_up = self._policy.constraints.max_unit_price
         if offer.currency.upper() != policy_up.currency.upper():
-            violations.append(PolicyViolation(
-                rule="max_unit_price",
-                detail=f"Currency mismatch: offer is {offer.currency}, policy requires {policy_up.currency}",
-            ))
+            violations.append(
+                PolicyViolation(
+                    rule="max_unit_price",
+                    detail=f"Currency mismatch: offer is {offer.currency}, policy requires {policy_up.currency}",
+                )
+            )
         elif offer.unit != policy_up.unit:
-            violations.append(PolicyViolation(
-                rule="max_unit_price",
-                detail=f"Unit mismatch: offer is per-{offer.unit}, policy requires per-{policy_up.unit}",
-            ))
+            violations.append(
+                PolicyViolation(
+                    rule="max_unit_price",
+                    detail=f"Unit mismatch: offer is per-{offer.unit}, policy requires per-{policy_up.unit}",
+                )
+            )
         elif offer.unit_price > policy_up.amount:
-            violations.append(PolicyViolation(
-                rule="max_unit_price",
-                detail=(
-                    f"{offer.unit_price} {offer.currency}/{offer.unit} exceeds max "
-                    f"{policy_up.amount} {policy_up.currency}/{policy_up.unit}"
-                ),
-            ))
+            violations.append(
+                PolicyViolation(
+                    rule="max_unit_price",
+                    detail=(
+                        f"{offer.unit_price} {offer.currency}/{offer.unit} exceeds max "
+                        f"{policy_up.amount} {policy_up.currency}/{policy_up.unit}"
+                    ),
+                )
+            )
 
         # 2. Daily spend check (with currency consistency)
         projected_cost = offer.total_price if offer.total_price is not None else offer.unit_price
         policy_ds = self._policy.constraints.max_daily_spend
         if offer.currency.upper() != policy_ds.currency.upper():
-            violations.append(PolicyViolation(
-                rule="max_daily_spend",
-                detail=f"Currency mismatch: offer is {offer.currency}, daily spend limit is {policy_ds.currency}",
-            ))
+            violations.append(
+                PolicyViolation(
+                    rule="max_daily_spend",
+                    detail=f"Currency mismatch: offer is {offer.currency}, daily spend limit is {policy_ds.currency}",
+                )
+            )
         else:
             committed_today = self.get_committed_today()
             projected_total = committed_today + projected_cost
             if projected_total > policy_ds.amount:
-                violations.append(PolicyViolation(
-                    rule="max_daily_spend",
-                    detail=(
-                        f"Committed today: {committed_today}, projected: {projected_total}, "
-                        f"max: {policy_ds.amount} {policy_ds.currency}"
-                    ),
-                ))
+                violations.append(
+                    PolicyViolation(
+                        rule="max_daily_spend",
+                        detail=(
+                            f"Committed today: {committed_today}, projected: {projected_total}, "
+                            f"max: {policy_ds.amount} {policy_ds.currency}"
+                        ),
+                    )
+                )
 
         # 3. Reputation check -- unknown (missing score) = fail when min_reputation is set
         if self._policy.selection.min_reputation is not None:
-            if offer.reputation_score is None or offer.reputation_score < self._policy.selection.min_reputation:
+            if (
+                offer.reputation_score is None
+                or offer.reputation_score < self._policy.selection.min_reputation
+            ):
                 if offer.reputation_score is None:
                     detail = f"Provider reputation unknown -- min {self._policy.selection.min_reputation} required"
                 else:
@@ -242,17 +266,21 @@ class PolicyEngine:
                 expired_iso = datetime.datetime.fromtimestamp(
                     offer.expires_at, tz=datetime.timezone.utc
                 ).isoformat()
-                violations.append(PolicyViolation(
-                    rule="quote_expired",
-                    detail=f"Quote expired at {expired_iso}",
-                ))
+                violations.append(
+                    PolicyViolation(
+                        rule="quote_expired",
+                        detail=f"Quote expired at {expired_iso}",
+                    )
+                )
 
         # 5. Session ID check
         if not offer.commerce_session_id:
-            violations.append(PolicyViolation(
-                rule="missing_session_id",
-                detail="No commerce_session_id provided",
-            ))
+            violations.append(
+                PolicyViolation(
+                    rule="missing_session_id",
+                    detail="No commerce_session_id provided",
+                )
+            )
 
         return PolicyResult(allowed=len(violations) == 0, violations=violations)
 
@@ -282,13 +310,15 @@ class PolicyEngine:
                 f"(already committed: {committed_today})"
             )
 
-        self._ledger.entries.append(BudgetEntry(
-            commerce_session_id=session_id,
-            amount=amount,
-            currency=currency,
-            status="reserved",
-            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        ))
+        self._ledger.entries.append(
+            BudgetEntry(
+                commerce_session_id=session_id,
+                amount=amount,
+                currency=currency,
+                status="reserved",
+                created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            )
+        )
         self._save_ledger()
 
     def commit(self, session_id: str, actp_tx_id: str) -> None:
@@ -303,7 +333,10 @@ class PolicyEngine:
     def release(self, session_id: str) -> None:
         """Release a reservation (after cancel/dispute)."""
         for entry in self._ledger.entries:
-            if entry.commerce_session_id == session_id and entry.status in ("reserved", "committed"):
+            if entry.commerce_session_id == session_id and entry.status in (
+                "reserved",
+                "committed",
+            ):
                 entry.status = "released"
                 self._save_ledger()
                 return
@@ -311,10 +344,7 @@ class PolicyEngine:
     def get_committed_today(self) -> float:
         """Get total committed + reserved exposure for today."""
         self._ensure_ledger_current()
-        return sum(
-            e.amount for e in self._ledger.entries
-            if e.status in ("reserved", "committed")
-        )
+        return sum(e.amount for e in self._ledger.entries if e.status in ("reserved", "committed"))
 
     @staticmethod
     def parse_ttl(ttl: str) -> int:

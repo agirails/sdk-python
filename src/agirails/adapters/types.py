@@ -188,9 +188,7 @@ class UnifiedPayParams:
             dw = self.dispute_window
             # bool is an int subclass — reject it explicitly (TS .int()).
             if isinstance(dw, bool) or not isinstance(dw, int):
-                raise ValueError(
-                    f"Invalid dispute_window: must be an integer, got {dw!r}"
-                )
+                raise ValueError(f"Invalid dispute_window: must be an integer, got {dw!r}")
             if dw < MIN_DISPUTE_WINDOW:
                 raise ValueError(
                     f"Invalid dispute_window: must be at least "

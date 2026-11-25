@@ -25,7 +25,9 @@ ENTRYPOINT_V06 = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"
 SMART_WALLET_FACTORY = "0xBA5ED110eFDBa3D005bfC882d75358ACBbB85842"
 
 
-def _resolve_coinbase_rpc_url(network_path: str, override_env: str, *, fallback_key: str = "2txciN85t41erCjveqgNnXYyHRcoo5xP") -> str:
+def _resolve_coinbase_rpc_url(
+    network_path: str, override_env: str, *, fallback_key: str = "2txciN85t41erCjveqgNnXYyHRcoo5xP"
+) -> str:
     """Resolve Coinbase bundler/paymaster RPC URL.
 
     Priority: env override → CDP_API_KEY → hardcoded fallback key.
@@ -106,13 +108,21 @@ class ContractAddresses:
     archive_treasury: Optional[str] = None
     identity_registry: Optional[str] = None  # AIP-7 (Sepolia only; ERC-1056 DID registry)
     x402_relay: Optional[str] = None  # deprecated since SDK 3.3.0 (zero on mainnet V3)
-    erc8004_identity_registry: Optional[str] = None  # ERC-8004 canonical CREATE2 (same on all chains)
+    erc8004_identity_registry: Optional[str] = (
+        None  # ERC-8004 canonical CREATE2 (same on all chains)
+    )
     # AIP-14b three-tier dispute system (P2-2). None until the dispute stack is
     # deployed: testnet lands in Phase 6, mainnet later. Keys mirror the TS SDK
     # NetworkConfig.contracts (parity).
-    bond_escalation: Optional[str] = None  # BondEscalation (Tier-1 bonded escalation + AIRuling verifier)
-    composite_mediator: Optional[str] = None  # CompositeMediator (canonical 0/1/2 ruling → fund routing)
-    uma_optimistic_oracle_v3: Optional[str] = None  # UMA OptimisticOracleV3 (Tier-2 optimistic oracle)
+    bond_escalation: Optional[str] = (
+        None  # BondEscalation (Tier-1 bonded escalation + AIRuling verifier)
+    )
+    composite_mediator: Optional[str] = (
+        None  # CompositeMediator (canonical 0/1/2 ruling → fund routing)
+    )
+    uma_optimistic_oracle_v3: Optional[str] = (
+        None  # UMA OptimisticOracleV3 (Tier-2 optimistic oracle)
+    )
 
 
 @dataclass(frozen=True)

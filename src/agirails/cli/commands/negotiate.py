@@ -50,6 +50,7 @@ def _error(fmt: OutputFormat, message: str) -> None:
 def _parse_ttl(ttl: str) -> int:
     """Parse a TTL string. Delegates to PolicyEngine.parse_ttl for single source of truth."""
     from agirails.negotiation.policy_engine import PolicyEngine
+
     return PolicyEngine.parse_ttl(ttl)
 
 
@@ -115,35 +116,19 @@ def negotiate(
     constraints = policy_dict.get("constraints") or {}
     max_unit_price = constraints.get("max_unit_price") or {}
     mup_amount = max_unit_price.get("amount")
-    if (
-        not isinstance(mup_amount, (int, float))
-        or not math.isfinite(mup_amount)
-        or mup_amount <= 0
-    ):
-        errors.append(
-            "constraints.max_unit_price.amount must be a finite positive number"
-        )
+    if not isinstance(mup_amount, (int, float)) or not math.isfinite(mup_amount) or mup_amount <= 0:
+        errors.append("constraints.max_unit_price.amount must be a finite positive number")
 
     # constraints.max_daily_spend.amount
     max_daily_spend = constraints.get("max_daily_spend") or {}
     mds_amount = max_daily_spend.get("amount")
-    if (
-        not isinstance(mds_amount, (int, float))
-        or not math.isfinite(mds_amount)
-        or mds_amount <= 0
-    ):
-        errors.append(
-            "constraints.max_daily_spend.amount must be a finite positive number"
-        )
+    if not isinstance(mds_amount, (int, float)) or not math.isfinite(mds_amount) or mds_amount <= 0:
+        errors.append("constraints.max_daily_spend.amount must be a finite positive number")
 
     # negotiation.rounds_max
     negotiation = policy_dict.get("negotiation") or {}
     rounds_max = negotiation.get("rounds_max")
-    if (
-        isinstance(rounds_max, bool)
-        or not isinstance(rounds_max, int)
-        or rounds_max < 1
-    ):
+    if isinstance(rounds_max, bool) or not isinstance(rounds_max, int) or rounds_max < 1:
         errors.append("negotiation.rounds_max must be a positive integer")
 
     # negotiation.quote_ttl
@@ -271,9 +256,7 @@ def negotiate(
                     f"  Round {getattr(event, 'round', '')}: trying {getattr(event, 'provider', '')}..."
                 )
             elif event_type == "waiting_quote":
-                typer.echo(
-                    f"    Waiting for quote ({getattr(event, 'ttl_seconds', '')}s TTL)..."
-                )
+                typer.echo(f"    Waiting for quote ({getattr(event, 'ttl_seconds', '')}s TTL)...")
             elif event_type == "quote_received":
                 typer.echo("    Quote received, validating...")
             elif event_type == "round_end":
@@ -334,13 +317,16 @@ def negotiate(
 
             # Human output
             if result.success:
-                print_success("Negotiation complete", {
-                    "Session": result.commerce_session_id,
-                    "Transaction": result.actp_tx_id or "-",
-                    "Provider": result.selected_provider or "-",
-                    "Rounds": str(result.rounds_used),
-                    "Reason": result.reason,
-                })
+                print_success(
+                    "Negotiation complete",
+                    {
+                        "Session": result.commerce_session_id,
+                        "Transaction": result.actp_tx_id or "-",
+                        "Provider": result.selected_provider or "-",
+                        "Rounds": str(result.rounds_used),
+                        "Reason": result.reason,
+                    },
+                )
             else:
                 print_error(
                     f"Negotiation failed: {result.reason}",

@@ -47,9 +47,7 @@ class PricingPolicy:
                 f"below platform minimum ({PLATFORM_MIN_BASE_UNITS})"
             )
         if self.ideal_amount < self.min_acceptable_amount:
-            raise ValueError(
-                "ideal_amount must be >= min_acceptable_amount"
-            )
+            raise ValueError("ideal_amount must be >= min_acceptable_amount")
         if self.currency != "USDC":
             raise ValueError("Only USDC supported in v1")
 
@@ -88,8 +86,7 @@ class ProviderPolicy:
     def __post_init__(self) -> None:
         if self.counter_strategy not in ("walk", "concede"):
             raise ValueError(
-                f"counter_strategy must be 'walk' or 'concede', got "
-                f"{self.counter_strategy!r}"
+                f"counter_strategy must be 'walk' or 'concede', got {self.counter_strategy!r}"
             )
         if not 1 <= self.concede_pct <= 99:
             raise ValueError("concede_pct must be in [1, 99]")

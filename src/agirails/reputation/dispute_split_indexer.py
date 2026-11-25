@@ -193,9 +193,7 @@ class DisputeSplitIndexer:
         """
         mine = [o for o in self._outcomes if _same_address(o.provider, agent_id)]
         split_recorded = sum(1 for o in mine if o.kind == "disputeSplitRecorded")
-        kernel_disputed_to_cancelled = sum(
-            1 for o in mine if o.kind == "kernelDisputedToCancelled"
-        )
+        kernel_disputed_to_cancelled = sum(1 for o in mine if o.kind == "kernelDisputedToCancelled")
         total_disputes = len(mine)
 
         # Reuse the P2-5 primitive so the headline arithmetic is identical to the
@@ -227,17 +225,11 @@ class DisputeSplitIndexer:
             split_count=base.split_count,
             total_disputes=base.total_disputes,
             split_rate=base.split_rate,
-            mediator_split_count=sum(
-                1 for o in mine if o.kind == "disputeSplitRecorded"
-            ),
-            admin_split_count=sum(
-                1 for o in mine if o.kind == "kernelDisputedToCancelled"
-            ),
+            mediator_split_count=sum(1 for o in mine if o.kind == "disputeSplitRecorded"),
+            admin_split_count=sum(1 for o in mine if o.kind == "kernelDisputedToCancelled"),
         )
 
-    def classify_payout(
-        self, outcome: DisputeOutcome
-    ) -> Optional[DecodedResolutionProof]:
+    def classify_payout(self, outcome: DisputeOutcome) -> Optional[DecodedResolutionProof]:
         """
         Classify the ECONOMIC payout of one outcome under the ZERO-REMAINING
         CONSUMER RULE (AIP-14b §6). Delegates to the P2-5
@@ -250,7 +242,9 @@ class DisputeSplitIndexer:
         """
         if outcome.proof is None:
             return None
-        principal = outcome.escrow_principal if outcome.escrow_principal is not None else outcome.remaining
+        principal = (
+            outcome.escrow_principal if outcome.escrow_principal is not None else outcome.remaining
+        )
         return decode_resolution_proof(outcome.proof, principal)
 
 

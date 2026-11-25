@@ -49,9 +49,7 @@ def claim_code(
         None,
         help="Path to AGIRAILS.md (defaults to ./AGIRAILS.md).",
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit machine-readable JSON."
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     quiet: bool = typer.Option(
         False, "-q", "--quiet", help="Emit only the claim code (pipe-friendly)."
     ),
@@ -69,9 +67,7 @@ def claim_code(
         raise typer.Exit(code=1)
 
 
-async def _run(
-    path: Optional[Path], *, json_output: bool, quiet: bool
-) -> None:
+async def _run(path: Optional[Path], *, json_output: bool, quiet: bool) -> None:
     # 1. Resolve AGIRAILS.md path (CLI arg → cwd default).
     md_path = (path or Path("AGIRAILS.md")).resolve()
     if not md_path.exists():
@@ -106,9 +102,7 @@ async def _run(
     # selected when the project config explicitly says mode=mainnet.
     project_root = md_path.parent
     network_mode = _detect_network_mode(project_root)
-    chain_name = (
-        "base-mainnet" if network_mode == "mainnet" else "base-sepolia"
-    )
+    chain_name = "base-mainnet" if network_mode == "mainnet" else "base-sepolia"
 
     private_key = await resolve_private_key(
         state_directory=str(project_root),
@@ -141,11 +135,7 @@ async def _run(
         sig_hex = "0x" + sig_hex
 
     # 4. Exchange at agirails.app/api/v1/agents/claim-code.
-    signer_field = (
-        signer_address
-        if effective_wallet.lower() != signer_address.lower()
-        else None
-    )
+    signer_field = signer_address if effective_wallet.lower() != signer_address.lower() else None
     try:
         result = await request_claim_code(
             RequestClaimCodeParams(
@@ -166,9 +156,7 @@ async def _run(
 
     code = result.get("claimCode")
     if not isinstance(code, str) or not code:
-        raise RuntimeError(
-            f"claim-code response missing claimCode field: {result!r}"
-        )
+        raise RuntimeError(f"claim-code response missing claimCode field: {result!r}")
 
     claim_url = f"https://agirails.app/claim?code={code}"
 
@@ -192,9 +180,7 @@ async def _run(
     print_info(f"  Claim link: {claim_url}")
     print_info("  (enter this code in your dashboard to link the agent)")
     print_info("")
-    print_info(
-        "  Code expires in 24 hours. Run `actp claim-code` to get a new one."
-    )
+    print_info("  Code expires in 24 hours. Run `actp claim-code` to get a new one.")
 
 
 def _detect_network_mode(project_root: Path) -> str:

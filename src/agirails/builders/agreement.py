@@ -95,17 +95,14 @@ def validate_agreement(agreement: Any) -> dict:
         InvalidAgreementError, UnsupportedAgreementVersionError
     """
     if not isinstance(agreement, dict):
-        raise InvalidAgreementError(
-            "must be a dict with keys {schemaVersion, request, input, sla}"
-        )
+        raise InvalidAgreementError("must be a dict with keys {schemaVersion, request, input, sla}")
     for req in _REQUIRED_KEYS:
         if req not in agreement:
             raise InvalidAgreementError(f'missing required key "{req}"')
     for key in agreement:
         if key not in _REQUIRED_KEYS:
             raise InvalidAgreementError(
-                f'unexpected extra key "{key}" '
-                f"(only {', '.join(_REQUIRED_KEYS)} allowed)"
+                f'unexpected extra key "{key}" (only {", ".join(_REQUIRED_KEYS)} allowed)'
             )
     if not isinstance(agreement["schemaVersion"], str):
         raise InvalidAgreementError("schemaVersion must be a string")

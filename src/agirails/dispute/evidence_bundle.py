@@ -273,9 +273,7 @@ def validate_bundle(bundle: Union[EvidenceBundle, Mapping[str, Any]]) -> Evidenc
             model = EvidenceBundle.model_validate(bundle)
         except ValidationError as exc:
             issues = exc.errors()
-            summary = "; ".join(
-                f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in issues
-            )
+            summary = "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in issues)
             raise InvalidBundleError(summary, issues) from exc
     assert_supported_version(model.schemaVersion)
     return model
@@ -484,6 +482,4 @@ def pin_evidence_bundle(
         {"metadata": {"bundleHash": digest, "schemaVersion": valid.schemaVersion}},
     )
     cid = result["cid"] if isinstance(result, dict) else result.cid
-    return PinEvidenceBundleResult(
-        cid=cid, bundle_hash=digest, size=len(canonical_bytes)
-    )
+    return PinEvidenceBundleResult(cid=cid, bundle_hash=digest, size=len(canonical_bytes))

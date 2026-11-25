@@ -290,9 +290,7 @@ class DeliveryEnvelopeBuilder:
     # build_encrypted (TS envelopeBuilder.ts:683)
     # ------------------------------------------------------------------
 
-    def build_encrypted(
-        self, params: BuildEncryptedEnvelopeParams
-    ) -> BuildEnvelopeResult:
+    def build_encrypted(self, params: BuildEncryptedEnvelopeParams) -> BuildEnvelopeResult:
         """Build + sign an ``x25519-aes256gcm-v1`` envelope (TS:683)."""
         if self._signer is None:
             raise DeliveryEip712Error(
@@ -305,8 +303,7 @@ class DeliveryEnvelopeBuilder:
         if params.buyer_ephemeral_pubkey.lower() == CANONICAL_EMPTY_BYTES32.lower():
             raise DeliveryEip712Error(
                 "BUILDER_ENCRYPTED_BUYER_PUBKEY_IS_CANONICAL_EMPTY",
-                "x25519-aes256gcm-v1 requires a non-zero X25519 buyer pubkey "
-                "(RFC 7748 §6.1).",
+                "x25519-aes256gcm-v1 requires a non-zero X25519 buyer pubkey (RFC 7748 §6.1).",
                 {"buyerEphemeralPubkey": params.buyer_ephemeral_pubkey},
             )
 
@@ -474,9 +471,7 @@ class DeliveryEnvelopeBuilder:
                 signed, wire["providerSig"], expected_kernel_address
             )
         except Exception as e:  # noqa: BLE001
-            return EnvelopeVerifyResult(
-                ok=False, code="envelope_signature_invalid", error=str(e)
-            )
+            return EnvelopeVerifyResult(ok=False, code="envelope_signature_invalid", error=str(e))
 
         if recovered.lower() != signed["signerAddress"].lower():
             return EnvelopeVerifyResult(
@@ -507,9 +502,7 @@ class DeliveryEnvelopeBuilder:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def decrypt_payload(
-        wire: DeliveryEnvelopeWireV1, buyer_ephemeral_priv_key: bytes
-    ) -> Any:
+    def decrypt_payload(wire: DeliveryEnvelopeWireV1, buyer_ephemeral_priv_key: bytes) -> Any:
         """Decrypt an encrypted envelope using the buyer's X25519 priv key (TS:998).
 
         Does NOT verify the signature / chain / kernel / payloadHash. Use
@@ -586,14 +579,10 @@ class DeliveryEnvelopeBuilder:
         # Encrypted scheme — run decrypt helper, surface crypto errors as
         # envelope_decrypt_failed (TS envelopeBuilder.ts:1107).
         try:
-            payload = DeliveryEnvelopeBuilder.decrypt_payload(
-                wire, buyer_ephemeral_priv_key
-            )
+            payload = DeliveryEnvelopeBuilder.decrypt_payload(wire, buyer_ephemeral_priv_key)
             return VerifyAndDecryptResult(ok=True, payload=payload)
         except (DeliveryCryptoError, DeliveryEip712Error, Exception) as e:  # noqa: BLE001
-            return VerifyAndDecryptResult(
-                ok=False, code="envelope_decrypt_failed", error=str(e)
-            )
+            return VerifyAndDecryptResult(ok=False, code="envelope_decrypt_failed", error=str(e))
 
     # ------------------------------------------------------------------
     # compute_hash (static, TS envelopeBuilder.ts:1145)

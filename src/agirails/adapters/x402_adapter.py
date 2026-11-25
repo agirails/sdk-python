@@ -407,9 +407,7 @@ class X402Adapter:
             )
 
         # I1: resolve + cache allowed networks once.
-        self._allowed_networks: Sequence[str] = resolve_allowed_networks(
-            config.allowed_networks
-        )
+        self._allowed_networks: Sequence[str] = resolve_allowed_networks(config.allowed_networks)
 
         # P1-1: resolve allowed assets (lowercase). None => canonical USDC per
         # network; empty list => None sentinel ("any asset", explicit opt-out).
@@ -426,9 +424,7 @@ class X402Adapter:
             self._allowed_assets_lc = {a.lower() for a in config.allowed_assets}
 
         # P1-3: resolve allowed hosts (lowercase). Default empty = always opt-in.
-        self._allowed_hosts_lc: Set[str] = {
-            h.lower() for h in (config.allowed_hosts or [])
-        }
+        self._allowed_hosts_lc: Set[str] = {h.lower() for h in (config.allowed_hosts or [])}
 
         # P1-3: default cap $1.
         self._max_amount_per_tx: int = parse_usdc_amount(config.max_amount_per_tx or "1")
@@ -463,9 +459,7 @@ class X402Adapter:
             )
 
         # P1-3: explicit opt-in gate.
-        explicit_opt_in = bool(
-            params.metadata and params.metadata.get("payment_method") == "x402"
-        )
+        explicit_opt_in = bool(params.metadata and params.metadata.get("payment_method") == "x402")
         host_allowed = False
         if len(self._allowed_hosts_lc) > 0:
             try:
@@ -484,9 +478,7 @@ class X402Adapter:
                 f"This safeguard prevents accidental charges from unrelated HTTPS calls."
             )
 
-    async def pay(
-        self, params: Union[UnifiedPayParams, X402PayParams]
-    ) -> X402PayResult:
+    async def pay(self, params: Union[UnifiedPayParams, X402PayParams]) -> X402PayResult:
         """Execute the native x402 v2 payment flow.
 
         1. Request endpoint -> get 402 with payment requirements
@@ -498,7 +490,9 @@ class X402Adapter:
         """
         self.validate(params)
 
-        method, request_headers, request_body, content_type = _extract_http_options(params, isinstance(params, X402PayParams))
+        method, request_headers, request_body, content_type = _extract_http_options(
+            params, isinstance(params, X402PayParams)
+        )
         wire_body = None if method in ("GET", "DELETE") else request_body
         accepted_quote = snapshot_quote(getattr(params, "accepted_quote", None), wire_body)
         validate_wallet_network(self._config.wallet_provider, accepted_quote)
@@ -534,9 +528,7 @@ class X402Adapter:
                 endpoint, method, retry_headers, request_body, content_type
             )
         except Exception as exc:
-            raise X402PaymentFailedError(
-                f"x402 payment failed: {exc}"
-            )
+            raise X402PaymentFailedError(f"x402 payment failed: {exc}")
 
         if res.status_code < 200 or res.status_code >= 300:
             raise X402PaymentFailedError(
@@ -586,9 +578,7 @@ class X402Adapter:
     # Requirement parsing + selection
     # ------------------------------------------------------------------
 
-    def _parse_payment_requirements(
-        self, response: httpx.Response
-    ) -> List[Dict[str, Any]]:
+    def _parse_payment_requirements(self, response: httpx.Response) -> List[Dict[str, Any]]:
         """Parse the server's 402 ``accepts[]`` payment requirements.
 
         x402 v2 servers return JSON ``{x402Version, accepts: [PaymentRequirements]}``.
@@ -596,9 +586,7 @@ class X402Adapter:
         try:
             body = response.json()
         except Exception as exc:
-            raise X402PaymentFailedError(
-                f"x402: 402 response body is not valid JSON: {exc}"
-            )
+            raise X402PaymentFailedError(f"x402: 402 response body is not valid JSON: {exc}")
         accepts = body.get("accepts") if isinstance(body, dict) else None
         if not isinstance(accepts, list) or len(accepts) == 0:
             raise X402PaymentFailedError(
@@ -607,7 +595,9 @@ class X402Adapter:
         return accepts
 
     def _select_requirements(
-        self, requirements: Sequence[Dict[str, Any]], accepted_quote: Optional[Mapping[str, str]] = None
+        self,
+        requirements: Sequence[Dict[str, Any]],
+        accepted_quote: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
         """Pick the best requirement (TS selectRequirements).
 
@@ -650,7 +640,7 @@ class X402Adapter:
         if accepted_quote is not None:
             candidates = [r for r in candidates if matches_quote(r, accepted_quote)]
             if not candidates:
-                raise X402QuoteMismatchError('No payment requirement matches the accepted quote')
+                raise X402QuoteMismatchError("No payment requirement matches the accepted quote")
 
         def _is_permit2(r: Dict[str, Any]) -> bool:
             extra = r.get("extra")
@@ -674,18 +664,14 @@ class X402Adapter:
         server_timeout = chosen.get("maxTimeoutSeconds")
         if server_timeout is None:
             server_timeout = self._max_authorization_valid_sec
-        chosen["maxTimeoutSeconds"] = min(
-            int(server_timeout), self._max_authorization_valid_sec
-        )
+        chosen["maxTimeoutSeconds"] = min(int(server_timeout), self._max_authorization_valid_sec)
         return chosen
 
     # ------------------------------------------------------------------
     # Payload building (EIP-3009 / Permit2)
     # ------------------------------------------------------------------
 
-    async def _build_payment_payload(
-        self, chosen: Dict[str, Any]
-    ) -> tuple[Dict[str, Any], str]:
+    async def _build_payment_payload(self, chosen: Dict[str, Any]) -> tuple[Dict[str, Any], str]:
         """Build the inner x402 payload + the network name for the header.
 
         Smart Wallet => Permit2; EOA => EIP-3009 (TS scheme client auto-selects
@@ -779,9 +765,7 @@ class X402Adapter:
         except Exception as exc:
             if is_paymaster_gate_error(exc):
                 raise X402PublishRequiredError()
-            raise X402ApprovalFailedError(
-                f"Permit2 approve failed for {network}:{token}: {exc}"
-            )
+            raise X402ApprovalFailedError(f"Permit2 approve failed for {network}:{token}: {exc}")
 
     # ------------------------------------------------------------------
     # Response mapping + settlement proof
@@ -869,9 +853,7 @@ class X402Adapter:
     def _free_service_result(
         self, params: UnifiedPayParams, response: httpx.Response
     ) -> X402PayResult:
-        deadline_iso = datetime.fromtimestamp(
-            time.time() + 86400, tz=timezone.utc
-        ).isoformat()
+        deadline_iso = datetime.fromtimestamp(time.time() + 86400, tz=timezone.utc).isoformat()
         return X402PayResult(
             tx_id="0x" + "0" * 64,
             escrow_id=None,
@@ -903,9 +885,11 @@ class X402Adapter:
             headers.update(custom_headers)
         if body and content_type and "content-type" not in {k.lower() for k in headers}:
             headers["content-type"] = content_type
-        elif body and method not in ("GET", "DELETE") and "content-type" not in {
-            k.lower() for k in headers
-        }:
+        elif (
+            body
+            and method not in ("GET", "DELETE")
+            and "content-type" not in {k.lower() for k in headers}
+        ):
             headers["content-type"] = "application/json"
 
         if self._config.fetch_fn is not None:
@@ -1079,11 +1063,11 @@ class LegacyX402Adapter:
                 X402ErrorCode.MISSING_HEADERS,
             )
 
-    async def pay(
-        self, params: Union[UnifiedPayParams, X402PayParams]
-    ) -> X402PayResult:
+    async def pay(self, params: Union[UnifiedPayParams, X402PayParams]) -> X402PayResult:
         if getattr(params, "accepted_quote", None) is not None:
-            raise X402QuoteMismatchError('Legacy x402 transport cannot enforce accepted quote terms')
+            raise X402QuoteMismatchError(
+                "Legacy x402 transport cannot enforce accepted quote terms"
+            )
         self.validate(params)
         endpoint = params.to
 
@@ -1149,9 +1133,7 @@ class LegacyX402Adapter:
             fee_breakdown=fee_breakdown,
         )
 
-        deadline_iso = datetime.fromtimestamp(
-            payment_headers.deadline, tz=timezone.utc
-        ).isoformat()
+        deadline_iso = datetime.fromtimestamp(payment_headers.deadline, tz=timezone.utc).isoformat()
 
         return X402PayResult(
             tx_id=tx_hash,
@@ -1171,9 +1153,7 @@ class LegacyX402Adapter:
     async def get_status(self, tx_id: str) -> Dict[str, Any]:
         record = self._payments.get(tx_id)
         if record is None:
-            raise ValueError(
-                f"Payment {tx_id} not found. X402 payments are atomic and stateless."
-            )
+            raise ValueError(f"Payment {tx_id} not found. X402 payments are atomic and stateless.")
         return {
             "state": "SETTLED",
             "can_start_work": False,
@@ -1250,22 +1230,40 @@ class LegacyX402Adapter:
         deadline = h.get(X402_HEADERS["DEADLINE"])
 
         if not address:
-            raise X402Error(f"Missing {X402_HEADERS['ADDRESS']}", X402ErrorCode.MISSING_HEADERS, response)
+            raise X402Error(
+                f"Missing {X402_HEADERS['ADDRESS']}", X402ErrorCode.MISSING_HEADERS, response
+            )
         if not amount:
-            raise X402Error(f"Missing {X402_HEADERS['AMOUNT']}", X402ErrorCode.MISSING_HEADERS, response)
+            raise X402Error(
+                f"Missing {X402_HEADERS['AMOUNT']}", X402ErrorCode.MISSING_HEADERS, response
+            )
         if not network:
-            raise X402Error(f"Missing {X402_HEADERS['NETWORK']}", X402ErrorCode.MISSING_HEADERS, response)
+            raise X402Error(
+                f"Missing {X402_HEADERS['NETWORK']}", X402ErrorCode.MISSING_HEADERS, response
+            )
         if not token:
-            raise X402Error(f"Missing {X402_HEADERS['TOKEN']}", X402ErrorCode.MISSING_HEADERS, response)
+            raise X402Error(
+                f"Missing {X402_HEADERS['TOKEN']}", X402ErrorCode.MISSING_HEADERS, response
+            )
         if not deadline:
-            raise X402Error(f"Missing {X402_HEADERS['DEADLINE']}", X402ErrorCode.MISSING_HEADERS, response)
+            raise X402Error(
+                f"Missing {X402_HEADERS['DEADLINE']}", X402ErrorCode.MISSING_HEADERS, response
+            )
 
         validated_address = self._validate_payment_address(address, response)
 
         if not re.match(r"^\d+$", amount):
-            raise X402Error(f'Invalid {X402_HEADERS["AMOUNT"]}: "{amount}"', X402ErrorCode.INVALID_AMOUNT, response)
+            raise X402Error(
+                f'Invalid {X402_HEADERS["AMOUNT"]}: "{amount}"',
+                X402ErrorCode.INVALID_AMOUNT,
+                response,
+            )
         if not is_valid_x402_network(network):
-            raise X402Error(f'Invalid {X402_HEADERS["NETWORK"]}: "{network}"', X402ErrorCode.INVALID_NETWORK, response)
+            raise X402Error(
+                f'Invalid {X402_HEADERS["NETWORK"]}: "{network}"',
+                X402ErrorCode.INVALID_NETWORK,
+                response,
+            )
         if token.upper() != "USDC":
             raise X402Error(
                 f'Unsupported token: "{token}". Only USDC supported.',
@@ -1277,7 +1275,11 @@ class LegacyX402Adapter:
         except ValueError:
             deadline_num = 0
         if deadline_num <= 0:
-            raise X402Error(f'Invalid {X402_HEADERS["DEADLINE"]}: "{deadline}"', X402ErrorCode.MISSING_HEADERS, response)
+            raise X402Error(
+                f'Invalid {X402_HEADERS["DEADLINE"]}: "{deadline}"',
+                X402ErrorCode.MISSING_HEADERS,
+                response,
+            )
 
         return X402PaymentHeaders(
             required=True,
@@ -1304,11 +1306,7 @@ class LegacyX402Adapter:
         self, headers: X402PaymentHeaders
     ) -> tuple[str, Optional[X402FeeBreakdown]]:
         try:
-            if (
-                self._config.relay_address
-                and self._config.approve_fn
-                and self._config.relay_pay_fn
-            ):
+            if self._config.relay_address and self._config.approve_fn and self._config.relay_pay_fn:
                 gross_amount = headers.amount
                 fee_bps = self._config.platform_fee_bps
                 MIN_FEE = 50_000
@@ -1373,9 +1371,7 @@ class LegacyX402Adapter:
     def _create_free_service_result(
         self, params: UnifiedPayParams, response: httpx.Response
     ) -> X402PayResult:
-        deadline_iso = datetime.fromtimestamp(
-            time.time() + 86400, tz=timezone.utc
-        ).isoformat()
+        deadline_iso = datetime.fromtimestamp(time.time() + 86400, tz=timezone.utc).isoformat()
         return X402PayResult(
             tx_id="0x" + "0" * 64,
             escrow_id=None,

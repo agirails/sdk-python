@@ -148,9 +148,7 @@ def validate_archive_bundle(bundle: ArchiveBundle) -> bool:
         errors.append(f"Invalid final_state: {bundle.settlement.final_state}")
 
     if errors:
-        raise ArchiveBundleValidationError(
-            f"Archive bundle validation failed: {'; '.join(errors)}"
-        )
+        raise ArchiveBundleValidationError(f"Archive bundle validation failed: {'; '.join(errors)}")
 
     return True
 
@@ -420,9 +418,7 @@ class ArchiveBundleBuilder:
             missing.append("settlement")
 
         if missing:
-            raise ArchiveBundleValidationError(
-                f"Missing required fields: {', '.join(missing)}"
-            )
+            raise ArchiveBundleValidationError(f"Missing required fields: {', '.join(missing)}")
 
         # Build bundle
         bundle = ArchiveBundle(

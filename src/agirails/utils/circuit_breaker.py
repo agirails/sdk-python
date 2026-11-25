@@ -124,7 +124,9 @@ class CircuitBreaker:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
             current_loop = None
-        if self._lock is None or (current_loop is not None and getattr(self._lock, '_loop', None) is not current_loop):
+        if self._lock is None or (
+            current_loop is not None and getattr(self._lock, "_loop", None) is not current_loop
+        ):
             self._lock = asyncio.Lock()
         return self._lock
 
@@ -176,9 +178,7 @@ class CircuitBreaker:
         current_time_ms = time.time() * 1000
         window_start = current_time_ms - self.config.failure_window_ms
 
-        self._state.failure_times = [
-            t for t in self._state.failure_times if t > window_start
-        ]
+        self._state.failure_times = [t for t in self._state.failure_times if t > window_start]
         self._state.failures = len(self._state.failure_times)
 
     async def record_success(self) -> None:
@@ -262,9 +262,7 @@ class CircuitBreaker:
             if fallback is not None:
                 return await fallback()
 
-            reset_at = self._state.last_failure_time + (
-                self.config.reset_timeout_ms / 1000
-            )
+            reset_at = self._state.last_failure_time + (self.config.reset_timeout_ms / 1000)
             raise CircuitBreakerOpenError(
                 "Circuit breaker is open - service unavailable",
                 reset_at=reset_at,

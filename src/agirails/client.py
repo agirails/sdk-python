@@ -306,9 +306,7 @@ class ACTPClient:
             from agirails.erc8004.bridge import ERC8004Bridge
             from agirails.types.erc8004 import ERC8004BridgeConfig
 
-            bridge = ERC8004Bridge(
-                ERC8004BridgeConfig(network=self._erc8004_network())
-            )
+            bridge = ERC8004Bridge(ERC8004BridgeConfig(network=self._erc8004_network()))
             self._router.set_erc8004_bridge(bridge)
         except (ImportError, Exception):
             pass
@@ -468,7 +466,11 @@ class ACTPClient:
         else:
             raise ValidationError(
                 message=f"Invalid mode: {config.mode}",
-                details={"field": "mode", "value": config.mode, "allowed": ["mock", "testnet", "mainnet"]},
+                details={
+                    "field": "mode",
+                    "value": config.mode,
+                    "allowed": ["mock", "testnet", "mainnet"],
+                },
             )
 
         # Create info
@@ -490,13 +492,9 @@ class ACTPClient:
         if config.mode in ("testnet", "mainnet"):
             from agirails.config.networks import get_network
 
-            network_id = (
-                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
-            )
+            network_id = "base-sepolia" if config.mode == "testnet" else "base-mainnet"
             network = get_network(network_id)
-            agent_registry_address = getattr(
-                network.contracts, "agent_registry", None
-            )
+            agent_registry_address = getattr(network.contracts, "agent_registry", None)
             erc8004_identity_registry_address = getattr(
                 network.contracts, "erc8004_identity_registry", None
             )
@@ -506,6 +504,7 @@ class ACTPClient:
             from agirails.wallet.aa.transaction_batcher import (
                 ContractAddresses as AAContractAddresses,
             )
+
             network_name = network_id or (
                 "base-sepolia" if config.mode == "testnet" else "base-mainnet"
             )
@@ -548,8 +547,7 @@ class ACTPClient:
                 from agirails.config.networks import get_network as _get_network
 
                 _net = _get_network(
-                    network_id
-                    or ("base-sepolia" if config.mode == "testnet" else "base-mainnet")
+                    network_id or ("base-sepolia" if config.mode == "testnet" else "base-mainnet")
                 )
                 _contracts = _net.contracts
                 if getattr(_contracts, "bond_escalation", None) and getattr(
@@ -562,9 +560,7 @@ class ACTPClient:
                     _w3 = getattr(runtime, "w3", None)
                     _account = getattr(runtime, "account", None)
                     if _w3 is not None:
-                        dispute_client = DisputeClient.from_config(
-                            _w3, _account, _net
-                        )
+                        dispute_client = DisputeClient.from_config(_w3, _account, _net)
             except Exception as exc:  # pragma: no cover - best-effort
                 _logger.warn(f"DisputeClient wiring skipped: {exc}")
 
@@ -582,12 +578,8 @@ class ACTPClient:
 
                     content = md_path.read_text(encoding="utf-8")
                     hash_result = compute_config_hash(content)
-                    current_hash = getattr(
-                        hash_result, "config_hash", None
-                    ) or (
-                        hash_result.get("config_hash")
-                        if isinstance(hash_result, dict)
-                        else None
+                    current_hash = getattr(hash_result, "config_hash", None) or (
+                        hash_result.get("config_hash") if isinstance(hash_result, dict) else None
                     )
                     pending_hash = getattr(lazy_pending, "config_hash", None)
                     if current_hash is not None and current_hash != pending_hash:
@@ -650,9 +642,7 @@ class ACTPClient:
         return client
 
     @classmethod
-    async def _build_auto_wallet_provider(
-        cls, config: ACTPClientConfig
-    ) -> object:
+    async def _build_auto_wallet_provider(cls, config: ACTPClientConfig) -> object:
         """Build AutoWalletProvider from config (wallet='auto' path).
 
         Mirrors the TS SDK ACTPClient.create() AA initialization:
@@ -688,9 +678,7 @@ class ACTPClient:
                 details={"field": "private_key"},
             )
 
-        network_name = (
-            "base-sepolia" if config.mode == "testnet" else "base-mainnet"
-        )
+        network_name = "base-sepolia" if config.mode == "testnet" else "base-mainnet"
         network = get_network(network_name)
 
         if network.aa is None:
@@ -702,17 +690,16 @@ class ACTPClient:
                 details={"field": "network.aa", "network": network_name},
             )
 
-        bundler_primary = network.aa.bundler_urls.get(
-            "coinbase"
-        ) or network.aa.bundler_urls.get("pimlico")
+        bundler_primary = network.aa.bundler_urls.get("coinbase") or network.aa.bundler_urls.get(
+            "pimlico"
+        )
         paymaster_primary = network.aa.paymaster_urls.get(
             "coinbase"
         ) or network.aa.paymaster_urls.get("pimlico")
         # When both providers are configured, the other becomes the backup.
         bundler_backup = (
             network.aa.bundler_urls.get("pimlico")
-            if network.aa.bundler_urls.get("coinbase")
-            and network.aa.bundler_urls.get("pimlico")
+            if network.aa.bundler_urls.get("coinbase") and network.aa.bundler_urls.get("pimlico")
             else None
         )
         paymaster_backup = (
@@ -814,9 +801,7 @@ class ACTPClient:
             load_pending_publish,
         )
 
-        network_name = (
-            "base-sepolia" if config.mode == "testnet" else "base-mainnet"
-        )
+        network_name = "base-sepolia" if config.mode == "testnet" else "base-mainnet"
         network = get_network(network_name)
         registry_addr = getattr(network.contracts, "agent_registry", None)
         rpc_url = config.rpc_url or network.rpc_url
@@ -853,9 +838,7 @@ class ACTPClient:
                     network_name,
                     rpc_url,
                 )
-                lazy_scenario = cls._detect_lazy_publish_scenario(
-                    on_chain_state, lazy_pending
-                )
+                lazy_scenario = cls._detect_lazy_publish_scenario(on_chain_state, lazy_pending)
 
                 # Scenario C: stale pending — delete immediately (TS 953-958).
                 if lazy_scenario == "C":
@@ -883,8 +866,7 @@ class ACTPClient:
                     )
                 else:
                     _logger.warn(
-                        "AgentRegistry check failed and no pending publish — "
-                        "falling back to EOA."
+                        "AgentRegistry check failed and no pending publish — falling back to EOA."
                     )
         else:
             # No registry deployed — skip check (early testnet) (TS 986-989).
@@ -946,9 +928,7 @@ class ACTPClient:
             )
             from agirails.config.networks import get_network
 
-            network_name = (
-                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
-            )
+            network_name = "base-sepolia" if config.mode == "testnet" else "base-mainnet"
 
             if has_sign_typed:
                 # Native x402 v2 (TS parity). Defaults keep the opt-in safety
@@ -971,9 +951,7 @@ class ACTPClient:
             usdc_address = network.contracts.usdc
             rpc_url = config.rpc_url or network.rpc_url
 
-            transfer_fn = cls._build_x402_transfer_fn(
-                wallet_provider, usdc_address, rpc_url
-            )
+            transfer_fn = cls._build_x402_transfer_fn(wallet_provider, usdc_address, rpc_url)
 
             adapter = X402Adapter(
                 requester_address=requester_address,
@@ -984,13 +962,10 @@ class ACTPClient:
             )
             client.register_adapter(adapter)
             _logger.debug(
-                f"Legacy X402Adapter auto-registered for {network_name} "
-                f"(usdc={usdc_address})"
+                f"Legacy X402Adapter auto-registered for {network_name} (usdc={usdc_address})"
             )
         except Exception as exc:
-            _logger.warn(
-                f"X402Adapter auto-registration skipped: {exc}"
-            )
+            _logger.warn(f"X402Adapter auto-registration skipped: {exc}")
 
     @staticmethod
     def _build_x402_transfer_fn(
@@ -1170,9 +1145,8 @@ class ACTPClient:
         # ONLY when a walletProvider with batched support is active AND
         # the target is an Ethereum address, override to BasicAdapter.
         # Otherwise respect the router's adapter selection.
-        has_batched = (
-            self._wallet_provider is not None
-            and hasattr(self._wallet_provider, 'pay_actp_batched')
+        has_batched = self._wallet_provider is not None and hasattr(
+            self._wallet_provider, "pay_actp_batched"
         )
         if has_batched and self._basic.can_handle(resolved):
             result = await self._basic.pay(resolved)
@@ -1183,9 +1157,7 @@ class ACTPClient:
         self._track_tx_adapter(_extract_tx_id(result), adapter)
         return result
 
-    async def route_url_payment(
-        self, params: Union[UnifiedPayParams, dict]
-    ) -> Any:
+    async def route_url_payment(self, params: Union[UnifiedPayParams, dict]) -> Any:
         """
         Route URL recipients through non-basic adapters (e.g. x402).
 
@@ -1287,9 +1259,7 @@ class ACTPClient:
         if router is not None and router.should_route():
             from agirails.runtime.types import State
 
-            await router.send_transition(
-                tx_id, State.IN_PROGRESS.value, "0x", label="startWork"
-            )
+            await router.send_transition(tx_id, State.IN_PROGRESS.value, "0x", label="startWork")
             return
         await self._runtime.transition_state(tx_id, "IN_PROGRESS")
 
@@ -1333,9 +1303,7 @@ class ACTPClient:
             )
             raw = bytes(raw)
             if len(raw) != 32:
-                raise ValueError(
-                    f"resultHash must be 32 bytes, got {len(raw)}"
-                )
+                raise ValueError(f"resultHash must be 32 bytes, got {len(raw)}")
             return raw
 
         if result_hash is not None:
@@ -1420,18 +1388,19 @@ class ACTPClient:
         from agirails.runtime.types import State
 
         effective_dispute_window = (
-            dispute_window_seconds
-            if dispute_window_seconds is not None
-            else tx.dispute_window
+            dispute_window_seconds if dispute_window_seconds is not None else tx.dispute_window
         )
         result_hash_bytes = self._resolve_result_hash(
             tx_id, tx, result=result, result_hash=result_hash
         )
         # AIP-14c 64-byte proof: abi.encode(uint256 window, bytes32 resultHash).
-        proof = "0x" + abi_encode(
-            ["uint256", "bytes32"],
-            [int(effective_dispute_window), result_hash_bytes],
-        ).hex()
+        proof = (
+            "0x"
+            + abi_encode(
+                ["uint256", "bytes32"],
+                [int(effective_dispute_window), result_hash_bytes],
+            ).hex()
+        )
 
         state_str = tx.state.value if hasattr(tx.state, "value") else str(tx.state)
 
@@ -1439,21 +1408,15 @@ class ACTPClient:
         if router is not None and router.should_route():
             # When using Smart Wallet, batch startWork + deliver if still COMMITTED.
             if state_str == "COMMITTED":
-                start_work_tx = router.encode_transition_state_tx(
-                    tx_id, State.IN_PROGRESS.value
-                )
-                deliver_tx = router.encode_transition_state_tx(
-                    tx_id, State.DELIVERED.value, proof
-                )
+                start_work_tx = router.encode_transition_state_tx(tx_id, State.IN_PROGRESS.value)
+                deliver_tx = router.encode_transition_state_tx(tx_id, State.DELIVERED.value, proof)
                 receipt = await self._wallet_provider.send_batch_transaction(
                     [start_work_tx, deliver_tx]
                 )
                 if not receipt.success:
                     raise RuntimeError(f"deliver (batch) UserOp failed: {receipt.hash}")
             else:
-                await router.send_transition(
-                    tx_id, State.DELIVERED.value, proof, label="deliver"
-                )
+                await router.send_transition(tx_id, State.DELIVERED.value, proof, label="deliver")
             return
 
         # Legacy EOA/mock flow — two-step: COMMITTED -> IN_PROGRESS -> DELIVERED
@@ -1468,9 +1431,7 @@ class ACTPClient:
                 f"Original error: {e}"
             )
 
-    async def release(
-        self, escrow_id: str, attestation_uid: Optional[str] = None
-    ) -> None:
+    async def release(self, escrow_id: str, attestation_uid: Optional[str] = None) -> None:
         """
         Release escrow funds (EXPLICIT settlement).
 
@@ -1516,11 +1477,7 @@ class ACTPClient:
 
         # ERC-8004 REPUTATION: report settlement if an agent ID exists.
         # Non-blocking — fire and forget (settlement already succeeded).
-        if (
-            self._reputation_reporter is not None
-            and agent_id is not None
-            and str(agent_id) != "0"
-        ):
+        if self._reputation_reporter is not None and agent_id is not None and str(agent_id) != "0":
             try:
                 result = await self._reputation_reporter.report_settlement(
                     agent_id=str(agent_id),
@@ -1583,13 +1540,11 @@ class ACTPClient:
         Returns:
             Dict with ``calls`` (List[SmartWalletCall]) and ``on_success`` (callable).
         """
+
         def _noop() -> None:
             return None
 
-        if (
-            self._lazy_scenario in ("none", "C")
-            or not self._agent_registry_address
-        ):
+        if self._lazy_scenario in ("none", "C") or not self._agent_registry_address:
             return {"calls": [], "on_success": _noop}
 
         # Staleness check: AGIRAILS.md changed since last publish -> skip.
@@ -1658,19 +1613,13 @@ class ACTPClient:
             "mode": self._info.mode,
             "address": self._info.address,
             "stateDirectory": (
-                str(self._info.state_directory)
-                if self._info.state_directory is not None
-                else None
+                str(self._info.state_directory) if self._info.state_directory is not None else None
             ),
             "isInitialized": True,
-            "_warning": (
-                "Sensitive data (privateKey, signer) excluded for security"
-            ),
+            "_warning": ("Sensitive data (privateKey, signer) excluded for security"),
         }
 
-    async def check_config_drift(
-        self, config: Optional[ACTPClientConfig] = None
-    ) -> None:
+    async def check_config_drift(self, config: Optional[ACTPClientConfig] = None) -> None:
         """
         Non-blocking config sync / drift detection on startup (Faza B).
 
@@ -1720,9 +1669,7 @@ class ACTPClient:
 
             from agirails.config.networks import get_network
 
-            network_name = (
-                "base-sepolia" if config.mode == "testnet" else "base-mainnet"
-            )
+            network_name = "base-sepolia" if config.mode == "testnet" else "base-mainnet"
             network = get_network(network_name)
             if not getattr(network.contracts, "agent_registry", None):
                 return  # No registry on this network.
@@ -1777,14 +1724,9 @@ class ACTPClient:
                         'Run "actp publish" to register and sync on-chain.'
                     )
                 else:
-                    _logger.warn(
-                        "[AGIRAILS] Config not published on-chain. Run: actp publish"
-                    )
+                    _logger.warn("[AGIRAILS] Config not published on-chain. Run: actp publish")
             elif on_chain_hash != local_hash:
-                _logger.warn(
-                    "[AGIRAILS] Local identity file differs from on-chain. "
-                    "Run: actp diff"
-                )
+                _logger.warn("[AGIRAILS] Local identity file differs from on-chain. Run: actp diff")
         except Exception:
             # Silently ignore — drift detection is best-effort.
             pass
@@ -1879,6 +1821,7 @@ class ACTPClient:
 
         # Parse amount
         from agirails.utils.helpers import USDC
+
         amount_wei = str(USDC.to_wei(amount))
 
         await self._runtime.mint_tokens(Address.normalize(address), amount_wei)
@@ -1901,6 +1844,7 @@ class ACTPClient:
         balance_wei = await self._runtime.get_balance(address)
 
         from agirails.utils.helpers import USDC
+
         return USDC.from_wei(balance_wei)
 
     def __repr__(self) -> str:

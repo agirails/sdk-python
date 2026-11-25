@@ -41,7 +41,9 @@ def _lazy_lock(obj: object, attr: str = "_lock") -> asyncio.Lock:
         current_loop = asyncio.get_running_loop()
     except RuntimeError:
         current_loop = None
-    if lock is None or (current_loop is not None and getattr(lock, '_loop', None) is not current_loop):
+    if lock is None or (
+        current_loop is not None and getattr(lock, "_loop", None) is not current_loop
+    ):
         lock = asyncio.Lock()
         object.__setattr__(obj, attr, lock)
     return lock

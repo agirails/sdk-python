@@ -210,9 +210,7 @@ class IWalletProvider(Protocol):
         """Send a single transaction."""
         ...
 
-    async def send_batch_transaction(
-        self, txs: List[TransactionRequest]
-    ) -> TransactionReceipt:
+    async def send_batch_transaction(self, txs: List[TransactionRequest]) -> TransactionReceipt:
         """Send multiple transactions atomically (AA) or sequentially (EOA)."""
         ...
 
@@ -291,9 +289,7 @@ class AutoWalletProvider:
 
         signer_address = Account.from_key(config.private_key).address
 
-        smart_wallet_address = await compute_smart_wallet_address(
-            signer_address, config.w3
-        )
+        smart_wallet_address = await compute_smart_wallet_address(signer_address, config.w3)
 
         # Check if wallet is already deployed (H-3 fix: offload sync RPC to thread)
         code = await asyncio.to_thread(
@@ -369,9 +365,7 @@ class AutoWalletProvider:
 
             # 1. Hash the inner typed data exactly as EIP-712 (viem hashTypedData).
             inner_signable = encode_typed_data(full_message=typed_data)
-            inner_hash = keccak(
-                b"\x19\x01" + inner_signable.header + inner_signable.body
-            )
+            inner_hash = keccak(b"\x19\x01" + inner_signable.header + inner_signable.body)
 
             # 2. Replay-safe CoinbaseSmartWalletMessage(bytes32 hash).
             replay_safe = build_replay_safe_typed_data(
@@ -404,9 +398,7 @@ class AutoWalletProvider:
         except X402SignatureFailedError:
             raise
         except Exception as exc:  # noqa: BLE001 — convert to the x402 boundary error
-            raise X402SignatureFailedError(
-                f"AutoWallet sign_typed_data failed: {exc}"
-            )
+            raise X402SignatureFailedError(f"AutoWallet sign_typed_data failed: {exc}")
 
     def _is_smart_wallet_deployed(self) -> bool:
         """Best-effort live deployment check for the ERC-1271 vs ERC-6492 branch.
@@ -465,9 +457,7 @@ class AutoWalletProvider:
                 address=Web3.to_checksum_address(SMART_WALLET_FACTORY),
                 abi=factory_abi,
             )
-            owner_bytes = abi_encode(
-                ["address"], [Web3.to_checksum_address(owner_address)]
-            )
+            owner_bytes = abi_encode(["address"], [Web3.to_checksum_address(owner_address)])
             derived = factory.functions.getAddress([owner_bytes], 0).call()
         except X402SignatureFailedError:
             raise
@@ -488,9 +478,7 @@ class AutoWalletProvider:
         """Send a single transaction via Smart Wallet UserOp."""
         return await self.send_batch_transaction([tx])
 
-    async def send_batch_transaction(
-        self, txs: List[TransactionRequest]
-    ) -> TransactionReceipt:
+    async def send_batch_transaction(self, txs: List[TransactionRequest]) -> TransactionReceipt:
         """Send multiple transactions atomically via executeBatch UserOp.
 
         Args:
@@ -588,11 +576,7 @@ class AutoWalletProvider:
                 )
 
                 # Combine activation calls (if any) with payment calls.
-                all_calls = (
-                    list(prepend_calls) + batch.calls
-                    if prepend_calls
-                    else batch.calls
-                )
+                all_calls = list(prepend_calls) + batch.calls if prepend_calls else batch.calls
 
                 # On retry, re-read EntryPoint nonce — the previous UserOp consumed
                 # it even if the inner ACTP call reverted.
@@ -645,9 +629,7 @@ class AutoWalletProvider:
                         candidate_nonce,
                     )
 
-            raise RuntimeError(
-                "Unable to submit batched ACTP payment after nonce retries"
-            )
+            raise RuntimeError("Unable to submit batched ACTP payment after nonce retries")
 
         return await self._nonce_manager.enqueue(
             fn=_execute,
@@ -680,7 +662,7 @@ class AutoWalletProvider:
             else params.contracts["actp_kernel"]
         )
 
-        agreement_hash_hex = (getattr(params, "agreement_hash", None) or "0x" + "00" * 32)
+        agreement_hash_hex = getattr(params, "agreement_hash", None) or "0x" + "00" * 32
 
         async def _execute(nonces: Any) -> EnqueueResult[CreateACTPTransactionResult]:
             tx_id = compute_transaction_id(

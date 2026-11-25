@@ -45,9 +45,7 @@ def validate_address(
         raise typer.BadParameter(f"{param_name} is required")
 
     if not ADDRESS_PATTERN.match(address):
-        raise typer.BadParameter(
-            f"Invalid {param_name}: must be 0x followed by 40 hex characters"
-        )
+        raise typer.BadParameter(f"Invalid {param_name}: must be 0x followed by 40 hex characters")
 
     # Compute EIP-55 checksum
     try:
@@ -60,9 +58,7 @@ def validate_address(
         # Check if address has any uppercase letters (indicating checksum attempt)
         has_uppercase = any(c.isupper() for c in address[2:])
         if has_uppercase and address != checksum_address:
-            raise typer.BadParameter(
-                f"Invalid {param_name} checksum. Expected: {checksum_address}"
-            )
+            raise typer.BadParameter(f"Invalid {param_name} checksum. Expected: {checksum_address}")
 
     return checksum_address
 
@@ -95,12 +91,14 @@ def _to_checksum_address(address: str) -> str:
     # Note: For production, use proper keccak256 from web3 or eth_utils
     try:
         from eth_utils import to_checksum_address as eth_to_checksum
+
         return eth_to_checksum(address)
     except ImportError:
         pass
 
     try:
         from web3 import Web3
+
         return Web3.to_checksum_address(address)
     except ImportError:
         pass
@@ -108,6 +106,7 @@ def _to_checksum_address(address: str) -> str:
     # Fallback: Use sha3/keccak256 if available, otherwise just normalize
     try:
         import sha3
+
         hash_bytes = sha3.keccak_256(addr.encode()).hexdigest()
     except ImportError:
         # Last resort: just return lowercase (no checksum validation)
@@ -175,9 +174,7 @@ def validate_tx_id(tx_id: str) -> str:
         raise typer.BadParameter("Transaction ID is required")
 
     if not TX_ID_PATTERN.match(tx_id):
-        raise typer.BadParameter(
-            "Invalid transaction ID: must be 0x followed by 64 hex characters"
-        )
+        raise typer.BadParameter("Invalid transaction ID: must be 0x followed by 64 hex characters")
 
     return tx_id.lower()
 
@@ -196,8 +193,14 @@ def validate_state(state: str) -> str:
         typer.BadParameter: If state is invalid
     """
     valid_states = {
-        "INITIATED", "QUOTED", "COMMITTED", "IN_PROGRESS",
-        "DELIVERED", "SETTLED", "DISPUTED", "CANCELLED"
+        "INITIATED",
+        "QUOTED",
+        "COMMITTED",
+        "IN_PROGRESS",
+        "DELIVERED",
+        "SETTLED",
+        "DISPUTED",
+        "CANCELLED",
     }
 
     upper_state = state.upper()

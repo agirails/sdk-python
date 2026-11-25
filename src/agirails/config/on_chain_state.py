@@ -109,9 +109,7 @@ def get_on_chain_config_state(
             ).call()
             config_hash = "0x" + config_hash_bytes.hex()
 
-            config_cid = contract.functions.getConfigCID(
-                w3.to_checksum_address(address)
-            ).call()
+            config_cid = contract.functions.getConfigCID(w3.to_checksum_address(address)).call()
 
             return OnChainConfigState(config_hash=config_hash, config_cid=config_cid)
 
@@ -119,18 +117,14 @@ def get_on_chain_config_state(
             # web3 not installed — return defaults (no on-chain access)
             return OnChainConfigState(config_hash=ZERO_HASH, config_cid="")
         except Exception as e:
-            raise OnChainStateError(
-                f"Failed to read config state from {network}: {e}"
-            ) from e
+            raise OnChainStateError(f"Failed to read config state from {network}: {e}") from e
 
     except ImportError:
         return OnChainConfigState(config_hash=ZERO_HASH, config_cid="")
     except OnChainStateError:
         raise
     except Exception as e:
-        raise OnChainStateError(
-            f"Failed to initialize on-chain reader for {network}: {e}"
-        ) from e
+        raise OnChainStateError(f"Failed to initialize on-chain reader for {network}: {e}") from e
 
 
 # Full getAgent() struct ABI — matches TS getOnChainAgentState() in ACTPClient.ts
@@ -195,9 +189,7 @@ def get_on_chain_agent_state(
                 abi=_GET_AGENT_ABI,
             )
 
-            profile = contract.functions.getAgent(
-                w3.to_checksum_address(address)
-            ).call()
+            profile = contract.functions.getAgent(w3.to_checksum_address(address)).call()
 
             # Tuple fields match ABI order
             registered_at = profile[9]  # registeredAt
@@ -205,7 +197,11 @@ def get_on_chain_agent_state(
             config_cid = profile[13]  # configCID
             listed = profile[14]  # listed
 
-            config_hash = "0x" + (config_hash_bytes.hex() if isinstance(config_hash_bytes, bytes) else str(config_hash_bytes))
+            config_hash = "0x" + (
+                config_hash_bytes.hex()
+                if isinstance(config_hash_bytes, bytes)
+                else str(config_hash_bytes)
+            )
 
             return OnChainAgentState(
                 registered_at=int(registered_at),
@@ -217,18 +213,14 @@ def get_on_chain_agent_state(
         except ImportError:
             return OnChainAgentState(registered_at=0, config_hash=ZERO_HASH, listed=False)
         except Exception as e:
-            raise OnChainStateError(
-                f"Failed to read agent state from {network}: {e}"
-            ) from e
+            raise OnChainStateError(f"Failed to read agent state from {network}: {e}") from e
 
     except ImportError:
         return OnChainAgentState(registered_at=0, config_hash=ZERO_HASH, listed=False)
     except OnChainStateError:
         raise
     except Exception as e:
-        raise OnChainStateError(
-            f"Failed to initialize on-chain reader for {network}: {e}"
-        ) from e
+        raise OnChainStateError(f"Failed to initialize on-chain reader for {network}: {e}") from e
 
 
 __all__ = [

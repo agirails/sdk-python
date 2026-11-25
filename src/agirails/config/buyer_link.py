@@ -143,8 +143,7 @@ def save_buyer_link(link: BuyerLink, actp_dir: Optional[str] = None) -> str:
         st = os.lstat(dir_path)
         if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
             raise SecurityError(
-                f"Security: {dir_path} is not a real directory "
-                f"(symlink attack prevention)"
+                f"Security: {dir_path} is not a real directory (symlink attack prevention)"
             )
         dir_exists = True
     if not dir_exists:
@@ -157,8 +156,7 @@ def save_buyer_link(link: BuyerLink, actp_dir: Optional[str] = None) -> str:
         st = os.lstat(file_path)
         if stat.S_ISLNK(st.st_mode):
             raise SecurityError(
-                f"Security: {file_path} is a symbolic link "
-                f"(symlink attack prevention)"
+                f"Security: {file_path} is a symbolic link (symlink attack prevention)"
             )
 
     tmp_path = file_path + ".tmp"
@@ -204,9 +202,7 @@ def load_buyer_link(
         return None
 
 
-def has_buyer_link(
-    network: Optional[str] = None, actp_dir: Optional[str] = None
-) -> bool:
+def has_buyer_link(network: Optional[str] = None, actp_dir: Optional[str] = None) -> bool:
     """Whether a buyer-link marker exists.
 
     Mirrors TS ``hasBuyerLink`` (config/buyerLink.ts:115-117).

@@ -264,7 +264,7 @@ def parse_agirails_md(content: str) -> AgirailsMdConfig:
         raise ValueError("AGIRAILS.md frontmatter is not closed (missing closing ---)")
 
     yaml_content = trimmed[4:closing_index]  # skip opening ---\n
-    body = trimmed[closing_index + 4:]  # skip \n---
+    body = trimmed[closing_index + 4 :]  # skip \n---
 
     # Parse YAML with a tightened alias-count cap (mirror TS maxAliasCount:10).
     try:
@@ -307,10 +307,7 @@ def canonicalize(value: Any) -> Any:
 
         # Only sort arrays of primitives (str, int, float, bool)
         # Arrays of objects maintain order (semantic ordering matters)
-        all_primitive = all(
-            isinstance(item, (str, int, float, bool))
-            for item in canonicalized
-        )
+        all_primitive = all(isinstance(item, (str, int, float, bool)) for item in canonicalized)
 
         if all_primitive and canonicalized:
             return sorted(canonicalized, key=_locale_compare_key)
@@ -790,7 +787,7 @@ def _v4_parse_body(body: str) -> tuple[str, str]:
         return body.strip(), ""
 
     description = body[:idx].strip()
-    after_heading = body[idx + len(heading):]
+    after_heading = body[idx + len(heading) :]
 
     # Find next ## heading (mirror TS /\n## /)
     match = re.search(r"\n## ", after_heading)
@@ -842,9 +839,7 @@ def _build_v4_config(fm: Dict[str, Any], body: str) -> AgirailsMdV4Config:
     # Services — accept legacy plain strings and canonical objects.
     services = _v4_parse_services(fm)
     if len(services) == 0 and intent != "pay":
-        raise ValueError(
-            "Missing required field: services (must be a non-empty array)"
-        )
+        raise ValueError("Missing required field: services (must be a non-empty array)")
 
     # Services this agent wants to BUY. Required when intent is pay/both.
     services_needed = _v4_get_string_array(fm, "servicesNeeded")
@@ -883,9 +878,7 @@ def _build_v4_config(fm: Dict[str, Any], body: str) -> AgirailsMdV4Config:
     # Network
     network_raw = _v4_get_string(fm, "network") or V4_DEFAULTS["network"]
     network = (
-        network_raw
-        if network_raw in V4_CONSTRAINTS["VALID_NETWORKS"]
-        else V4_DEFAULTS["network"]
+        network_raw if network_raw in V4_CONSTRAINTS["VALID_NETWORKS"] else V4_DEFAULTS["network"]
     )
 
     # SLA
@@ -911,9 +904,7 @@ def _build_v4_config(fm: Dict[str, Any], body: str) -> AgirailsMdV4Config:
     # Payment
     payment_raw = _v4_get_object(fm, "payment")
     modes = _v4_get_string_array(payment_raw, "modes")
-    payment = {
-        "modes": modes if len(modes) > 0 else list(V4_DEFAULTS["payment"]["modes"])
-    }
+    payment = {"modes": modes if len(modes) > 0 else list(V4_DEFAULTS["payment"]["modes"])}
 
     # Endpoint (optional)
     endpoint = _v4_get_string(fm, "endpoint") or None
@@ -963,9 +954,7 @@ def validate_agirails_md_v4(config: AgirailsMdV4Config) -> ValidationResult:
     # Slug validation
     slug_error = validate_slug(config.slug)
     if slug_error:
-        issues.append(
-            ValidationIssue(field="slug", message=slug_error, severity="error")
-        )
+        issues.append(ValidationIssue(field="slug", message=slug_error, severity="error"))
 
     # Price validation
     if config.pricing.base < 0:

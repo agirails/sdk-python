@@ -89,6 +89,7 @@ class BaseAdapter:
                 SmartWalletContractAddresses,
                 create_smart_wallet_router,
             )
+
             router_contracts = SmartWalletContractAddresses(
                 usdc=contract_addresses.usdc,
                 actp_kernel=contract_addresses.actp_kernel,
@@ -367,7 +368,9 @@ class BaseAdapter:
             raise ValueError("resultHash must be non-zero (the v2 kernel rejects bytes32(0)).")
         return rh
 
-    def encode_delivery_proof(self, dispute_window_seconds: int, result_hash: Union[str, bytes]) -> str:
+    def encode_delivery_proof(
+        self, dispute_window_seconds: int, result_hash: Union[str, bytes]
+    ) -> str:
         """
         Encode the AIP-14c 64-byte DELIVERED transition proof
         ``abi.encode(uint256 window, bytes32 resultHash)``. The v2 kernel REJECTS the

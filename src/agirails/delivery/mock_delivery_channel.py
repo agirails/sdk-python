@@ -235,9 +235,7 @@ class MockDeliveryChannel(DeliveryChannel):
     # subscribe (TS MockDeliveryChannel.ts:332 / :384)
     # ------------------------------------------------------------------
 
-    async def subscribe_setups(
-        self, tx_id: str, callback: SetupCallback
-    ) -> DeliverySubscription:
+    async def subscribe_setups(self, tx_id: str, callback: SetupCallback) -> DeliverySubscription:
         if self._closed:
             raise RuntimeError("MockDeliveryChannel: channel is closed")
 
@@ -322,9 +320,7 @@ class MockDeliveryChannel(DeliveryChannel):
     async def get_setups(self, tx_id: Optional[str] = None) -> List[DeliverySetupWireV1]:
         return self.get_all_setups(tx_id)
 
-    async def get_envelopes(
-        self, tx_id: Optional[str] = None
-    ) -> List[DeliveryEnvelopeWireV1]:
+    async def get_envelopes(self, tx_id: Optional[str] = None) -> List[DeliveryEnvelopeWireV1]:
         return self.get_all_envelopes(tx_id)
 
     # ------------------------------------------------------------------
@@ -341,9 +337,7 @@ class MockDeliveryChannel(DeliveryChannel):
         store = self._setup_store_by_tx.get(tx_id.lower())
         return list(store.setups) if store else []
 
-    def get_all_envelopes(
-        self, tx_id: Optional[str] = None
-    ) -> List[DeliveryEnvelopeWireV1]:
+    def get_all_envelopes(self, tx_id: Optional[str] = None) -> List[DeliveryEnvelopeWireV1]:
         """Synchronous snapshot of envelopes (defensive copy) — TS:470."""
         if tx_id is None:
             out: List[DeliveryEnvelopeWireV1] = []
@@ -424,9 +418,7 @@ class MockDeliveryChannel(DeliveryChannel):
         sub.delivered.add(sig)
         self._invoke(sub.callback, wire, "setup", wire["signed"]["txId"])
 
-    def _deliver_envelope(
-        self, sub: _EnvelopeSubscriber, wire: DeliveryEnvelopeWireV1
-    ) -> None:
+    def _deliver_envelope(self, sub: _EnvelopeSubscriber, wire: DeliveryEnvelopeWireV1) -> None:
         sig = wire["providerSig"]
         if sig in sub.delivered:
             return
@@ -451,6 +443,7 @@ class MockDeliveryChannel(DeliveryChannel):
             return
 
         if inspect.isawaitable(result):
+
             async def _await_isolated() -> None:
                 try:
                     await result

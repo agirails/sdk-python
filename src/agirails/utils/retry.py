@@ -53,9 +53,7 @@ class RetryConfig:
     exponential_base: float = 2.0
     """Base for exponential backoff calculation."""
 
-    retryable_errors: Tuple[Type[Exception], ...] = field(
-        default_factory=lambda: (Exception,)
-    )
+    retryable_errors: Tuple[Type[Exception], ...] = field(default_factory=lambda: (Exception,))
     """Tuple of exception types that should trigger a retry."""
 
 
@@ -71,7 +69,7 @@ def calculate_delay(attempt: int, config: RetryConfig) -> float:
         Delay in seconds
     """
     # Exponential backoff: base_delay * (exponential_base ^ attempt)
-    delay_ms = config.base_delay_ms * (config.exponential_base ** attempt)
+    delay_ms = config.base_delay_ms * (config.exponential_base**attempt)
 
     # Cap at max delay
     delay_ms = min(delay_ms, config.max_delay_ms)
@@ -161,6 +159,7 @@ def with_retry(
         data = await fetch_data("https://api.example.com/data")
         ```
     """
+
     def decorator(
         fn: Callable[..., Awaitable[T]],
     ) -> Callable[..., Awaitable[T]]:
@@ -170,7 +169,9 @@ def with_retry(
                 lambda: fn(*args, **kwargs),
                 config,
             )
+
         return wrapper
+
     return decorator
 
 

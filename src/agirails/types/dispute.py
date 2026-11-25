@@ -392,9 +392,7 @@ def dispute_evaluator_domain(
         chain_id: chain the verifying contract is deployed on (e.g. 8453 = Base).
         verifying_contract: the BondEscalation (dispute evaluator) contract address.
     """
-    return DisputeEIP712Domain(
-        chain_id=chain_id, verifying_contract=verifying_contract
-    )
+    return DisputeEIP712Domain(chain_id=chain_id, verifying_contract=verifying_contract)
 
 
 def compute_ruling_struct_hash(ruling: AIRuling) -> bytes:
@@ -452,9 +450,7 @@ def compute_ruling_digest(
     Returns:
         32-byte EIP-712 digest.
     """
-    domain = DisputeEIP712Domain(
-        chain_id=chain_id, verifying_contract=verifying_contract
-    )
+    domain = DisputeEIP712Domain(chain_id=chain_id, verifying_contract=verifying_contract)
     return _keccak(b"\x19\x01" + domain.separator() + ruling.struct_hash())
 
 
@@ -480,7 +476,11 @@ def sign_ruling(
     digest = compute_ruling_digest(ruling, chain_id, verifying_contract)
     account = Account.from_key(private_key)
     signed = account.unsafe_sign_hash(digest)
-    return signed.signature.hex() if signed.signature.hex().startswith("0x") else "0x" + signed.signature.hex()
+    return (
+        signed.signature.hex()
+        if signed.signature.hex().startswith("0x")
+        else "0x" + signed.signature.hex()
+    )
 
 
 def compute_evidence_ref_hash(

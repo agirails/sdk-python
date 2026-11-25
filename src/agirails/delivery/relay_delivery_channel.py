@@ -137,9 +137,7 @@ class RelayDeliveryChannel(DeliveryChannel):
             opts.poll_interval_ms if opts.poll_interval_ms is not None else POLL_INTERVAL_MS
         )
         self._request_timeout_ms = (
-            opts.request_timeout_ms
-            if opts.request_timeout_ms is not None
-            else REQUEST_TIMEOUT_MS
+            opts.request_timeout_ms if opts.request_timeout_ms is not None else REQUEST_TIMEOUT_MS
         )
         self._owns_client = opts.http_client is None
         self._client = opts.http_client or httpx.AsyncClient(
@@ -199,9 +197,7 @@ class RelayDeliveryChannel(DeliveryChannel):
     # subscribe (TS RelayDeliveryChannel.ts:287 / :344)
     # ------------------------------------------------------------------
 
-    async def subscribe_setups(
-        self, tx_id: str, callback: SetupCallback
-    ) -> DeliverySubscription:
+    async def subscribe_setups(self, tx_id: str, callback: SetupCallback) -> DeliverySubscription:
         if self._closed:
             raise RuntimeError("RelayDeliveryChannel: channel is closed")
         state = _PollState()
@@ -211,10 +207,7 @@ class RelayDeliveryChannel(DeliveryChannel):
             # First tick immediate (TS uses setTimeout(pollOnce, 0)).
             while not state.cancelled:
                 try:
-                    url = (
-                        f"{self._base_url}/api/v1/delivery/setup/"
-                        f"{url_quote(tx_id, safe='')}"
-                    )
+                    url = f"{self._base_url}/api/v1/delivery/setup/{url_quote(tx_id, safe='')}"
                     if state.cursor:
                         url += f"?after={url_quote(state.cursor, safe='')}"
                     body = await self._get_json(url)
@@ -249,10 +242,7 @@ class RelayDeliveryChannel(DeliveryChannel):
         async def poll_loop() -> None:
             while not state.cancelled:
                 try:
-                    url = (
-                        f"{self._base_url}/api/v1/delivery/"
-                        f"{url_quote(tx_id, safe='')}"
-                    )
+                    url = f"{self._base_url}/api/v1/delivery/{url_quote(tx_id, safe='')}"
                     if state.cursor:
                         url += f"?after={url_quote(state.cursor, safe='')}"
                     body = await self._get_json(url)
@@ -405,9 +395,7 @@ class RelayDeliveryChannel(DeliveryChannel):
                 "RelayDeliveryChannel: POST non-2xx",
                 {"url": url, "status": res.status_code, "body": text[:256]},
             )
-            raise RuntimeError(
-                f"RelayDeliveryChannel POST {res.status_code}: {text[:200]}"
-            )
+            raise RuntimeError(f"RelayDeliveryChannel POST {res.status_code}: {text[:200]}")
 
     async def _get_json(self, url: str) -> Dict[str, Any]:
         """GET + decode JSON, raise on non-2xx (TS:531)."""
@@ -419,9 +407,7 @@ class RelayDeliveryChannel(DeliveryChannel):
                 text = res.text
             except Exception:  # noqa: BLE001
                 text = ""
-            raise RuntimeError(
-                f"RelayDeliveryChannel GET {res.status_code}: {text[:200]}"
-            )
+            raise RuntimeError(f"RelayDeliveryChannel GET {res.status_code}: {text[:200]}")
         return res.json()
 
     def _now(self) -> Optional[int]:

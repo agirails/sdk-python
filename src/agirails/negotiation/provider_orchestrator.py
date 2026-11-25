@@ -197,8 +197,7 @@ class ProviderOrchestrator:
                 action="skip",
                 reason="; ".join(f"{v.rule}: {v.detail}" for v in result.violations),
                 violations=[
-                    QuoteDecisionViolation(rule=v.rule, detail=v.detail)
-                    for v in result.violations
+                    QuoteDecisionViolation(rule=v.rule, detail=v.detail) for v in result.violations
                 ],
             )
         return QuoteDecision(
@@ -250,9 +249,7 @@ class ProviderOrchestrator:
                     NegotiationMessage(type=QUOTE_ENVELOPE, message=quote),
                 )
             except Exception as err:  # noqa: BLE001 — channel post is non-fatal
-                return QuoteResult(
-                    decision=decision, quote=quote, channel_error=str(err)
-                )
+                return QuoteResult(decision=decision, quote=quote, channel_error=str(err))
 
         # Seed per-tx state so a follow-up counter is evaluated with the right
         # last_quote baseline if the listener is running.
@@ -279,13 +276,9 @@ class ProviderOrchestrator:
             ValueError: if ``negotiation_channel`` or ``provider_did`` is unset.
         """
         if self._negotiation_channel is None:
-            raise ValueError(
-                "ProviderOrchestrator.start() requires negotiation_channel in config"
-            )
+            raise ValueError("ProviderOrchestrator.start() requires negotiation_channel in config")
         if not self._provider_did:
-            raise ValueError(
-                "ProviderOrchestrator.start() requires provider_did in config"
-            )
+            raise ValueError("ProviderOrchestrator.start() requires provider_did in config")
 
         # Replace any prior subscription.
         if self._channel_subscription is not None:
@@ -377,9 +370,7 @@ class ProviderOrchestrator:
     # Internals
     # --------------------------------------------------------------------------
 
-    async def _handle_incoming_counter(
-        self, tx_id: str, counter: CounterOfferMessage
-    ) -> None:
+    async def _handle_incoming_counter(self, tx_id: str, counter: CounterOfferMessage) -> None:
         """Mirror of TS ``_handleIncomingCounter`` (ProviderOrchestrator.ts:373-453)."""
         if not self._provider_did or self._negotiation_channel is None:
             return
@@ -393,15 +384,11 @@ class ProviderOrchestrator:
             consumer_did=counter.consumer,
         )
         last_amount = (
-            state.last_quote.quoted_amount
-            if state.last_quote is not None
-            else counter.quoteAmount
+            state.last_quote.quoted_amount if state.last_quote is not None else counter.quoteAmount
         )
 
         try:
-            decision = await self.evaluate_counter(
-                counter, last_amount, state.requotes_used
-            )
+            decision = await self.evaluate_counter(counter, last_amount, state.requotes_used)
         except Exception as err:  # noqa: BLE001 — verify failed → drop
             self._log(
                 "warn",

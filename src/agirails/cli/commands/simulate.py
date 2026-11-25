@@ -40,6 +40,7 @@ simulate_app = typer.Typer(
 # Fee Calculation (1% with $0.05 minimum)
 # ============================================================================
 
+
 def calculate_fee(amount_wei: int) -> Dict[str, Any]:
     """
     Calculate platform fee based on AGIRAILS fee model.
@@ -88,11 +89,13 @@ def format_usdc_amount(wei: int) -> str:
 # Simulation Adapter (for validation without execution)
 # ============================================================================
 
+
 class SimulationAdapter(BaseAdapter):
     """Extended adapter for simulation purposes."""
 
     def __init__(self, requester_address: str):
         from agirails.runtime.mock_runtime import MockRuntime
+
         # Create a minimal mock runtime for simulation
         runtime = MockRuntime()
         super().__init__(runtime, requester_address)
@@ -133,6 +136,7 @@ class SimulationAdapter(BaseAdapter):
         # Validate deadline
         try:
             import time
+
             current_time = int(time.time())
             parsed_deadline = self.parse_deadline(deadline, current_time)
 
@@ -167,11 +171,14 @@ class SimulationAdapter(BaseAdapter):
 # simulate pay
 # ============================================================================
 
+
 @simulate_app.command(name="pay")
 def simulate_pay(
     to: str = typer.Argument(..., help="Provider address"),
     amount: str = typer.Argument(..., help="Amount to pay"),
-    deadline: str = typer.Option("+24h", "--deadline", "-d", help="Deadline (+24h, +7d, or Unix timestamp)"),
+    deadline: str = typer.Option(
+        "+24h", "--deadline", "-d", help="Deadline (+24h, +7d, or Unix timestamp)"
+    ),
 ) -> None:
     """
     Simulate a payment transaction.
@@ -202,10 +209,12 @@ def simulate_pay(
 
         if not validation["valid"]:
             if global_opts.json_output:
-                print_json({
-                    "valid": False,
-                    "errors": validation["errors"],
-                })
+                print_json(
+                    {
+                        "valid": False,
+                        "errors": validation["errors"],
+                    }
+                )
             else:
                 print_error("Validation failed:")
                 for error in validation["errors"]:
@@ -284,6 +293,7 @@ def simulate_pay(
 # ============================================================================
 # simulate fee
 # ============================================================================
+
 
 @simulate_app.command(name="fee")
 def simulate_fee(

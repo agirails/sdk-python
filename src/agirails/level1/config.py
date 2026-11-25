@@ -175,9 +175,7 @@ class AgentConfig:
         if not self.name:
             raise ValueError("Agent name is required")
         if not self.name.replace("-", "").replace("_", "").isalnum():
-            raise ValueError(
-                "Agent name must be alphanumeric (dashes and underscores allowed)"
-            )
+            raise ValueError("Agent name must be alphanumeric (dashes and underscores allowed)")
         if len(self.name) > 64:
             raise ValueError("Agent name cannot exceed 64 characters")
 

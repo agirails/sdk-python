@@ -73,20 +73,25 @@ def mint(
             new_balance = await client.runtime.get_balance(address)
 
             if opts.output_format == OutputFormat.JSON:
-                print_json({
-                    "success": True,
-                    "address": address,
-                    "minted": amount,
-                    "newBalance": new_balance,
-                })
+                print_json(
+                    {
+                        "success": True,
+                        "address": address,
+                        "minted": amount,
+                        "newBalance": new_balance,
+                    }
+                )
             elif opts.output_format == OutputFormat.QUIET:
                 typer.echo(new_balance)
             else:
-                print_success("Minted tokens", {
-                    "Address": format_address(address),
-                    "Minted": f"{amount} USDC",
-                    "New Balance": format_usdc(new_balance),
-                })
+                print_success(
+                    "Minted tokens",
+                    {
+                        "Address": format_address(address),
+                        "Minted": f"{amount} USDC",
+                        "New Balance": format_usdc(new_balance),
+                    },
+                )
 
         except typer.Exit:
             raise

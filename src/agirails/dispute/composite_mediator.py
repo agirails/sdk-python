@@ -160,13 +160,17 @@ def decode_dispute_split_recorded(log: Any) -> DisputeSplitRecorded:
         return args.get(key, default) if hasattr(args, "get") else getattr(args, key, default)
 
     tx_id = _get("txId", b"")
-    tx_hash = log.get("transactionHash") if hasattr(log, "get") else getattr(log, "transactionHash", None)
+    tx_hash = (
+        log.get("transactionHash") if hasattr(log, "get") else getattr(log, "transactionHash", None)
+    )
     return DisputeSplitRecorded(
         tx_id=_hex_str(tx_id),
         requester=_get("requester", ""),
         provider=_get("provider", ""),
         split_bps=int(_get("splitBps", 0)),
-        block_number=(log.get("blockNumber") if hasattr(log, "get") else getattr(log, "blockNumber", None)),
+        block_number=(
+            log.get("blockNumber") if hasattr(log, "get") else getattr(log, "blockNumber", None)
+        ),
         log_index=(log.get("logIndex") if hasattr(log, "get") else getattr(log, "logIndex", None)),
         transaction_hash=_hex_str(tx_hash) if isinstance(tx_hash, (bytes, str)) else tx_hash,
     )
@@ -175,7 +179,8 @@ def decode_dispute_split_recorded(log: Any) -> DisputeSplitRecorded:
 def decode_resolution_proof(
     proof: Union[bytes, str],
     remaining: int,
-    *, escrow_principal: Optional[int] = None,
+    *,
+    escrow_principal: Optional[int] = None,
 ) -> DecodedResolutionProof:
     """
     Decode a kernel resolution proof under the ZERO-REMAINING CONSUMER RULE

@@ -31,21 +31,11 @@ from agirails.cli.utils.output import (
 
 
 def init(
-    mode: str = typer.Option(
-        "mock",
-        "--mode", "-m",
-        help="Default mode: mock, testnet, mainnet"
-    ),
+    mode: str = typer.Option("mock", "--mode", "-m", help="Default mode: mock, testnet, mainnet"),
     address: Optional[str] = typer.Option(
-        None,
-        "--address", "-a",
-        help="Default requester address"
+        None, "--address", "-a", help="Default requester address"
     ),
-    force: bool = typer.Option(
-        False,
-        "--force", "-f",
-        help="Overwrite existing configuration"
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing configuration"),
 ) -> None:
     """Initialize ACTP in the current directory."""
     opts = get_global_options()
@@ -54,7 +44,9 @@ def init(
     # Validate mode
     if mode not in VALID_MODES:
         if opts.output_format == OutputFormat.JSON:
-            print_json({"error": f"Invalid mode: {mode}. Must be one of: {', '.join(sorted(VALID_MODES))}"})
+            print_json(
+                {"error": f"Invalid mode: {mode}. Must be one of: {', '.join(sorted(VALID_MODES))}"}
+            )
         else:
             print_error("Invalid mode", f"Must be one of: {', '.join(sorted(VALID_MODES))}")
         raise typer.Exit(1)
@@ -62,7 +54,9 @@ def init(
     # Check if already initialized
     if ensure_initialized(directory) and not force:
         if opts.output_format == OutputFormat.JSON:
-            print_json({"error": "Already initialized", "path": str(get_state_directory(directory))})
+            print_json(
+                {"error": "Already initialized", "path": str(get_state_directory(directory))}
+            )
         else:
             print_warning(f"Already initialized at {get_state_directory(directory)}")
             print_warning("Use --force to overwrite")
@@ -80,20 +74,25 @@ def init(
         )
 
         if opts.output_format == OutputFormat.JSON:
-            print_json({
-                "success": True,
-                "path": str(state_dir),
-                "mode": mode,
-                "address": final_address,
-            })
+            print_json(
+                {
+                    "success": True,
+                    "path": str(state_dir),
+                    "mode": mode,
+                    "address": final_address,
+                }
+            )
         elif opts.output_format == OutputFormat.QUIET:
             typer.echo(str(state_dir))
         else:
-            print_success("Initialized ACTP", {
-                "Directory": str(state_dir),
-                "Mode": mode,
-                "Address": final_address,
-            })
+            print_success(
+                "Initialized ACTP",
+                {
+                    "Directory": str(state_dir),
+                    "Mode": mode,
+                    "Address": final_address,
+                },
+            )
 
     except Exception as e:
         if opts.output_format == OutputFormat.JSON:

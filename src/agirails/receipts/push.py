@@ -229,16 +229,12 @@ async def push_receipt_on_settled(args: PushReceiptArgs) -> PushReceiptResult:
     # push.ts:118-120 — apiBase resolution + trailing-slash strip.
     api_base = _TRAILING_SLASHES.sub(
         "",
-        args.api_base
-        or os.environ.get("AGIRAILS_BASE_URL")
-        or "https://agirails.app",
+        args.api_base or os.environ.get("AGIRAILS_BASE_URL") or "https://agirails.app",
     )
     signer_address = _resolve_signer_address(args.signer)
 
     try:
-        async with httpx.AsyncClient(
-            timeout=10.0, transport=args.transport
-        ) as client:
+        async with httpx.AsyncClient(timeout=10.0, transport=args.transport) as client:
             # 1) Fetch a single-use nonce bound to the signer wallet (push.ts:124-131).
             prep_res = await client.post(
                 f"{api_base}/api/v1/receipts/prepare",
@@ -261,9 +257,7 @@ async def push_receipt_on_settled(args: PushReceiptArgs) -> PushReceiptResult:
                 "amountWei": args.amount_wei,
                 "feeWei": args.fee_wei,
                 "netWei": args.net_wei,
-                "serviceHash": args.service_hash
-                if args.service_hash is not None
-                else ZERO_BYTES32,
+                "serviceHash": args.service_hash if args.service_hash is not None else ZERO_BYTES32,
                 "nonce": nonce,
                 "issuedAt": issued_at,
             }
@@ -313,14 +307,11 @@ async def push_receipt_on_settled(args: PushReceiptArgs) -> PushReceiptResult:
                 try:
                     b = post_res.json()
                     if isinstance(b, dict):
-                        detail = ": ".join(
-                            str(b[k]) for k in ("error", "detail") if b.get(k)
-                        )
+                        detail = ": ".join(str(b[k]) for k in ("error", "detail") if b.get(k))
                 except Exception:
                     detail = ""
                 raise _PushError(
-                    f"post_failed:{post_res.status_code}"
-                    + (f" {detail}" if detail else "")
+                    f"post_failed:{post_res.status_code}" + (f" {detail}" if detail else "")
                 )
 
             data = post_res.json()
@@ -353,9 +344,7 @@ def _is_ok(res: httpx.Response) -> bool:
     return 200 <= res.status_code < 300
 
 
-def _sign_receipt_write_v2(
-    signer: Any, payload: Dict[str, Any], network: str
-) -> str:
+def _sign_receipt_write_v2(signer: Any, payload: Dict[str, Any], network: str) -> str:
     """Build the V2 typed data and EIP-712 sign it (push.ts:150-155).
 
     The domain spreads ``RECEIPT_WRITE_DOMAIN_V2`` and adds ``chainId``; there is
@@ -580,9 +569,7 @@ def render_receipt_v3(data: ReceiptDataV3) -> str:
     # (TS receipt.ts:344-348 — computeDisplayFee returns MIN_FEE for amount=0).
     fee = 0 if data.amount_wei == 0 else compute_display_fee(data.amount_wei)
     net = data.amount_wei - fee
-    fee_percent = (
-        f"{round((fee / data.amount_wei) * 100)}" if data.amount_wei > 0 else "0"
-    )
+    fee_percent = f"{round((fee / data.amount_wei) * 100)}" if data.amount_wei > 0 else "0"
 
     is_buyer = data.perspective == "buyer"
     counterparty_label = data.counterparty or (
@@ -614,9 +601,7 @@ def render_receipt_v3(data: ReceiptDataV3) -> str:
 
     horiz = "═" * (outer_width + 2)
 
-    header_text = (
-        "FIRST MAINNET SETTLEMENT" if is_mainnet else "FIRST TRANSACTION RECEIPT"
-    )
+    header_text = "FIRST MAINNET SETTLEMENT" if is_mainnet else "FIRST TRANSACTION RECEIPT"
     if is_mainnet:
         tagline_line1 = "This is real money. On a real blockchain."
     elif is_buyer:

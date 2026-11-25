@@ -39,6 +39,7 @@ else:
         """Unlock (Unix)."""
         fcntl.flock(fd, fcntl.LOCK_UN)
 
+
 from agirails.errors import (
     MockStateCorruptedError,
     MockStateLockError,

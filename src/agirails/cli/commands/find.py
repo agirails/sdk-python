@@ -49,28 +49,18 @@ def find(
     capability: Optional[str] = typer.Option(
         None, "-c", "--capability", help="Filter by capability (e.g. code-review)"
     ),
-    max_price: Optional[str] = typer.Option(
-        None, "--max-price", help="Maximum price in USDC"
-    ),
-    sort: str = typer.Option(
-        "recent", "--sort", help="Sort: reputation | price | recent"
-    ),
+    max_price: Optional[str] = typer.Option(None, "--max-price", help="Maximum price in USDC"),
+    sort: str = typer.Option("recent", "--sort", help="Sort: reputation | price | recent"),
     limit: int = typer.Option(20, "-l", "--limit", help="Number of results (1-100)"),
     payment_mode: Optional[str] = typer.Option(
         None, "--payment-mode", help="Filter by payment mode: actp | x402"
     ),
-    rank: Optional[str] = typer.Option(
-        None, "--rank", help="Enable LLM ranking: llm"
-    ),
+    rank: Optional[str] = typer.Option(None, "--rank", help="Enable LLM ranking: llm"),
     priority: str = typer.Option(
         "quality", "--priority", help="Ranking priority: quality | price | speed"
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Output as JSON"
-    ),
-    quiet: bool = typer.Option(
-        False, "-q", "--quiet", help="Output slugs only, one per line"
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Output slugs only, one per line"),
 ) -> None:
     """Discover agents on agirails.app."""
     opts = get_global_options()
@@ -119,7 +109,9 @@ def find(
 
     # --rank=llm requires a search query
     if rank == "llm" and not query:
-        _error(fmt, '--rank=llm requires a search query (e.g. actp find "translate french" --rank llm)')
+        _error(
+            fmt, '--rank=llm requires a search query (e.g. actp find "translate french" --rank llm)'
+        )
         raise typer.Exit(1)
 
     async def _find() -> None:
@@ -157,7 +149,12 @@ def find(
                     "version": ranking.version,
                     "model": ranking.model,
                     "ranked": [
-                        {"slug": r.slug, "reason": r.reason, "risk": r.risk, "confidence": r.confidence}
+                        {
+                            "slug": r.slug,
+                            "reason": r.reason,
+                            "risk": r.risk,
+                            "confidence": r.confidence,
+                        }
                         for r in ranking.ranked
                     ],
                 }

@@ -148,9 +148,7 @@ class JobContext:
         """Get current progress (percent, message)."""
         return self._progress_percent, self._progress_message
 
-    def on_cancel(
-        self, handler: Callable[[], Union[Awaitable[None], None]]
-    ) -> Callable[[], None]:
+    def on_cancel(self, handler: Callable[[], Union[Awaitable[None], None]]) -> Callable[[], None]:
         """
         Register a cancellation handler.
 

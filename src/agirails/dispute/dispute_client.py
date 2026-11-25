@@ -241,9 +241,7 @@ class DisputeClient:
             and getattr(contracts, "usdc", None)
         ):
             try:
-                uma = UMAHelper.from_config(
-                    w3, account, config, confirmations=confirmations
-                )
+                uma = UMAHelper.from_config(w3, account, config, confirmations=confirmations)
             except Exception:
                 uma = None
 
@@ -271,8 +269,7 @@ class DisputeClient:
         configured."""
         if self._mediator is None:
             raise RuntimeError(
-                "DisputeClient.mediator is not configured (no CompositeMediator "
-                "address/provider)."
+                "DisputeClient.mediator is not configured (no CompositeMediator address/provider)."
             )
         return self._mediator
 
@@ -342,9 +339,7 @@ class DisputeClient:
                 deployed).
         """
         bond = self.bond  # raises with the clear message if unconfigured
-        raw = await bond.get_contract().functions.disputes(
-            _to_bytes32(dispute_id)
-        ).call()
+        raw = await bond.get_contract().functions.disputes(_to_bytes32(dispute_id)).call()
         state = BondEscalationClient.decode_dispute_state(dispute_id, raw)
         substate = decode_dispute_sub_state(raw)
         disputed_at = int(_pick(raw, 6, "disputedAt"))

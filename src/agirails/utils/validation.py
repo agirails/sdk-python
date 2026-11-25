@@ -39,26 +39,28 @@ PRIVATE_IP_RANGES = [
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),     # IPv6 unique local
-    ipaddress.ip_network("fe80::/10"),    # IPv6 link-local
-    ipaddress.ip_network("fd00::/8"),     # IPv6 private
+    ipaddress.ip_network("fc00::/7"),  # IPv6 unique local
+    ipaddress.ip_network("fe80::/10"),  # IPv6 link-local
+    ipaddress.ip_network("fd00::/8"),  # IPv6 private
 ]
 
 # Cloud metadata endpoints to block (H-1 SSRF protection)
-METADATA_HOSTS = frozenset([
-    # AWS IPv4 metadata
-    "169.254.169.254",
-    # AWS IPv6 metadata
-    "fd00:ec2::254",
-    "[fd00:ec2::254]",
-    # GCP metadata
-    "metadata.google.internal",
-    "metadata",
-    # Azure metadata
-    "169.254.169.254",
-    # Generic
-    "metadata.internal",
-])
+METADATA_HOSTS = frozenset(
+    [
+        # AWS IPv4 metadata
+        "169.254.169.254",
+        # AWS IPv6 metadata
+        "fd00:ec2::254",
+        "[fd00:ec2::254]",
+        # GCP metadata
+        "metadata.google.internal",
+        "metadata",
+        # Azure metadata
+        "169.254.169.254",
+        # Generic
+        "metadata.internal",
+    ]
+)
 
 # Regex patterns for cloud metadata hosts
 METADATA_HOST_PATTERNS = [
@@ -69,16 +71,18 @@ METADATA_HOST_PATTERNS = [
 ]
 
 # Localhost aliases to block
-LOCALHOST_ALIASES = frozenset([
-    "localhost",
-    # factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
-    "0.0.0.0",  # noqa: S104  # nosec B104
-    "[::]",
-    "[::1]",
-    "127.0.0.1",
-    "0",
-    "0.0.0.0.0",
-])
+LOCALHOST_ALIASES = frozenset(
+    [
+        "localhost",
+        # factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
+        "0.0.0.0",  # noqa: S104  # nosec B104
+        "[::]",
+        "[::1]",
+        "127.0.0.1",
+        "0",
+        "0.0.0.0.0",
+    ]
+)
 
 
 def validate_address(address: str, field_name: str = "address") -> str:
@@ -628,7 +632,7 @@ def validate_content_hash(
         )
 
     # Check hex format (after 0x prefix)
-    hex_part = content_hash[len(expected_prefix):] if expected_prefix else content_hash
+    hex_part = content_hash[len(expected_prefix) :] if expected_prefix else content_hash
     if not re.match(r"^[0-9a-fA-F]+$", hex_part):
         raise ValidationError(
             message=f"Invalid {field_name}: must contain only hex characters",
@@ -655,20 +659,24 @@ def validate_content_hash(
 # ============================================================================
 
 # IPFS Gateway Whitelist (SSRF Protection)
-ALLOWED_IPFS_GATEWAYS = frozenset([
-    "https://ipfs.filebase.io",
-    "https://gateway.pinata.cloud",
-    "https://ipfs.io",
-    "https://cloudflare-ipfs.com",
-    "https://w3s.link",
-    "https://dweb.link",
-])
+ALLOWED_IPFS_GATEWAYS = frozenset(
+    [
+        "https://ipfs.filebase.io",
+        "https://gateway.pinata.cloud",
+        "https://ipfs.io",
+        "https://cloudflare-ipfs.com",
+        "https://w3s.link",
+        "https://dweb.link",
+    ]
+)
 
 # Arweave Gateway Whitelist
-ALLOWED_ARWEAVE_GATEWAYS = frozenset([
-    "https://arweave.net",
-    "https://gateway.irys.xyz",
-])
+ALLOWED_ARWEAVE_GATEWAYS = frozenset(
+    [
+        "https://arweave.net",
+        "https://gateway.irys.xyz",
+    ]
+)
 
 # CID Patterns
 CID_V0_PATTERN = re.compile(r"^Qm[1-9A-HJ-NP-Za-km-z]{44}$")

@@ -102,9 +102,7 @@ def assert_safe_peer_url(url: str, allow_insecure_targets: bool) -> None:
 
     # IPv4-mapped IPv6 (::ffff:127.0.0.1 / ::ffff:7f00:1) folds to its v4 form
     # via ipaddress; re-extract so the dotted-quad rules below catch it.
-    mapped_dotted = re.match(
-        r"^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$", host
-    )
+    mapped_dotted = re.match(r"^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$", host)
     mapped_hex = re.match(r"^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$", host)
     if mapped_dotted:
         host = mapped_dotted.group(1)
@@ -114,18 +112,14 @@ def assert_safe_peer_url(url: str, allow_insecure_targets: bool) -> None:
         host = f"{(hi >> 8) & 0xFF}.{hi & 0xFF}.{(lo >> 8) & 0xFF}.{lo & 0xFF}"
 
     if host == "localhost" or host.endswith(".localhost"):
-        raise ValueError(
-            f"Peer URL points at localhost ({host}) — refusing (SSRF guard)"
-        )
+        raise ValueError(f"Peer URL points at localhost ({host}) — refusing (SSRF guard)")
 
     # IPv4 literals
     ipv4 = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", host)
     if ipv4:
         a, b = int(ipv4.group(1)), int(ipv4.group(2))
         if a == 127:
-            raise ValueError(
-                f"Peer URL points at loopback IP ({host}) — refusing (SSRF guard)"
-            )
+            raise ValueError(f"Peer URL points at loopback IP ({host}) — refusing (SSRF guard)")
         if a == 169 and b == 254:
             raise ValueError(
                 f"Peer URL points at link-local / cloud-metadata IP ({host}) "
@@ -146,18 +140,12 @@ def assert_safe_peer_url(url: str, allow_insecure_targets: bool) -> None:
 
     # IPv6 literals
     if host == "::1":
-        raise ValueError(
-            f"Peer URL points at IPv6 loopback ({host}) — refusing (SSRF guard)"
-        )
+        raise ValueError(f"Peer URL points at IPv6 loopback ({host}) — refusing (SSRF guard)")
     if host.startswith("fe80:") or host.startswith("fe80::"):
-        raise ValueError(
-            f"Peer URL points at IPv6 link-local ({host}) — refusing (SSRF guard)"
-        )
+        raise ValueError(f"Peer URL points at IPv6 link-local ({host}) — refusing (SSRF guard)")
     if host.startswith("fc") or host.startswith("fd"):
         if re.match(r"^(fc|fd)[0-9a-f]{0,2}:", host):
-            raise ValueError(
-                f"Peer URL points at IPv6 ULA ({host}) — refusing (SSRF guard)"
-            )
+            raise ValueError(f"Peer URL points at IPv6 ULA ({host}) — refusing (SSRF guard)")
 
 
 @dataclass
@@ -196,9 +184,7 @@ class QuoteChannelClient:
             {"type": "agirails.quote.v1", "message": quote.to_dict()},
         )
 
-    async def send_counter(
-        self, peer_endpoint: str, counter: CounterOfferMessage
-    ) -> None:
+    async def send_counter(self, peer_endpoint: str, counter: CounterOfferMessage) -> None:
         """POST a buyer counter-offer to the provider's endpoint."""
         await self._post(
             peer_endpoint,
@@ -236,8 +222,7 @@ class QuoteChannelClient:
                     text = ""
                 suffix = f" — {text}" if text else ""
                 raise RuntimeError(
-                    f"Quote channel POST failed: {res.status_code} "
-                    f"{res.reason_phrase}{suffix}"
+                    f"Quote channel POST failed: {res.status_code} {res.reason_phrase}{suffix}"
                 )
 
 
@@ -275,11 +260,7 @@ class InMemoryDedupStore:
                 return "duplicate"
             # Evict expired entries opportunistically when over cap.
             if len(self._entries) >= self._max_size:
-                self._entries = {
-                    k: exp
-                    for k, exp in self._entries.items()
-                    if exp > now_ms
-                }
+                self._entries = {k: exp for k, exp in self._entries.items() if exp > now_ms}
                 if len(self._entries) >= self._max_size:
                     # Still over cap: drop the oldest entry.
                     oldest = min(self._entries.items(), key=lambda kv: kv[1])
@@ -355,10 +336,7 @@ class QuoteChannelHandler:
                 status=400,
                 body={
                     "accepted": False,
-                    "reason": (
-                        "Only agirails.counteroffer.v1 is supported by "
-                        "this handler in v1"
-                    ),
+                    "reason": ("Only agirails.counteroffer.v1 is supported by this handler in v1"),
                 },
             )
         msg_raw = payload.get("message")
@@ -405,9 +383,7 @@ class QuoteChannelHandler:
                 status=400,
                 body={
                     "accepted": False,
-                    "reason": (
-                        f"Unsupported chainId: {message.chainId}"
-                    ),
+                    "reason": (f"Unsupported chainId: {message.chainId}"),
                 },
             )
 
@@ -434,9 +410,7 @@ class QuoteChannelHandler:
             )
 
         # 7. Dedup. Key = (type, signerDID, nonce).
-        dedup_key = (
-            f"{payload['type']}:{message.consumer}:{message.nonce}"
-        )
+        dedup_key = f"{payload['type']}:{message.consumer}:{message.nonce}"
         outcome = self._dedup.record_once(dedup_key, DEDUP_TTL_SECONDS * 1000)
         if outcome == "duplicate":
             return HandlerResult(

@@ -115,9 +115,7 @@ class MockTimeManager:
         """
         current = self.now()
         if timestamp < current:
-            raise ValueError(
-                f"Cannot set time to past: {timestamp} < {current}"
-            )
+            raise ValueError(f"Cannot set time to past: {timestamp} < {current}")
 
         async def update(state: MockState) -> MockState:
             state.blockchain.timestamp = timestamp
@@ -657,9 +655,7 @@ class MockRuntime(IMockRuntime):
             return
         # completed_at is set on the DELIVERED transition; fall back to
         # updated_at for parity with release_escrow's window math.
-        completed_at = (
-            pre_tx.completed_at if pre_tx.completed_at is not None else pre_tx.updated_at
-        )
+        completed_at = pre_tx.completed_at if pre_tx.completed_at is not None else pre_tx.updated_at
         if precheck.blockchain.timestamp < completed_at + pre_tx.dispute_window:
             return
         if not pre_tx.escrow_id:

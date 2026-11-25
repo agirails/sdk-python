@@ -150,10 +150,7 @@ _DEFAULT_GAS_LIMITS = {
 }
 
 # Build actual gas limits with environment overrides
-GAS_LIMITS = {
-    op: _get_gas_limit(op, default)
-    for op, default in _DEFAULT_GAS_LIMITS.items()
-}
+GAS_LIMITS = {op: _get_gas_limit(op, default) for op, default in _DEFAULT_GAS_LIMITS.items()}
 
 
 # ============================================================================
@@ -424,7 +421,9 @@ class ACTPKernel(KernelRetries):
             nonce_manager: Optional shared NonceManager for nonce tracking
         """
         if is_legacy_creation_kernel(contract.address):
-            contract = w3.eth.contract(address=contract.address, abi=kernel_creation_abi(contract.address, contract.abi))
+            contract = w3.eth.contract(
+                address=contract.address, abi=kernel_creation_abi(contract.address, contract.abi)
+            )
         super().__init__(contract, account, w3, chain_id, nonce_manager=nonce_manager)
 
     @classmethod
@@ -516,17 +515,23 @@ class ACTPKernel(KernelRetries):
         service_hash = self._to_bytes32(params.service_hash)
         agreement_hash = self._to_bytes32(params.agreement_hash)
 
-        contract_fn = self.contract.functions.createTransaction(*kernel_creation_arguments(self.contract.address, [
-            provider_checksum,
-            requester_checksum,
-            params.amount,
-            params.deadline,
-            params.dispute_window,
-            service_hash,
-            agreement_hash,
-            params.agent_id,
-            params.requester_agent_id,
-        ], agreement_hash))
+        contract_fn = self.contract.functions.createTransaction(
+            *kernel_creation_arguments(
+                self.contract.address,
+                [
+                    provider_checksum,
+                    requester_checksum,
+                    params.amount,
+                    params.deadline,
+                    params.dispute_window,
+                    service_hash,
+                    agreement_hash,
+                    params.agent_id,
+                    params.requester_agent_id,
+                ],
+                agreement_hash,
+            )
+        )
         # P-2 fix: dynamic gas estimation with hardcoded floor fallback
         effective_gas = gas_limit or await self._estimate_gas(
             contract_fn, GAS_LIMITS["create_transaction"]
@@ -764,6 +769,7 @@ class ACTPKernel(KernelRetries):
         )
 
         # =========================================================================
+
     # Escrow Management
     # =========================================================================
 
@@ -1066,9 +1072,7 @@ class ACTPKernel(KernelRetries):
 
         # Validate mediator address if mediator amount > 0
         if mediator_amount > 0 and mediator == ZERO_ADDRESS:
-            raise ValidationError(
-                "Mediator address required when mediator_amount > 0"
-            )
+            raise ValidationError("Mediator address required when mediator_amount > 0")
 
         tx_id_bytes = self._to_bytes32(transaction_id)
 
@@ -1129,9 +1133,9 @@ class ACTPKernel(KernelRetries):
 
         Requires the fee-accounting kernel ABI. Read failures propagate.
         """
-        return int(await self.contract.functions.escrowPrincipal(
-            self._to_bytes32(transaction_id)
-        ).call())
+        return int(
+            await self.contract.functions.escrowPrincipal(self._to_bytes32(transaction_id)).call()
+        )
 
     async def get_transaction(self, transaction_id: str) -> TransactionView:
         """
@@ -1178,8 +1182,7 @@ class ACTPKernel(KernelRetries):
             error_type = type(error).__name__
             reason_no_space = reason_lc.replace(" ", "")
             is_decode_failure = (
-                error_type
-                in ("BadFunctionCallOutput", "InsufficientDataBytes", "MismatchedABI")
+                error_type in ("BadFunctionCallOutput", "InsufficientDataBytes", "MismatchedABI")
                 or "could not decode" in reason_lc
                 or "insufficient data" in reason_lc
                 or "abidecoding" in reason_no_space
@@ -1195,9 +1198,37 @@ class ACTPKernel(KernelRetries):
                 words = len(raw) // 32
                 if len(raw) not in (16 * 32, 21 * 32, 23 * 32):
                     raise ValueError(f"Unsupported getTransaction return size: {len(raw)} bytes")
-                legacy_types = [c["type"] for c in _LEGACY_GET_TRANSACTION_ABI[0]["outputs"][0]["components"]]
-                v3_types = ["bytes32", "address", "address", "uint8", "uint256", "uint256", "uint256", "uint256", "bytes32", "address", "bytes32", "bytes32", "uint256", "bytes32", "uint16", "uint16", "uint16", "uint256", "uint256", "address", "uint256"]
-                types = legacy_types if words == 16 else v3_types + (["bytes32", "bytes32"] if words == 23 else [])
+                legacy_types = [
+                    c["type"] for c in _LEGACY_GET_TRANSACTION_ABI[0]["outputs"][0]["components"]
+                ]
+                v3_types = [
+                    "bytes32",
+                    "address",
+                    "address",
+                    "uint8",
+                    "uint256",
+                    "uint256",
+                    "uint256",
+                    "uint256",
+                    "bytes32",
+                    "address",
+                    "bytes32",
+                    "bytes32",
+                    "uint256",
+                    "bytes32",
+                    "uint16",
+                    "uint16",
+                    "uint16",
+                    "uint256",
+                    "uint256",
+                    "address",
+                    "uint256",
+                ]
+                types = (
+                    legacy_types
+                    if words == 16
+                    else v3_types + (["bytes32", "bytes32"] if words == 23 else [])
+                )
                 result = decode_abi(["(" + ",".join(types) + ")"], raw)[0]
             except Exception as legacy_error:
                 legacy_reason = str(legacy_error).lower()
@@ -1209,7 +1240,11 @@ class ACTPKernel(KernelRetries):
                     tx_id=transaction_id,
                 ) from legacy_error
 
-            return TransactionView.from_legacy_tuple(result) if words == 16 else TransactionView.from_tuple(result)
+            return (
+                TransactionView.from_legacy_tuple(result)
+                if words == 16
+                else TransactionView.from_tuple(result)
+            )
 
         return TransactionView.from_tuple(result)
 
@@ -1271,17 +1306,23 @@ class ACTPKernel(KernelRetries):
         service_hash = self._to_bytes32(params.service_hash)
         agreement_hash = self._to_bytes32(params.agreement_hash)
 
-        contract_fn = self.contract.functions.createTransaction(*kernel_creation_arguments(self.contract.address, [
-            provider_checksum,
-            requester_checksum,
-            params.amount,
-            params.deadline,
-            params.dispute_window,
-            service_hash,
-            agreement_hash,
-            params.agent_id,
-            params.requester_agent_id,
-        ], agreement_hash))
+        contract_fn = self.contract.functions.createTransaction(
+            *kernel_creation_arguments(
+                self.contract.address,
+                [
+                    provider_checksum,
+                    requester_checksum,
+                    params.amount,
+                    params.deadline,
+                    params.dispute_window,
+                    service_hash,
+                    agreement_hash,
+                    params.agent_id,
+                    params.requester_agent_id,
+                ],
+                agreement_hash,
+            )
+        )
         return await contract_fn.estimate_gas({"from": self.account.address})
 
     async def get_min_transaction_amount(self) -> int:

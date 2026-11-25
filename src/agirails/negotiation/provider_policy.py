@@ -566,9 +566,7 @@ class ProviderPolicyEngine:
                 return await result
             return result
 
-        verdict = self.evaluate_counter(
-            counter.counterAmount, last_amount, requotes_used
-        )
+        verdict = self.evaluate_counter(counter.counterAmount, last_amount, requotes_used)
         if verdict.decision == "requote":
             return CounterDecision(
                 action="requote",

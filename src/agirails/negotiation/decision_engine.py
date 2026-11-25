@@ -8,6 +8,7 @@ Default weights: quality=0.35, price=0.30, speed=0.20, reliability=0.15
 
 Tie-breakers: lower price -> better on-time rate -> earlier in discovery results.
 """
+
 from __future__ import annotations
 
 import functools
@@ -22,6 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing-only import, avoids runtime coupl
 # ============================================================================
 # Types
 # ============================================================================
+
 
 @dataclass
 class ScoringWeights:
@@ -141,6 +143,7 @@ DEFAULT_WEIGHTS = ScoringWeights(
 # DecisionEngine
 # ============================================================================
 
+
 class DecisionEngine:
     def __init__(self, weights: Optional[ScoringWeights] = None) -> None:
         w = weights or DEFAULT_WEIGHTS
@@ -229,16 +232,18 @@ class DecisionEngine:
                 + self._weights.reliability * reliability
             )
 
-            scored.append(ScoredCandidate(
-                slug=c.slug,
-                score=score,
-                breakdown=ScoreBreakdown(
-                    quality=quality,
-                    price=price_score,
-                    speed=speed,
-                    reliability=reliability,
-                ),
-            ))
+            scored.append(
+                ScoredCandidate(
+                    slug=c.slug,
+                    score=score,
+                    breakdown=ScoreBreakdown(
+                        quality=quality,
+                        price=price_score,
+                        speed=speed,
+                        reliability=reliability,
+                    ),
+                )
+            )
 
         # Build a lookup for tie-breaking
         eligible_by_slug = {c.slug: c for c in eligible}

@@ -116,9 +116,7 @@ def evaluate_counter(
     if counter < floor:
         return Verdict(
             action=VerdictAction.REJECT,
-            reason=(
-                f"counter ({counter}) below provider floor ({floor})"
-            ),
+            reason=(f"counter ({counter}) below provider floor ({floor})"),
         )
 
     # At or above ideal — accept.
@@ -171,9 +169,7 @@ def evaluate_counter(
         )
     return Verdict(
         action=VerdictAction.COUNTER,
-        reason=(
-            f"concede from {last} toward floor {floor} → {next_amount}"
-        ),
+        reason=(f"concede from {last} toward floor {floor} → {next_amount}"),
         recommended_amount=next_amount,
     )
 

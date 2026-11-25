@@ -98,10 +98,12 @@ def deploy_env(
         return
 
     if effective_format == EnvFormat.JSON:
-        output_json({
-            "keystoreBase64": keystore_b64,
-            "passwordVar": "ACTP_KEY_PASSWORD",
-        })
+        output_json(
+            {
+                "keystoreBase64": keystore_b64,
+                "passwordVar": "ACTP_KEY_PASSWORD",
+            }
+        )
         return
 
     if effective_format == EnvFormat.DOCKER:

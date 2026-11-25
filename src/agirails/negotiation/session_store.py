@@ -6,6 +6,7 @@ No createTransaction() is allowed without a session ID.
 
 Persisted to ``.actp/sessions.json`` using atomic writes.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -18,6 +19,7 @@ from typing import Dict, List, Literal, Optional
 # ============================================================================
 # Types
 # ============================================================================
+
 
 @dataclass
 class SessionMapping:
@@ -42,9 +44,12 @@ class SessionsFile:
 # SessionStore
 # ============================================================================
 
+
 class SessionStore:
     def __init__(self, actp_dir: Optional[str] = None) -> None:
-        self._actp_dir = actp_dir or os.environ.get("ACTP_DIR") or os.path.join(os.getcwd(), ".actp")
+        self._actp_dir = (
+            actp_dir or os.environ.get("ACTP_DIR") or os.path.join(os.getcwd(), ".actp")
+        )
         self._sessions: Dict[str, SessionMapping] = {}
         self._load()
 
@@ -159,7 +164,9 @@ class SessionStore:
             pass
 
     def _prune_old_sessions(self, max_age_days: int = 30) -> None:
-        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=max_age_days)
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            days=max_age_days
+        )
         terminal_statuses = ("completed", "failed", "cancelled")
         pruned = False
         to_delete: List[str] = []
@@ -196,7 +203,11 @@ class SessionStore:
                     **({"actp_tx_id": s.actp_tx_id} if s.actp_tx_id is not None else {}),
                     "task": s.task,
                     "candidates_tried": s.candidates_tried,
-                    **({"selected_provider": s.selected_provider} if s.selected_provider is not None else {}),
+                    **(
+                        {"selected_provider": s.selected_provider}
+                        if s.selected_provider is not None
+                        else {}
+                    ),
                     "status": s.status,
                     "attempts": s.attempts,
                     "created_at": s.created_at,

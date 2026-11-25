@@ -148,9 +148,7 @@ class IAdapter(Protocol):
         """
         ...
 
-    async def release(
-        self, escrow_id: str, attestation_uid: Optional[str] = None
-    ) -> None:
+    async def release(self, escrow_id: str, attestation_uid: Optional[str] = None) -> None:
         """
         Release escrow funds (EXPLICIT settlement).
 

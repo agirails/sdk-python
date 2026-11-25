@@ -89,9 +89,7 @@ class BundlerClient:
         self._timeout_s = config.timeout_s
         self._request_id = 0
 
-    async def estimate_user_operation_gas(
-        self, user_op: UserOperationV06
-    ) -> GasEstimate:
+    async def estimate_user_operation_gas(self, user_op: UserOperationV06) -> GasEstimate:
         """Estimate gas for a UserOp.
 
         Args:
@@ -124,9 +122,7 @@ class BundlerClient:
             [serialize_user_op(user_op), ENTRYPOINT_V06],
         )
 
-    async def get_user_operation_receipt(
-        self, user_op_hash: str
-    ) -> Optional[UserOpReceipt]:
+    async def get_user_operation_receipt(self, user_op_hash: str) -> Optional[UserOpReceipt]:
         """Get the receipt for a submitted UserOp.
 
         Args:
@@ -186,9 +182,7 @@ class BundlerClient:
     # Internal
     # ==========================================================================
 
-    async def _call_with_fallback(
-        self, method: str, params: List[Any]
-    ) -> Any:
+    async def _call_with_fallback(self, method: str, params: List[Any]) -> Any:
         """Call primary, fall back to backup, with retries and backoff."""
         try:
             return await self._call_with_retry(self._primary_url, method, params)
@@ -207,9 +201,7 @@ class BundlerClient:
 
         return await self._call_with_retry(self._backup_url, method, params)
 
-    async def _call_with_retry(
-        self, url: str, method: str, params: List[Any]
-    ) -> Any:
+    async def _call_with_retry(self, url: str, method: str, params: List[Any]) -> Any:
         """Call with retry and exponential backoff."""
         last_error: Optional[Exception] = None
         for attempt in range(self._max_retries + 1):
@@ -220,7 +212,7 @@ class BundlerClient:
                 if _is_non_transient(e):
                     raise
                 if attempt < self._max_retries:
-                    delay = self._base_delay_s * (2 ** attempt)
+                    delay = self._base_delay_s * (2**attempt)
                     logger.warning(
                         "Bundler request failed, retrying: attempt=%d method=%s delay=%.1fs",
                         attempt + 1,
@@ -248,9 +240,7 @@ class BundlerClient:
             )
 
         if response.status_code != 200:
-            raise BundlerHTTPError(
-                f"HTTP {response.status_code}: {response.reason_phrase}"
-            )
+            raise BundlerHTTPError(f"HTTP {response.status_code}: {response.reason_phrase}")
 
         data = response.json()
 

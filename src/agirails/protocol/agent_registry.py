@@ -212,10 +212,7 @@ class AgentProfile:
         Trailing config fields are optional so legacy 12-field tuples still
         decode for backward compatibility.
         """
-        service_types = [
-            "0x" + st.hex() if isinstance(st, bytes) else st
-            for st in data[3]
-        ]
+        service_types = ["0x" + st.hex() if isinstance(st, bytes) else st for st in data[3]]
 
         # Config fields (AgentRegistry v2). bytes32 configHash arrives as raw
         # bytes from web3.py; normalize to 0x-hex to match TS string handling.
@@ -574,8 +571,7 @@ class AgentRegistry:
         """
         if not HAS_WEB3:
             raise ImportError(
-                "web3 is required for AgentRegistry. "
-                "Install with: pip install web3 eth-account"
+                "web3 is required for AgentRegistry. Install with: pip install web3 eth-account"
             )
 
         config = get_network(network) if isinstance(network, str) else network
@@ -835,8 +831,7 @@ class AgentRegistry:
                 raise TransactionRevertedError(
                     "setListed",
                     revert_reason=(
-                        "Agent not registered. Register first before "
-                        "setting listing status."
+                        "Agent not registered. Register first before setting listing status."
                     ),
                 ) from error
             raise
@@ -873,18 +868,12 @@ class AgentRegistry:
         if not cid:
             raise ValidationError("IPFS CID is required", field="cid")
         if len(cid) > 128:
-            raise ValidationError(
-                "CID too long (max 128 characters)", field="cid"
-            )
+            raise ValidationError("CID too long (max 128 characters)", field="cid")
         zero_hash = "0x" + "0" * 64
         if not config_hash or config_hash == zero_hash:
-            raise ValidationError(
-                "Config hash is required (cannot be zero)", field="hash"
-            )
+            raise ValidationError("Config hash is required (cannot be zero)", field="hash")
         if not re.fullmatch(r"0x[a-fA-F0-9]{64}", config_hash):
-            raise ValidationError(
-                "Config hash must be a valid bytes32 hex string", field="hash"
-            )
+            raise ValidationError("Config hash must be a valid bytes32 hex string", field="hash")
 
         hash_bytes = bytes.fromhex(config_hash[2:])
         function = self._contract.functions.publishConfig(cid, hash_bytes)

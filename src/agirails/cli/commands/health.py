@@ -76,17 +76,18 @@ def _probe_endpoint(url: str, timeout_s: float) -> Dict[str, Any]:
             # HEAD failed, try GET
             continue
 
-    return {"reachable": False, "method": "GET", "response_time_ms": 0, "error": "All probes failed"}
+    return {
+        "reachable": False,
+        "method": "GET",
+        "response_time_ms": 0,
+        "error": "All probes failed",
+    }
 
 
 def health(
     path: Optional[str] = typer.Argument(None, help="Path to AGIRAILS.md"),
-    network: str = typer.Option(
-        "base-sepolia", "--network", "-n", help="Network to check"
-    ),
-    address: Optional[str] = typer.Option(
-        None, "--address", "-a", help="Agent address"
-    ),
+    network: str = typer.Option("base-sepolia", "--network", "-n", help="Network to check"),
+    address: Optional[str] = typer.Option(None, "--address", "-a", help="Agent address"),
     timeout: int = typer.Option(5000, "--timeout", help="Probe timeout in ms"),
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Minimal output"),
@@ -111,7 +112,9 @@ def health(
     try:
         p = Path(md_path)
         if not p.exists():
-            checks.append({"name": "AGIRAILS.md", "status": "fail", "detail": f"Not found: {md_path}"})
+            checks.append(
+                {"name": "AGIRAILS.md", "status": "fail", "detail": f"Not found: {md_path}"}
+            )
             fatal = True
         else:
             content = p.read_text(encoding="utf-8")
@@ -129,7 +132,13 @@ def health(
     if not fatal:
         endpoint = frontmatter.get("endpoint", "")
         if not endpoint or endpoint == PENDING_ENDPOINT:
-            checks.append({"name": "Endpoint", "status": "fail", "detail": "No endpoint set (placeholder or missing)"})
+            checks.append(
+                {
+                    "name": "Endpoint",
+                    "status": "fail",
+                    "detail": "No endpoint set (placeholder or missing)",
+                }
+            )
             fatal = True
         else:
             checks.append({"name": "Endpoint", "status": "pass", "detail": endpoint})
@@ -140,37 +149,47 @@ def health(
         probe = _probe_endpoint(endpoint, timeout_s)
 
         if probe["reachable"]:
-            checks.append({
-                "name": "Endpoint reachable",
-                "status": "pass",
-                "detail": f"{probe['response_time_ms']}ms ({probe['method']} {probe.get('status_code', '?')})",
-            })
+            checks.append(
+                {
+                    "name": "Endpoint reachable",
+                    "status": "pass",
+                    "detail": f"{probe['response_time_ms']}ms ({probe['method']} {probe.get('status_code', '?')})",
+                }
+            )
 
             status_code = probe.get("status_code", 200)
             if status_code and status_code >= 500:
-                checks.append({
-                    "name": "Endpoint health",
-                    "status": "warn",
-                    "detail": f"Endpoint returned {status_code} — server error",
-                })
+                checks.append(
+                    {
+                        "name": "Endpoint health",
+                        "status": "warn",
+                        "detail": f"Endpoint returned {status_code} — server error",
+                    }
+                )
             elif probe["response_time_ms"] > SLA_THRESHOLD_MS:
-                checks.append({
-                    "name": "Response time",
-                    "status": "warn",
-                    "detail": f"{probe['response_time_ms']}ms exceeds {SLA_THRESHOLD_MS}ms SLA",
-                })
+                checks.append(
+                    {
+                        "name": "Response time",
+                        "status": "warn",
+                        "detail": f"{probe['response_time_ms']}ms exceeds {SLA_THRESHOLD_MS}ms SLA",
+                    }
+                )
             else:
-                checks.append({
-                    "name": "Response time",
-                    "status": "pass",
-                    "detail": f"{probe['response_time_ms']}ms (< {SLA_THRESHOLD_MS}ms)",
-                })
+                checks.append(
+                    {
+                        "name": "Response time",
+                        "status": "pass",
+                        "detail": f"{probe['response_time_ms']}ms (< {SLA_THRESHOLD_MS}ms)",
+                    }
+                )
         else:
-            checks.append({
-                "name": "Endpoint reachable",
-                "status": "fail",
-                "detail": probe.get("error", "Endpoint unreachable"),
-            })
+            checks.append(
+                {
+                    "name": "Endpoint reachable",
+                    "status": "fail",
+                    "detail": probe.get("error", "Endpoint unreachable"),
+                }
+            )
             fatal = True
 
     # ── Check 5: Pending publish status ───────────────────────────────
@@ -180,15 +199,21 @@ def health(
 
             pending = load_pending_publish(network=network)
             if pending:
-                checks.append({
-                    "name": "Pending publish",
-                    "status": "info",
-                    "detail": f"Mainnet activation on first payment (hash: {pending.config_hash[:10]}...)",
-                })
+                checks.append(
+                    {
+                        "name": "Pending publish",
+                        "status": "info",
+                        "detail": f"Mainnet activation on first payment (hash: {pending.config_hash[:10]}...)",
+                    }
+                )
             else:
-                checks.append({"name": "Pending publish", "status": "pass", "detail": "No pending publish"})
+                checks.append(
+                    {"name": "Pending publish", "status": "pass", "detail": "No pending publish"}
+                )
         except Exception:
-            checks.append({"name": "Pending publish", "status": "pass", "detail": "No pending publish file"})
+            checks.append(
+                {"name": "Pending publish", "status": "pass", "detail": "No pending publish file"}
+            )
 
     # ── Check 6: Config hash matches on-chain ─────────────────────────
     if not fatal:
@@ -198,7 +223,13 @@ def health(
             net_config = get_network(network)
 
             if not net_config.contracts.agent_registry:
-                checks.append({"name": "On-chain config", "status": "info", "detail": f"No AgentRegistry on {network}"})
+                checks.append(
+                    {
+                        "name": "On-chain config",
+                        "status": "info",
+                        "detail": f"No AgentRegistry on {network}",
+                    }
+                )
             else:
                 agent_address = address or os.environ.get("ACTP_ADDRESS")
                 if not agent_address:
@@ -221,7 +252,13 @@ def health(
                         pass
 
                 if not agent_address:
-                    checks.append({"name": "On-chain config", "status": "info", "detail": "No agent address (use --address or set ACTP_ADDRESS)"})
+                    checks.append(
+                        {
+                            "name": "On-chain config",
+                            "status": "info",
+                            "detail": "No agent address (use --address or set ACTP_ADDRESS)",
+                        }
+                    )
                 else:
                     content = Path(md_path).read_text(encoding="utf-8")
                     from agirails.config.agirailsmd import compute_config_hash
@@ -231,17 +268,33 @@ def health(
                     on_chain = get_on_chain_agent_state(agent_address, network)
 
                     if not on_chain.is_registered:
-                        checks.append({"name": "On-chain config", "status": "info", "detail": "Agent not yet registered on-chain"})
+                        checks.append(
+                            {
+                                "name": "On-chain config",
+                                "status": "info",
+                                "detail": "Agent not yet registered on-chain",
+                            }
+                        )
                     elif on_chain.config_hash == local_hash:
-                        checks.append({"name": "On-chain config", "status": "pass", "detail": f"Hash matches ({network})"})
+                        checks.append(
+                            {
+                                "name": "On-chain config",
+                                "status": "pass",
+                                "detail": f"Hash matches ({network})",
+                            }
+                        )
                     else:
-                        checks.append({
-                            "name": "On-chain config",
-                            "status": "warn",
-                            "detail": f"Hash mismatch — local {local_hash[:10]}... vs on-chain {on_chain.config_hash[:10]}...",
-                        })
+                        checks.append(
+                            {
+                                "name": "On-chain config",
+                                "status": "warn",
+                                "detail": f"Hash mismatch — local {local_hash[:10]}... vs on-chain {on_chain.config_hash[:10]}...",
+                            }
+                        )
         except Exception as e:
-            checks.append({"name": "On-chain config", "status": "warn", "detail": f"Could not check: {e}"})
+            checks.append(
+                {"name": "On-chain config", "status": "warn", "detail": f"Could not check: {e}"}
+            )
 
     # ── Output ────────────────────────────────────────────────────────
     warnings = sum(1 for c in checks if c["status"] == "warn")
@@ -254,7 +307,9 @@ def health(
     else:
         typer.echo("")
         for check in checks:
-            icon = {"pass": "\u2713", "warn": "\u26A0", "info": "\u2139", "fail": "\u2717"}.get(check["status"], "?")
+            icon = {"pass": "\u2713", "warn": "\u26a0", "info": "\u2139", "fail": "\u2717"}.get(
+                check["status"], "?"
+            )
             typer.echo(f"  {icon} {check['name']}: {check['detail']}")
         typer.echo("")
         if healthy:

@@ -80,9 +80,7 @@ class DeliveryChannel(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_setups(
-        self, tx_id: str, callback: SetupCallback
-    ) -> DeliverySubscription:
+    async def subscribe_setups(self, tx_id: str, callback: SetupCallback) -> DeliverySubscription:
         """Subscribe to setups for ``tx_id`` (TS channel.ts:251)."""
         raise NotImplementedError
 
@@ -99,9 +97,7 @@ class DeliveryChannel(ABC):
         """Optional: all known setups for ``tx_id`` (TS channel.ts:287)."""
         return []
 
-    async def get_envelopes(
-        self, tx_id: Optional[str] = None
-    ) -> List[DeliveryEnvelopeWireV1]:
+    async def get_envelopes(self, tx_id: Optional[str] = None) -> List[DeliveryEnvelopeWireV1]:
         """Optional: all known envelopes for ``tx_id`` (TS channel.ts:296)."""
         return []
 

@@ -113,47 +113,49 @@ try:
         compute_service_type_hash,
     )
 
-    __all__.extend([
-        # Kernel
-        "ACTPKernel",
-        "CreateTransactionParams",
-        "EconomicParams",
-        "TransactionView",
-        # Escrow
-        "EscrowVault",
-        "CreateEscrowParams",
-        "EscrowInfo",
-        "generate_escrow_id",
-        # Events
-        "EventMonitor",
-        "EventFilter",
-        "EventType",
-        "ACTPEvent",
-        "TransactionCreatedEvent",
-        "StateTransitionedEvent",
-        "EscrowCreatedEvent",
-        "EscrowPayoutEvent",
-        "DisputeSplitRecordedEvent",
-        "UMADisputeEscalatedEvent",
-        # Nonce
-        "NonceManager",
-        "NonceManagerPool",
-        # EAS
-        "EASHelper",
-        "Attestation",
-        "DeliveryAttestationData",
-        "Schema",
-        "DELIVERY_SCHEMA",
-        "DELIVERY_SCHEMA_AIP6",
-        "DELIVERY_SCHEMA_AIP4",
-        "DELIVERY_SCHEMA_AIP4_LEGACY",
-        "ZERO_BYTES32",
-        # Agent Registry
-        "AgentRegistry",
-        "AgentProfile",
-        "ServiceDescriptor",
-        "compute_service_type_hash",
-    ])
+    __all__.extend(
+        [
+            # Kernel
+            "ACTPKernel",
+            "CreateTransactionParams",
+            "EconomicParams",
+            "TransactionView",
+            # Escrow
+            "EscrowVault",
+            "CreateEscrowParams",
+            "EscrowInfo",
+            "generate_escrow_id",
+            # Events
+            "EventMonitor",
+            "EventFilter",
+            "EventType",
+            "ACTPEvent",
+            "TransactionCreatedEvent",
+            "StateTransitionedEvent",
+            "EscrowCreatedEvent",
+            "EscrowPayoutEvent",
+            "DisputeSplitRecordedEvent",
+            "UMADisputeEscalatedEvent",
+            # Nonce
+            "NonceManager",
+            "NonceManagerPool",
+            # EAS
+            "EASHelper",
+            "Attestation",
+            "DeliveryAttestationData",
+            "Schema",
+            "DELIVERY_SCHEMA",
+            "DELIVERY_SCHEMA_AIP6",
+            "DELIVERY_SCHEMA_AIP4",
+            "DELIVERY_SCHEMA_AIP4_LEGACY",
+            "ZERO_BYTES32",
+            # Agent Registry
+            "AgentRegistry",
+            "AgentProfile",
+            "ServiceDescriptor",
+            "compute_service_type_hash",
+        ]
+    )
 
 except ImportError:
     # web3/eth_account not installed - blockchain protocol modules not available

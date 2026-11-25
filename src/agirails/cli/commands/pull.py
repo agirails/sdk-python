@@ -42,10 +42,7 @@ def _emit_buyer_local(output_format: OutputFormat) -> None:
                 "written": False,
                 "status": "buyer-local",
                 "intent": "pay",
-                "note": (
-                    "Buyer config is local-authored; nothing to pull "
-                    "(budget stays private)."
-                ),
+                "note": ("Buyer config is local-authored; nothing to pull (budget stays private)."),
             }
         )
         return
@@ -54,12 +51,9 @@ def _emit_buyer_local(output_format: OutputFormat) -> None:
         return
     print_success("Status: buyer-local")
     print_info(
-        "Buyer (intent: pay): config is local-authored and budget is private — "
-        "nothing to pull."
+        "Buyer (intent: pay): config is local-authored and budget is private — nothing to pull."
     )
-    print_info(
-        "Edit your {slug}.md locally, then run: actp publish to push the public fields."
-    )
+    print_info("Edit your {slug}.md locally, then run: actp publish to push the public fields.")
 
 
 def pull(
@@ -110,9 +104,7 @@ def pull(
     try:
         identity_path: Optional[str] = str(chosen_path) if chosen_path else None
         if identity_path is None:
-            resolved = resolve_identity_path(
-                str(opts.directory) if opts.directory else None
-            )
+            resolved = resolve_identity_path(str(opts.directory) if opts.directory else None)
             if resolved:
                 identity_path = resolved
         if identity_path and Path(identity_path).exists():
@@ -178,9 +170,7 @@ def pull(
     # Confirm overwrite if not forcing and local file exists
     if not force and Path(md_path).exists() and on_chain.has_config:
         if opts.output_format != OutputFormat.JSON:
-            confirm = typer.confirm(
-                "This will overwrite your local AGIRAILS.md. Continue?"
-            )
+            confirm = typer.confirm("This will overwrite your local AGIRAILS.md. Continue?")
             if not confirm:
                 print_info("Aborted.")
                 raise typer.Exit(0)

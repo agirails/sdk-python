@@ -39,6 +39,7 @@ class ReleaseRouter(Protocol):
 
     async def release_escrow(self, escrow_id: str) -> None: ...
 
+
 _logger = get_logger(__name__)
 _TAG = "[settle-on-interact]"
 _DEFAULT_COOLDOWN_S = 5 * 60  # 5 minutes
@@ -87,9 +88,7 @@ class SettleOnInteract:
         try:
             # BlockchainRuntime path
             if hasattr(self._runtime, "get_expired_delivered_transactions"):
-                txs = await self._runtime.get_expired_delivered_transactions(
-                    self._provider_address
-                )
+                txs = await self._runtime.get_expired_delivered_transactions(self._provider_address)
                 for tx in txs:
                     tx_id = getattr(tx, "tx_id", None) or tx.get("tx_id", "")
                     try:
@@ -108,9 +107,7 @@ class SettleOnInteract:
 
             # MockRuntime path
             if hasattr(self._runtime, "sweep_expired_delivered_for_provider"):
-                await self._runtime.sweep_expired_delivered_for_provider(
-                    self._provider_address
-                )
+                await self._runtime.sweep_expired_delivered_for_provider(self._provider_address)
                 return
 
             # Unknown runtime — no sweep capability

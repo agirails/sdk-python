@@ -51,12 +51,12 @@ def serve(
         dir_okay=False,
         readable=True,
     ),
-    port: int = typer.Option(
-        8787, "--port", min=1, max=65535, help="HTTP port to listen on."
-    ),
+    port: int = typer.Option(8787, "--port", min=1, max=65535, help="HTTP port to listen on."),
     host: str = typer.Option(
         # factory-allow K5 razlog=documented container default, user can override do=2027-11-25 odobrio=Damir
-        "0.0.0.0", "--host", help="Bind address (default: 0.0.0.0)."  # noqa: S104  # nosec B104
+        "0.0.0.0",  # noqa: S104  # nosec B104
+        "--host",
+        help="Bind address (default: 0.0.0.0).",
     ),
     network: str = typer.Option(
         "base-sepolia",
@@ -107,10 +107,9 @@ def serve(
 
         # 3. Provider address for /health.
         import os
+
         signer_address = (
-            provider_address
-            or os.environ.get("ACTP_PROVIDER_ADDRESS")
-            or "0x" + "0" * 40
+            provider_address or os.environ.get("ACTP_PROVIDER_ADDRESS") or "0x" + "0" * 40
         )
 
         # 4. Build app.
@@ -128,15 +127,9 @@ def serve(
         print_info(f"  Channel base:  {build_channel_path(chain_id, '<txId>')}")
         print_info("  Health:        GET /")
         print_info("")
-        print_info(
-            "Counter-offers POSTed to /quote-channel/{chainId}/{txId} are verified +"
-        )
-        print_info(
-            "evaluated against the policy. Verdicts are logged here; v1 does NOT"
-        )
-        print_info(
-            "auto-deliver CounterAccept back to the buyer (AIP-2.1 §5.3)."
-        )
+        print_info("Counter-offers POSTed to /quote-channel/{chainId}/{txId} are verified +")
+        print_info("evaluated against the policy. Verdicts are logged here; v1 does NOT")
+        print_info("auto-deliver CounterAccept back to the buyer (AIP-2.1 §5.3).")
 
         import uvicorn as _uvicorn
 

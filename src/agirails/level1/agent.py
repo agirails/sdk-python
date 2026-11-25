@@ -171,11 +171,11 @@ class Agent:
     # (Agent.ts:2033-2040). Matched against both plaintext and ABI-hex form.
     _PERMANENT_REVERT_REASONS = (
         "Transaction expired",  # ACTPKernel _enforceTiming after deadline
-        "Invalid transition",   # _isValidTransition reject (no recovery path)
-        "Only requester",       # wrong msg.sender for requester-only fn
-        "Only provider",        # wrong msg.sender for provider-only fn
-        "Not authorized",       # settle-before-window or wrong party
-        "Not participant",      # attestation anchoring without standing
+        "Invalid transition",  # _isValidTransition reject (no recovery path)
+        "Only requester",  # wrong msg.sender for requester-only fn
+        "Only provider",  # wrong msg.sender for provider-only fn
+        "Not authorized",  # settle-before-window or wrong party
+        "Not participant",  # attestation anchoring without standing
     )
 
     def __init__(self, config: AgentConfig) -> None:
@@ -923,15 +923,9 @@ class Agent:
         # When a non-zero routable hash was present but did not match a handler,
         # this is NOT a raw-pay case — do not route to the sole handler.
         hash_present_and_unmatched = (
-            normalized is not None
-            and normalized.startswith("0x")
-            and normalized != zero_hash
+            normalized is not None and normalized.startswith("0x") and normalized != zero_hash
         )
-        if (
-            not hash_present_and_unmatched
-            and no_routable_hash
-            and len(self._handlers_by_hash) == 1
-        ):
+        if not hash_present_and_unmatched and no_routable_hash and len(self._handlers_by_hash) == 1:
             _logger.warning(
                 "ZeroHash (raw-pay) tx routed to the sole registered handler",
                 extra={"agent": self.name, "tx_id": getattr(tx, "id", None)},
@@ -1151,9 +1145,7 @@ class Agent:
             return next(iter(self._services.keys()))
         return "general"
 
-    async def _submit_counter_quote(
-        self, job: Job, tx: Any, calculation: Any
-    ) -> None:
+    async def _submit_counter_quote(self, job: Job, tx: Any, calculation: Any) -> None:
         """Anchor the provider's counter-offer as a QUOTED transition on-chain.
 
         Mirror of TS Agent.ts:1504-1565. Two paths (orchestrator seam vs legacy
@@ -1178,9 +1170,7 @@ class Agent:
                 from agirails.negotiation.provider_policy import IncomingRequest
 
                 runtime = getattr(self._client, "runtime", None)
-                chain_id = getattr(
-                    getattr(runtime, "config", None), "chain_id", None
-                ) or 84532
+                chain_id = getattr(getattr(runtime, "config", None), "chain_id", None) or 84532
                 req = IncomingRequest(
                     tx_id=tx.id,
                     consumer=f"did:ethr:{chain_id}:{tx.requester}",
@@ -1202,12 +1192,8 @@ class Agent:
                     extra={
                         "agent": self.name,
                         "tx_id": tx.id,
-                        "action": getattr(
-                            getattr(result, "decision", None), "action", None
-                        ),
-                        "reason": getattr(
-                            getattr(result, "decision", None), "reason", None
-                        ),
+                        "action": getattr(getattr(result, "decision", None), "action", None),
+                        "reason": getattr(getattr(result, "decision", None), "reason", None),
                         "channel_error": getattr(result, "channel_error", None),
                     },
                 )
@@ -1422,13 +1408,19 @@ class Agent:
                         _pj = _json.loads(_pj)
                     except (TypeError, ValueError):
                         _pj = None
-                _result_hash = _pj.get("resultHash") or _pj.get("result_hash") if isinstance(_pj, dict) else None
+                _result_hash = (
+                    _pj.get("resultHash") or _pj.get("result_hash")
+                    if isinstance(_pj, dict)
+                    else None
+                )
                 _std = self._client.standard
                 if not _result_hash:
                     from agirails.types.message import compute_result_hash
 
                     _result_hash = compute_result_hash(output)
-                dispute_window_proof = _std.encode_delivery_proof(dispute_window_seconds, _result_hash)
+                dispute_window_proof = _std.encode_delivery_proof(
+                    dispute_window_seconds, _result_hash
+                )
 
                 _logger.debug(
                     "Encoding dispute window proof",
@@ -1439,7 +1431,9 @@ class Agent:
                     },
                 )
 
-                await self._client.standard.transition_state(job.id, "DELIVERED", dispute_window_proof)
+                await self._client.standard.transition_state(
+                    job.id, "DELIVERED", dispute_window_proof
+                )
 
                 # Attach the structured delivery proof to the MockRuntime tx
                 # state so a buyer reads the rich proof (not the disputeWindow
@@ -1528,9 +1522,7 @@ class Agent:
             # Result not JSON-serializable — fall back to the proof alone.
             return json.dumps(delivery_proof, separators=(",", ":"), ensure_ascii=False)
 
-    async def _attach_mock_delivery_proof(
-        self, tx_id: str, delivery_proof_json: str
-    ) -> None:
+    async def _attach_mock_delivery_proof(self, tx_id: str, delivery_proof_json: str) -> None:
         """Attach the structured proof to the MockRuntime tx (TS Agent.ts:1898-1906).
 
         Mock-only. The real BlockchainRuntime has no ``_state_manager`` and the
@@ -1546,6 +1538,7 @@ class Agent:
             return  # BlockchainRuntime / non-mock — nothing to poke.
 
         try:
+
             async def _update(state: Any) -> Any:
                 tx = state.transactions.get(tx_id)
                 if tx is not None:
@@ -1901,9 +1894,7 @@ class Agent:
         total_jobs = self._stats.jobs_completed + self._stats.jobs_failed
         if total_jobs > 0:
             current_avg = self._stats.average_job_time
-            self._stats.average_job_time = (
-                current_avg * (total_jobs - 1) + elapsed
-            ) / total_jobs
+            self._stats.average_job_time = (current_avg * (total_jobs - 1) + elapsed) / total_jobs
 
     async def _wait_for_active_jobs(self, timeout_ms: int) -> None:
         """Wait for active jobs to complete."""

@@ -102,9 +102,7 @@ class ArweaveClient:
         self._node_url = IRYS_NODES[config.network]
         # P1-1 (DoS): max download size, mirrors TS DEFAULT_MAX_DOWNLOAD_SIZE (10MB).
         self._max_download_size = DEFAULT_ARWEAVE_MAX_DOWNLOAD_SIZE
-        self._circuit_breaker = CircuitBreaker(
-            config.circuit_breaker or CircuitBreakerConfig()
-        )
+        self._circuit_breaker = CircuitBreaker(config.circuit_breaker or CircuitBreakerConfig())
         self._retry_config = RetryConfig(
             max_attempts=3,
             base_delay_ms=2000,
@@ -157,6 +155,7 @@ class ArweaveClient:
         Returns:
             Balance in wei (for ETH currencies)
         """
+
         async def do_get_balance() -> int:
             url = f"{self._node_url}/account/balance/{self._config.currency}"
             headers = {"x-address": self.address}
@@ -193,9 +192,7 @@ class ArweaveClient:
         """
         url = f"{self._node_url}/price/{self._config.currency}/{size_bytes}"
 
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(self._config.timeout / 1000)
-        ) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout / 1000)) as client:
             response = await client.get(url)
 
             if response.status_code != 200:
@@ -368,8 +365,7 @@ class ArweaveClient:
         # P1-3: TX ID validation (matches TS validateArweaveTxId).
         if not is_valid_arweave_tx_id(tx_id):
             raise ArweaveDownloadError(
-                f"Invalid Arweave TX ID format: {tx_id} "
-                "(expected 43-character base64url string)",
+                f"Invalid Arweave TX ID format: {tx_id} (expected 43-character base64url string)",
                 tx_id=tx_id,
             )
 
@@ -478,10 +474,7 @@ class ArweaveClient:
         Returns:
             List of transaction IDs
         """
-        tag_filters = [
-            {"name": name, "values": [value]}
-            for name, value in tags.items()
-        ]
+        tag_filters = [{"name": name, "values": [value]} for name, value in tags.items()]
 
         query = """
         query($tags: [TagFilter!]!, $limit: Int!) {
@@ -495,9 +488,7 @@ class ArweaveClient:
         }
         """
 
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(self._config.timeout / 1000)
-        ) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout / 1000)) as client:
             response = await client.post(
                 "https://arweave.net/graphql",
                 json={

@@ -273,6 +273,7 @@ class DIDResolver:
         """Get or create the HTTP semaphore for rate limiting."""
         if self._http_semaphore is None:
             import asyncio
+
             self._http_semaphore = asyncio.Semaphore(self._max_concurrent)
         return self._http_semaphore
 
@@ -427,19 +428,25 @@ class DIDManager:
         # Create service endpoints
         services = []
         if endpoint:
-            services.append({
-                "id": f"{did_string}#agent-api",
-                "type": "AgentAPI",
-                "serviceEndpoint": endpoint,
-            })
+            services.append(
+                {
+                    "id": f"{did_string}#agent-api",
+                    "type": "AgentAPI",
+                    "serviceEndpoint": endpoint,
+                }
+            )
 
         if service_types:
             for i, service_type in enumerate(service_types):
-                services.append({
-                    "id": f"{did_string}#service-{i}",
-                    "type": service_type,
-                    "serviceEndpoint": f"{endpoint}/services/{service_type}" if endpoint else "",
-                })
+                services.append(
+                    {
+                        "id": f"{did_string}#service-{i}",
+                        "type": service_type,
+                        "serviceEndpoint": f"{endpoint}/services/{service_type}"
+                        if endpoint
+                        else "",
+                    }
+                )
 
         return DIDDocument(
             id=did,
@@ -549,8 +556,7 @@ class DIDManager:
 
         if not HAS_ETH_ACCOUNT:
             raise ImportError(
-                "eth_account required for signing. "
-                "Install with: pip install eth-account"
+                "eth_account required for signing. Install with: pip install eth-account"
             )
 
         from eth_account.messages import encode_defunct

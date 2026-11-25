@@ -94,15 +94,25 @@ def chain_id_for_network(network: str) -> int:
             "Delivery EIP-712 signatures are not defined for the mock network.",
             {"network": network},
         )
-    raise DeliveryEip712Error("UNKNOWN_NETWORK", f"Unknown delivery network: {network}", {"network": network})
+    raise DeliveryEip712Error(
+        "UNKNOWN_NETWORK", f"Unknown delivery network: {network}", {"network": network}
+    )
 
 
 def build_delivery_domain(chain_id: int, kernel_address: str) -> Dict[str, Any]:
     """Construct the EIP-712 domain for a delivery signature (anchored to kernel)."""
     if not isinstance(chain_id, int) or isinstance(chain_id, bool) or chain_id <= 0:
-        raise DeliveryEip712Error("INVALID_CHAIN_ID", f"chainId must be a positive integer, got {chain_id}")
-    if not isinstance(kernel_address, str) or not kernel_address.startswith("0x") or len(kernel_address) != 42:
-        raise DeliveryEip712Error("INVALID_KERNEL_ADDRESS", f"kernelAddress is not a valid address: {kernel_address}")
+        raise DeliveryEip712Error(
+            "INVALID_CHAIN_ID", f"chainId must be a positive integer, got {chain_id}"
+        )
+    if (
+        not isinstance(kernel_address, str)
+        or not kernel_address.startswith("0x")
+        or len(kernel_address) != 42
+    ):
+        raise DeliveryEip712Error(
+            "INVALID_KERNEL_ADDRESS", f"kernelAddress is not a valid address: {kernel_address}"
+        )
     return {
         "name": DELIVERY_DOMAIN_NAME,
         "version": DELIVERY_DOMAIN_VERSION,
@@ -122,7 +132,9 @@ def _normalize(payload: Dict[str, Any], fields: List[str]) -> Dict[str, Any]:
     return msg
 
 
-def _typed_data(primary_type: str, types: Dict[str, Any], domain: Dict[str, Any], message: Dict[str, Any]) -> Dict[str, Any]:
+def _typed_data(
+    primary_type: str, types: Dict[str, Any], domain: Dict[str, Any], message: Dict[str, Any]
+) -> Dict[str, Any]:
     return {
         "types": {"EIP712Domain": _EIP712_DOMAIN_TYPE, **types},
         "primaryType": primary_type,
@@ -131,7 +143,14 @@ def _typed_data(primary_type: str, types: Dict[str, Any], domain: Dict[str, Any]
     }
 
 
-def _sign(account: Any, primary_type: str, types: Dict[str, Any], payload: Dict[str, Any], fields: List[str], kernel_address: str) -> str:
+def _sign(
+    account: Any,
+    primary_type: str,
+    types: Dict[str, Any],
+    payload: Dict[str, Any],
+    fields: List[str],
+    kernel_address: str,
+) -> str:
     domain = build_delivery_domain(payload["chainId"], kernel_address)
     message = _normalize(payload, fields)
     signable = encode_typed_data(full_message=_typed_data(primary_type, types, domain, message))
@@ -139,7 +158,14 @@ def _sign(account: Any, primary_type: str, types: Dict[str, Any], payload: Dict[
     return sig if sig.startswith("0x") else "0x" + sig
 
 
-def _recover(payload: Dict[str, Any], signature: str, primary_type: str, types: Dict[str, Any], fields: List[str], kernel_address: str) -> str:
+def _recover(
+    payload: Dict[str, Any],
+    signature: str,
+    primary_type: str,
+    types: Dict[str, Any],
+    fields: List[str],
+    kernel_address: str,
+) -> str:
     _assert_signature_shape(signature)
     domain = build_delivery_domain(payload["chainId"], kernel_address)
     message = _normalize(payload, fields)
@@ -152,27 +178,57 @@ def _assert_signature_shape(signature: str) -> None:
         raise DeliveryEip712Error("INVALID_SIGNATURE", "signature must be a 0x-prefixed hex string")
     hex_len = len(signature) - 2
     if hex_len not in (128, 130):
-        raise DeliveryEip712Error("INVALID_SIGNATURE", f"signature has unexpected length {hex_len} (expected 128 or 130)")
+        raise DeliveryEip712Error(
+            "INVALID_SIGNATURE", f"signature has unexpected length {hex_len} (expected 128 or 130)"
+        )
 
 
 def sign_setup(account: Any, payload: Dict[str, Any], kernel_address: str) -> str:
     """EIP-712 sign a DeliverySetupSignedV1 payload with an eth_account account."""
-    return _sign(account, "DeliverySetupSignedV1", DELIVERY_SETUP_TYPES_V1, payload, _SETUP_FIELDS, kernel_address)
+    return _sign(
+        account,
+        "DeliverySetupSignedV1",
+        DELIVERY_SETUP_TYPES_V1,
+        payload,
+        _SETUP_FIELDS,
+        kernel_address,
+    )
 
 
 def sign_envelope(account: Any, payload: Dict[str, Any], kernel_address: str) -> str:
     """EIP-712 sign a DeliveryEnvelopeSignedV1 payload with an eth_account account."""
-    return _sign(account, "DeliveryEnvelopeSignedV1", DELIVERY_ENVELOPE_TYPES_V1, payload, _ENVELOPE_FIELDS, kernel_address)
+    return _sign(
+        account,
+        "DeliveryEnvelopeSignedV1",
+        DELIVERY_ENVELOPE_TYPES_V1,
+        payload,
+        _ENVELOPE_FIELDS,
+        kernel_address,
+    )
 
 
 def recover_setup_signer(payload: Dict[str, Any], signature: str, kernel_address: str) -> str:
     """Recover the EOA that signed a DeliverySetupSignedV1 payload (checksummed)."""
-    return _recover(payload, signature, "DeliverySetupSignedV1", DELIVERY_SETUP_TYPES_V1, _SETUP_FIELDS, kernel_address)
+    return _recover(
+        payload,
+        signature,
+        "DeliverySetupSignedV1",
+        DELIVERY_SETUP_TYPES_V1,
+        _SETUP_FIELDS,
+        kernel_address,
+    )
 
 
 def recover_envelope_signer(payload: Dict[str, Any], signature: str, kernel_address: str) -> str:
     """Recover the EOA that signed a DeliveryEnvelopeSignedV1 payload (checksummed)."""
-    return _recover(payload, signature, "DeliveryEnvelopeSignedV1", DELIVERY_ENVELOPE_TYPES_V1, _ENVELOPE_FIELDS, kernel_address)
+    return _recover(
+        payload,
+        signature,
+        "DeliveryEnvelopeSignedV1",
+        DELIVERY_ENVELOPE_TYPES_V1,
+        _ENVELOPE_FIELDS,
+        kernel_address,
+    )
 
 
 __all__ = [

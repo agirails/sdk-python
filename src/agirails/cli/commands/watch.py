@@ -33,10 +33,18 @@ from agirails.runtime.types import TERMINAL_STATES as TERMINAL_STATES
 from agirails.runtime.types import State as State
 
 # Valid transaction states
-VALID_STATES = frozenset([
-    "INITIATED", "QUOTED", "COMMITTED", "IN_PROGRESS",
-    "DELIVERED", "SETTLED", "DISPUTED", "CANCELLED",
-])
+VALID_STATES = frozenset(
+    [
+        "INITIATED",
+        "QUOTED",
+        "COMMITTED",
+        "IN_PROGRESS",
+        "DELIVERED",
+        "SETTLED",
+        "DISPUTED",
+        "CANCELLED",
+    ]
+)
 
 # Terminal states where watching should stop
 TERMINAL_STATE_NAMES = frozenset(["SETTLED", "CANCELLED"])
@@ -84,7 +92,14 @@ async def run_watch(
     # Validate tx_id format
     if not is_valid_tx_id(tx_id):
         if output_json:
-            print_json({"error": {"code": "INVALID_INPUT", "message": f"Invalid transaction ID format: {tx_id}"}})
+            print_json(
+                {
+                    "error": {
+                        "code": "INVALID_INPUT",
+                        "message": f"Invalid transaction ID format: {tx_id}",
+                    }
+                }
+            )
         else:
             print_error(f"Invalid transaction ID format: {tx_id}")
         return 1
@@ -93,7 +108,14 @@ async def run_watch(
     until_state = until.upper() if until else None
     if until_state and until_state not in VALID_STATES:
         if output_json:
-            print_json({"error": {"code": "INVALID_INPUT", "message": f"Invalid state: {until}. Valid: {', '.join(sorted(VALID_STATES))}"}})
+            print_json(
+                {
+                    "error": {
+                        "code": "INVALID_INPUT",
+                        "message": f"Invalid state: {until}. Valid: {', '.join(sorted(VALID_STATES))}",
+                    }
+                }
+            )
         else:
             print_error(f"Invalid state: {until}. Valid states: {', '.join(sorted(VALID_STATES))}")
         return 1
@@ -105,7 +127,9 @@ async def run_watch(
     tx = await client.standard.get_transaction(tx_id)
     if tx is None:
         if output_json:
-            print_json({"error": {"code": "NOT_FOUND", "message": f"Transaction not found: {tx_id}"}})
+            print_json(
+                {"error": {"code": "NOT_FOUND", "message": f"Transaction not found: {tx_id}"}}
+            )
         else:
             print_error(f"Transaction not found: {tx_id}")
         return 1
@@ -155,13 +179,19 @@ async def run_watch(
                     print_warning("Transaction no longer exists")
                 return 1
 
-            new_state = updated_tx.state.value if hasattr(updated_tx.state, "value") else str(updated_tx.state)
+            new_state = (
+                updated_tx.state.value
+                if hasattr(updated_tx.state, "value")
+                else str(updated_tx.state)
+            )
 
             # Check for state change
             if new_state != current_state:
                 previous_state = current_state
                 current_state = new_state
-                _emit_state_change(tx_id, previous_state, current_state, updated_tx.updated_at, output_json, quiet)
+                _emit_state_change(
+                    tx_id, previous_state, current_state, updated_tx.updated_at, output_json, quiet
+                )
 
                 # Check if reached target state
                 if until_state and current_state == until_state:
@@ -215,9 +245,13 @@ def _emit_state_change(
 
 def watch(
     tx_id: str = typer.Argument(..., help="Transaction ID to watch"),
-    timeout: int = typer.Option(0, "--timeout", "-t", help="Exit after timeout seconds (0 = indefinite)"),
+    timeout: int = typer.Option(
+        0, "--timeout", "-t", help="Exit after timeout seconds (0 = indefinite)"
+    ),
     interval: int = typer.Option(1000, "--interval", "-i", help="Polling interval in milliseconds"),
-    until: Optional[str] = typer.Option(None, "--until", help="Exit when transaction reaches this state"),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="Exit when transaction reaches this state"
+    ),
 ) -> None:
     """
     Watch a transaction for state changes (agent-first feature).

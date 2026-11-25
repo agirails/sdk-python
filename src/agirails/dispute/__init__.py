@@ -188,6 +188,9 @@ __all__ = [
 ]
 
 from agirails.dispute.receipt_authorization import (
-    ReceiptAuthorizationInput, ReceiptAuthorizer, receipt_authorization_typed_data,
-    authorize_payment_receipt, post_paid_evaluation,
+    ReceiptAuthorizationInput,
+    ReceiptAuthorizer,
+    receipt_authorization_typed_data,
+    authorize_payment_receipt,
+    post_paid_evaluation,
 )

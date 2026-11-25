@@ -214,7 +214,7 @@ def format_address(address: str, chars: int = 6) -> str:
     """Truncate address for display."""
     if len(address) <= chars * 2 + 2:
         return address
-    return f"{address[:chars + 2]}...{address[-chars:]}"
+    return f"{address[: chars + 2]}...{address[-chars:]}"
 
 
 def format_state(state: str) -> str:

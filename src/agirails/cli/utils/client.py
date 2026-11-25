@@ -159,35 +159,20 @@ async def get_client(
     config = load_config(directory)
 
     # Determine and validate mode
-    mode_str = (
-        mode
-        or os.environ.get("ACTP_MODE")
-        or config.get("mode")
-        or "mock"
-    )
+    mode_str = mode or os.environ.get("ACTP_MODE") or config.get("mode") or "mock"
     validated_mode = validate_mode(mode_str)
 
     # Determine address
     final_address = (
-        address
-        or os.environ.get("ACTP_ADDRESS")
-        or config.get("address")
-        or get_default_address()
+        address or os.environ.get("ACTP_ADDRESS") or config.get("address") or get_default_address()
     )
 
     # Determine private key (for non-mock modes)
     # Note: private_key in config is deprecated for security
-    final_private_key = (
-        private_key
-        or os.environ.get("ACTP_PRIVATE_KEY")
-    )
+    final_private_key = private_key or os.environ.get("ACTP_PRIVATE_KEY")
 
     # Determine RPC URL
-    final_rpc_url = (
-        rpc_url
-        or os.environ.get("ACTP_RPC_URL")
-        or config.get("rpc_url")
-    )
+    final_rpc_url = rpc_url or os.environ.get("ACTP_RPC_URL") or config.get("rpc_url")
 
     # Get state directory
     state_dir = get_state_directory(directory)
@@ -216,9 +201,7 @@ def get_client_sync(
 
     See get_client() for argument details.
     """
-    return asyncio.run(
-        get_client(mode, address, private_key, rpc_url, directory)
-    )
+    return asyncio.run(get_client(mode, address, private_key, rpc_url, directory))
 
 
 def ensure_initialized(directory: Optional[Path] = None) -> bool:

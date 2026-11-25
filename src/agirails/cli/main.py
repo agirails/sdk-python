@@ -55,6 +55,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 
+
 # Global options stored in context
 class GlobalOptions:
     """Global CLI options."""
@@ -86,21 +87,11 @@ def get_global_options() -> GlobalOptions:
 @app.callback()
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(
-        False, "--version", "-v", help="Show version and exit"
-    ),
-    json_output: bool = typer.Option(
-        False, "--json", "-j", help="Output as JSON"
-    ),
-    quiet: bool = typer.Option(
-        False, "--quiet", "-q", help="Minimal output (IDs only)"
-    ),
-    directory: Optional[Path] = typer.Option(
-        None, "--directory", "-d", help="Working directory"
-    ),
-    mode: Optional[str] = typer.Option(
-        None, "--mode", "-m", help="Mode: mock, testnet, mainnet"
-    ),
+    version: bool = typer.Option(False, "--version", "-v", help="Show version and exit"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output (IDs only)"),
+    directory: Optional[Path] = typer.Option(None, "--directory", "-d", help="Working directory"),
+    mode: Optional[str] = typer.Option(None, "--mode", "-m", help="Mode: mock, testnet, mainnet"),
 ) -> None:
     """AGIRAILS CLI - Command Line Interface for ACTP Protocol."""
     if version:
