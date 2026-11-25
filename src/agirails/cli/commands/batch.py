@@ -152,6 +152,7 @@ def execute_command(command: str) -> Tuple[bool, str, int]:
         full_args = ["actp"] + args
 
         # SECURITY: Use shell=False and pass arguments as array
+        # factory-allow K5 razlog=argv list with shell=False do=2027-11-25 odobrio=Damir
         result = subprocess.run(  # noqa: S603
             full_args,
             capture_output=True,

@@ -373,8 +373,9 @@ def publish(
                         f'Slug "{slug}" is already taken. Choose a different name.',
                     )
                     raise typer.Exit(1)
-            elif opts.output_format != OutputFormat.QUIET:
-                print_info(f'Slug "{slug}" is available.')
+            else:
+                if opts.output_format != OutputFormat.QUIET:
+                    print_info(f'Slug "{slug}" is available.')
         except typer.Exit:
             raise
         except Exception as e:
@@ -538,64 +539,65 @@ def publish(
         print_json(json_data)
     elif opts.output_format == OutputFormat.QUIET:
         typer.echo(result.config_hash)
-    elif dry_run:
-        print_info("Dry run -- no upload performed")
-        print_success(
-            "Config hash computed",
-            {
-                "Hash": result.config_hash,
-                "Path": str(md_path),
-            },
-        )
     else:
-        print_success(
-            "Published to IPFS",
-            {
-                "CID": result.cid,
-                "Hash": result.config_hash,
-                "Network": network,
-                "Pending": f".actp/pending-publish.{network}.json",
-            },
-        )
-        typer.echo("")
-        typer.echo(
-            "Mainnet: on-chain activation will happen on your first payment."
-        )
-
-        # Context-aware next steps
-        has_endpoint = endpoint and endpoint != PENDING_ENDPOINT
-        typer.echo("")
-        typer.echo("Next steps:")
-        if not has_endpoint:
-            typer.echo(
-                '  1. Set your endpoint:    Add "endpoint: https://..." to AGIRAILS.md'
+        if dry_run:
+            print_info("Dry run -- no upload performed")
+            print_success(
+                "Config hash computed",
+                {
+                    "Hash": result.config_hash,
+                    "Path": str(md_path),
+                },
             )
-            typer.echo("  2. Check endpoint:       actp health")
-            typer.echo("  3. Check your balance:   actp balance")
-            typer.echo("  4. Verify config match:  actp diff")
         else:
-            typer.echo("  1. Check endpoint:       actp health")
-            typer.echo("  2. Check your balance:   actp balance")
-            typer.echo("  3. Verify config match:  actp diff")
-
-        # Test payment suggestion
-        if is_testnet and testnet_result and testnet_result.get("tx_hash") and slug:
+            print_success(
+                "Published to IPFS",
+                {
+                    "CID": result.cid,
+                    "Hash": result.config_hash,
+                    "Network": network,
+                    "Pending": f".actp/pending-publish.{network}.json",
+                },
+            )
             typer.echo("")
             typer.echo(
-                f"  Try a test payment: actp pay agirails.app/a/{slug} 5"
+                "Mainnet: on-chain activation will happen on your first payment."
             )
 
-        # Warn if placeholder endpoint
-        if not has_endpoint:
+            # Context-aware next steps
+            has_endpoint = endpoint and endpoint != PENDING_ENDPOINT
             typer.echo("")
-            print_warning(
-                "No endpoint set — your agent can't receive jobs yet."
-            )
-            typer.echo(
-                '  Add "endpoint: https://your-agent.com/webhook" to AGIRAILS.md, then: actp publish'
-            )
+            typer.echo("Next steps:")
+            if not has_endpoint:
+                typer.echo(
+                    '  1. Set your endpoint:    Add "endpoint: https://..." to AGIRAILS.md'
+                )
+                typer.echo("  2. Check endpoint:       actp health")
+                typer.echo("  3. Check your balance:   actp balance")
+                typer.echo("  4. Verify config match:  actp diff")
+            else:
+                typer.echo("  1. Check endpoint:       actp health")
+                typer.echo("  2. Check your balance:   actp balance")
+                typer.echo("  3. Verify config match:  actp diff")
 
-        # Profile URL hint
-        if slug:
-            typer.echo("")
-            print_info(f"Your agent profile: https://agirails.app/a/{slug}")
+            # Test payment suggestion
+            if is_testnet and testnet_result and testnet_result.get("tx_hash") and slug:
+                typer.echo("")
+                typer.echo(
+                    f"  Try a test payment: actp pay agirails.app/a/{slug} 5"
+                )
+
+            # Warn if placeholder endpoint
+            if not has_endpoint:
+                typer.echo("")
+                print_warning(
+                    "No endpoint set — your agent can't receive jobs yet."
+                )
+                typer.echo(
+                    '  Add "endpoint: https://your-agent.com/webhook" to AGIRAILS.md, then: actp publish'
+                )
+
+            # Profile URL hint
+            if slug:
+                typer.echo("")
+                print_info(f"Your agent profile: https://agirails.app/a/{slug}")

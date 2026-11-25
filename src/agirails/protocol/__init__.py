@@ -17,30 +17,28 @@ If they are not installed, the imports will fail gracefully.
 """
 
 # Modules that don't require web3
-from agirails.protocol.did import (
-    DIDManager,
-    DIDResolver,
-    ServiceEndpoint,
-    VerificationMethod,
-    create_did_from_address,
-    did_to_address,
-)
-from agirails.protocol.messages import (
-    HAS_ETH_ACCOUNT as HAS_MESSAGES,
-)
 from agirails.protocol.messages import (
     MessageSigner,
     SignatureComponents,
-    create_typed_data,
     hash_typed_data,
+    create_typed_data,
+    HAS_ETH_ACCOUNT as HAS_MESSAGES,
 )
 from agirails.protocol.proofs import (
+    ProofGenerator,
     ContentProof,
     MerkleProof,
-    ProofGenerator,
+    verify_merkle_proof,
     hash_service_input,
     hash_service_output,
-    verify_merkle_proof,
+)
+from agirails.protocol.did import (
+    DIDManager,
+    DIDResolver,
+    VerificationMethod,
+    ServiceEndpoint,
+    create_did_from_address,
+    did_to_address,
 )
 
 # Base exports (always available)
@@ -69,23 +67,6 @@ __all__ = [
 
 # Protocol modules that require web3 - make imports conditional
 try:
-    from agirails.protocol.agent_registry import (
-        AgentProfile,
-        AgentRegistry,
-        ServiceDescriptor,
-        compute_service_type_hash,
-    )
-    from agirails.protocol.eas import (
-        DELIVERY_SCHEMA,
-        DELIVERY_SCHEMA_AIP4,
-        DELIVERY_SCHEMA_AIP4_LEGACY,
-        DELIVERY_SCHEMA_AIP6,
-        ZERO_BYTES32,
-        Attestation,
-        DeliveryAttestationData,
-        EASHelper,
-        Schema,
-    )
     from agirails.protocol.escrow import (
         CreateEscrowParams,
         EscrowInfo,
@@ -113,6 +94,23 @@ try:
     from agirails.protocol.nonce import (
         NonceManager,
         NonceManagerPool,
+    )
+    from agirails.protocol.eas import (
+        EASHelper,
+        Attestation,
+        DeliveryAttestationData,
+        Schema,
+        DELIVERY_SCHEMA,
+        DELIVERY_SCHEMA_AIP6,
+        DELIVERY_SCHEMA_AIP4,
+        DELIVERY_SCHEMA_AIP4_LEGACY,
+        ZERO_BYTES32,
+    )
+    from agirails.protocol.agent_registry import (
+        AgentRegistry,
+        AgentProfile,
+        ServiceDescriptor,
+        compute_service_type_hash,
     )
 
     __all__.extend([

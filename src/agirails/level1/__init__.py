@@ -13,38 +13,38 @@ Example:
 
 from __future__ import annotations
 
-from agirails.level1.agent import (
-    Agent,
-    AgentBalance,
-    AgentStats,
-    AgentStatus,
-)
-from agirails.level1.config import (
-    DEFAULT_DELIVERY_CONFIG,
-    AgentBehavior,
-    AgentConfig,
-    DeliveryMode,
-    DeliveryPrivacy,
-    DeliveryServiceConfig,
-    NetworkOption,
-    RetryConfig,
-    ServiceConfig,
-    ServiceFilter,
-    WalletOption,
-)
 from agirails.level1.job import (
     Job,
     JobContext,
     JobHandler,
     JobResult,
 )
+from agirails.level1.config import (
+    AgentConfig,
+    AgentBehavior,
+    ServiceConfig,
+    ServiceFilter,
+    RetryConfig,
+    NetworkOption,
+    WalletOption,
+    DeliveryServiceConfig,
+    DEFAULT_DELIVERY_CONFIG,
+    DeliveryMode,
+    DeliveryPrivacy,
+)
 from agirails.level1.pricing import (
-    DEFAULT_PRICING_STRATEGY,
+    PricingStrategy,
     CostModel,
     PriceCalculation,
-    PricingStrategy,
+    DEFAULT_PRICING_STRATEGY,
     calculate_price,
     estimate_units,
+)
+from agirails.level1.agent import (
+    Agent,
+    AgentStatus,
+    AgentStats,
+    AgentBalance,
 )
 
 __all__ = [

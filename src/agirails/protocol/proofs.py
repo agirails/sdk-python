@@ -68,11 +68,13 @@ _DEFAULT_BLOCKED_HOSTS: Tuple[str, ...] = (
     "metadata.aws.internal",
     "localhost",
     "127.0.0.1",
+    # factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
     "0.0.0.0",  # noqa: S104  # nosec B104
     "[::1]",
 )
 # Localhost-class hosts removed from the blocklist when allow_localhost=True
 # (ProofGenerator.ts:76-80).
+# factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
 _LOCALHOST_HOSTS: frozenset = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]"})  # noqa: S104  # nosec B104
 
 

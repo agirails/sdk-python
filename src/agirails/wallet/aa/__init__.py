@@ -12,31 +12,14 @@ Provides CoinbaseSmartWallet integration with gas-sponsored transactions:
 
 from __future__ import annotations
 
-from agirails.wallet.aa.bundler_client import BundlerClient, BundlerConfig, UserOpReceipt
 from agirails.wallet.aa.constants import (
-    DEFAULT_WALLET_NONCE,
     ENTRYPOINT_V06,
     SMART_WALLET_FACTORY,
+    DEFAULT_WALLET_NONCE,
     GasEstimate,
     PaymasterResponse,
     SmartWalletCall,
     UserOperationV06,
-)
-from agirails.wallet.aa.dual_nonce_manager import DualNonceManager
-from agirails.wallet.aa.paymaster_client import PaymasterClient, PaymasterConfig
-from agirails.wallet.aa.transaction_batcher import (
-    ActivationBatchParams,
-    ActivationScenario,
-    ACTPBatchParams,
-    ACTPBatchResult,
-    build_activation_batch,
-    build_actp_pay_batch,
-    build_publish_config_batch,
-    build_register_agent_batch,
-    build_set_listed_batch,
-    build_testnet_init_batch,
-    build_testnet_mint_batch,
-    compute_transaction_id,
 )
 from agirails.wallet.aa.user_op_builder import (
     build_init_code,
@@ -46,6 +29,23 @@ from agirails.wallet.aa.user_op_builder import (
     get_user_op_hash,
     serialize_user_op,
     sign_user_op,
+)
+from agirails.wallet.aa.bundler_client import BundlerClient, BundlerConfig, UserOpReceipt
+from agirails.wallet.aa.paymaster_client import PaymasterClient, PaymasterConfig
+from agirails.wallet.aa.dual_nonce_manager import DualNonceManager
+from agirails.wallet.aa.transaction_batcher import (
+    ACTPBatchParams,
+    ACTPBatchResult,
+    ActivationBatchParams,
+    ActivationScenario,
+    build_actp_pay_batch,
+    build_activation_batch,
+    build_publish_config_batch,
+    build_register_agent_batch,
+    build_set_listed_batch,
+    build_testnet_init_batch,
+    build_testnet_mint_batch,
+    compute_transaction_id,
 )
 
 __all__ = [

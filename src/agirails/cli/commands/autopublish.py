@@ -130,6 +130,7 @@ def autopublish(
             print_info("Change detected — publishing...")
 
         try:
+            # factory-allow K5 razlog=fixed argv of the own CLI, no shell do=2027-11-25 odobrio=Damir
             result = subprocess.run(  # noqa: S603
                 [sys.executable, "-m", "agirails.cli.main", "publish",
                  "--path", str(md_path), "--network", network, "--quiet"],

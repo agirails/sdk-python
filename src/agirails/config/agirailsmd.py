@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime
 import json
 import locale
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Union
 
@@ -167,7 +168,7 @@ class _JSCompatEncoder(json.JSONEncoder):
 def _convert_whole_floats(value: Any) -> Any:
     """Recursively convert whole-number floats to ints to match JS JSON output."""
     if isinstance(value, float):
-        if value.is_integer() and not (value != value):  # noqa: PLR0124, SIM202
+        if value.is_integer():
             return int(value)
         return value
     if isinstance(value, dict):
@@ -267,6 +268,7 @@ def parse_agirails_md(content: str) -> AgirailsMdConfig:
 
     # Parse YAML with a tightened alias-count cap (mirror TS maxAliasCount:10).
     try:
+        # factory-allow K5 razlog=SafeLoader subclass that also caps aliases do=2027-11-25 odobrio=Damir
         frontmatter = yaml.load(yaml_content, Loader=_AliasCappedSafeLoader)  # noqa: S506  # nosec B506
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse YAML frontmatter: {e}") from e
@@ -674,7 +676,7 @@ def _v4_get_number(obj: Optional[Dict[str, Any]], key: str) -> Optional[float]:
         val = float(obj[key])
     except (TypeError, ValueError):
         return None
-    if val != val:  # noqa: PLR0124
+    if math.isnan(val):
         return None
     return val
 
@@ -750,10 +752,7 @@ def _v4_parse_services(fm: Dict[str, Any]) -> List[AgirailsMdV4ServiceEntry]:
             if entry.get("min_price") is not None:
                 try:
                     candidate = float(entry["min_price"])
-                    if candidate == candidate and candidate not in (  # noqa: PLR0124
-                        float("inf"),
-                        float("-inf"),
-                    ):
+                    if math.isfinite(candidate):
                         min_price = candidate
                 except (TypeError, ValueError):
                     min_price = None
@@ -761,10 +760,7 @@ def _v4_parse_services(fm: Dict[str, Any]) -> List[AgirailsMdV4ServiceEntry]:
             if entry.get("max_price") is not None:
                 try:
                     candidate = float(entry["max_price"])
-                    if candidate == candidate and candidate not in (  # noqa: PLR0124
-                        float("inf"),
-                        float("-inf"),
-                    ):
+                    if math.isfinite(candidate):
                         max_price = candidate
                 except (TypeError, ValueError):
                     max_price = None

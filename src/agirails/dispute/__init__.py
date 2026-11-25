@@ -6,106 +6,106 @@ public API names + arity, byte-identical canonical-bundle bytes + bundleHash.
 """
 
 from agirails.dispute.bond_escalation import (
-    BPS_DENOMINATOR,
     # Constants (AIP-14 §7.4)
     ESCALATION_INITIAL_BPS,
-    ESCALATION_MULTIPLIER,
-    MAX_ESCALATION_BOND,
     MIN_ESCALATION_BOND,
+    MAX_ESCALATION_BOND,
+    ESCALATION_MULTIPLIER,
+    BPS_DENOMINATOR,
     # Client (PRD P2-4)
     BondEscalationClient,
-)
-from agirails.dispute.composite_mediator import (
-    # Client (PRD P2-5)
-    CompositeMediator,
-    DecodedResolutionProof,
-    # Types
-    DisputeSplitRecorded,
-    compute_split_rate,
-    # Pure decoders / metrics (1:1 with TS standalone functions)
-    decode_dispute_split_recorded,
-    decode_resolution_proof,
-)
-from agirails.dispute.dispute_client import (
-    DISPUTE_SUBSTATES,
-    # Facade (PRD P2-9)
-    DisputeClient,
-    DisputeStatus,
-    DisputeSubState,
-    # §9 sub-state decode (1:1 with TS standalone function)
-    decode_dispute_sub_state,
-)
-from agirails.dispute.evaluator_client import (
-    BundleSource,
-    EvaluateResponseError,
-    EvaluationResult,
-    # Client (PRD P2-6)
-    EvaluatorClient,
-    # Config / params / result dataclasses
-    EvaluatorClientConfig,
-    # Errors
-    EvaluatorClientError,
-    EvaluatorPaymentClient,
-    ProposeDirectlyRecommendation,
-    QuoteRejectedError,
-    RequestEvaluationParams,
-    RulingVerification,
-    select_third_evaluator,
-    # §4.7 verification (1:1 with TS standalone functions)
-    verify_ruling_signatures,
-)
-from agirails.dispute.evidence_artifact_v2 import (
-    EVIDENCE_ARTIFACT_V2_SCHEMA_VERSION,
-    InvalidArtifactError,
-    UnsupportedArtifactVersionError,
-    assert_artifact_v2_version,
-    compute_artifact_v2_hash,
-    count_artifact_v2_tokens,
-    serialize_artifact_v2,
-    serialize_artifact_v2_to_string,
-    validate_evidence_artifact_v2,
 )
 from agirails.dispute.evidence_bundle import (
     # Constants
     EVIDENCE_BUNDLE_SCHEMA_VERSION,
-    MAX_BUNDLE_TOKENS,
     SUPPORTED_BUNDLE_MAJOR,
+    MAX_BUNDLE_TOKENS,
+    # Types
+    EvidenceBundle,
+    EvidenceBundleSpec,
+    EvidenceBundleDelivery,
+    EvidenceBundleDispute,
+    EvidenceBundleTimelineEvent,
+    EvidenceBundleReasoning,
+    PinEvidenceBundleResult,
+    EvidenceBundlePinner,
     BundleTokenizer,
     # Errors
     BundleTooLargeError,
-    # Types
-    EvidenceBundle,
-    EvidenceBundleDelivery,
-    EvidenceBundleDispute,
-    EvidenceBundlePinner,
-    EvidenceBundleReasoning,
-    EvidenceBundleSpec,
-    EvidenceBundleTimelineEvent,
-    InvalidBundleError,
-    PinEvidenceBundleResult,
     UnsupportedBundleVersionError,
+    InvalidBundleError,
+    # API
+    validate_bundle,
     assert_supported_version,
+    serialize_bundle,
+    serialize_bundle_to_string,
     bundle_hash,
     compute_bundle_hash,
     count_bundle_tokens,
     enforce_token_cap,
-    pin_evidence_bundle,
-    serialize_bundle,
-    serialize_bundle_to_string,
     set_bundle_tokenizer,
-    # API
-    validate_bundle,
+    pin_evidence_bundle,
+)
+from agirails.dispute.evidence_artifact_v2 import (
+    EVIDENCE_ARTIFACT_V2_SCHEMA_VERSION,
+    assert_artifact_v2_version,
+    validate_evidence_artifact_v2,
+    serialize_artifact_v2,
+    serialize_artifact_v2_to_string,
+    compute_artifact_v2_hash,
+    count_artifact_v2_tokens,
+    UnsupportedArtifactVersionError,
+    InvalidArtifactError,
+)
+from agirails.dispute.composite_mediator import (
+    # Types
+    DisputeSplitRecorded,
+    DecodedResolutionProof,
+    # Pure decoders / metrics (1:1 with TS standalone functions)
+    decode_dispute_split_recorded,
+    decode_resolution_proof,
+    compute_split_rate,
+    # Client (PRD P2-5)
+    CompositeMediator,
 )
 from agirails.dispute.uma_helper import (
-    SELF_DISPUTE_LOSS,
-    SELF_DISPUTE_RECOVER,
-    SELF_DISPUTE_TOTAL,
     # Constants (AIP-14b §8.6 economics)
     UMA_BOND,
+    SELF_DISPUTE_TOTAL,
+    SELF_DISPUTE_RECOVER,
+    SELF_DISPUTE_LOSS,
     # Types
     SelfDisputeCost,
     # Helper (PRD P2-7)
     UMAHelper,
+)
+from agirails.dispute.evaluator_client import (
+    # Client (PRD P2-6)
+    EvaluatorClient,
+    # Config / params / result dataclasses
+    EvaluatorClientConfig,
+    EvaluatorPaymentClient,
+    RequestEvaluationParams,
+    EvaluationResult,
+    RulingVerification,
+    ProposeDirectlyRecommendation,
+    BundleSource,
+    # §4.7 verification (1:1 with TS standalone functions)
+    verify_ruling_signatures,
+    select_third_evaluator,
+    # Errors
+    EvaluatorClientError,
+    QuoteRejectedError,
+    EvaluateResponseError,
+)
+from agirails.dispute.dispute_client import (
+    # Facade (PRD P2-9)
+    DisputeClient,
+    DisputeStatus,
+    DisputeSubState,
+    DISPUTE_SUBSTATES,
+    # §9 sub-state decode (1:1 with TS standalone function)
+    decode_dispute_sub_state,
 )
 
 __all__ = [
@@ -188,9 +188,6 @@ __all__ = [
 ]
 
 from agirails.dispute.receipt_authorization import (
-    ReceiptAuthorizationInput,
-    ReceiptAuthorizer,
-    authorize_payment_receipt,
-    post_paid_evaluation,
-    receipt_authorization_typed_data,
+    ReceiptAuthorizationInput, ReceiptAuthorizer, receipt_authorization_typed_data,
+    authorize_payment_receipt, post_paid_evaluation,
 )

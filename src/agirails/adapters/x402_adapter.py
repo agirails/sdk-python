@@ -1284,6 +1284,7 @@ class LegacyX402Adapter:
             payment_address=validated_address,
             amount=amount,
             network=network,
+            # factory-allow K5 razlog=token symbol, not a credential do=2027-11-25 odobrio=Damir
             token="USDC",  # noqa: S106
             deadline=deadline_num,
             service_id=h.get(X402_HEADERS["SERVICE_ID"]) or None,

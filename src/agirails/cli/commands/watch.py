@@ -205,11 +205,12 @@ def _emit_state_change(
         print(json.dumps(event), flush=True)
     elif quiet:
         print(to_state, flush=True)
-    # Human-readable format
-    elif from_state:
-        print(f"{iso_time}  {format_state(from_state)} -> {format_state(to_state)}", flush=True)
     else:
-        print(f"{iso_time}  Current: {format_state(to_state)}", flush=True)
+        # Human-readable format
+        if from_state:
+            print(f"{iso_time}  {format_state(from_state)} -> {format_state(to_state)}", flush=True)
+        else:
+            print(f"{iso_time}  Current: {format_state(to_state)}", flush=True)
 
 
 def watch(

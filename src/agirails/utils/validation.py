@@ -71,6 +71,7 @@ METADATA_HOST_PATTERNS = [
 # Localhost aliases to block
 LOCALHOST_ALIASES = frozenset([
     "localhost",
+    # factory-allow K5 razlog=literal in a blocklist, nothing binds do=2027-11-25 odobrio=Damir
     "0.0.0.0",  # noqa: S104  # nosec B104
     "[::]",
     "[::1]",
